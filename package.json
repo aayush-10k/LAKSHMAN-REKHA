@@ -4,9 +4,12 @@
   "scripts": {
     "dev:web": "pnpm --filter web dev",
     "dev:core": "pnpm --filter core dev",
+    "dev:vendorsim": "pnpm --filter vendorsim dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "reset": "node -e \"require('child_process').execSync('powershell -File scripts/reset.ps1', {stdio:'inherit'})\""
   },
   "packageManager": "pnpm@9.0.0"
 }
+

@@ -1,0 +1,150 @@
+# docker-compose.yml — Lakshman Rekha
+# B11 — Docker Compose with per-service egress restrictions
+#
+# Service map:
+#   vendorsim  :4100  — vendor catalogue, storefront, counterfeit spawner
+#   core       :4000  — policy evaluator, lease issuer, HTTP API, SSE bus
+#   shopper    :4200  — LangGraph agent (all 6 behaviour modes)
+#   adversary  :4300  — deterministic attack library + LLM generator
+#   web        :3000  — Next.js frontend (Person C)
+#
+# Egress restrictions:
+#   vendorsim  — no external network (pure in-memory catalogue)
+#   core       — Base Sepolia RPC only (for on-chain calls)
+#   shopper    — core + vendorsim only (no direct internet)
+#   adversary  — core only + OpenAI API (for LLM generator)
+#   web        — public internet (for wallet RPC, CDN fonts)
+#
+# Screenshot this and put it on the architecture slide.
+
+version: '3.9'
+
+networks:
+  # Internal network — no external routing
+  rekha-internal:
+    driver: bridge
+    internal: true
+
+  # External network — only services that need internet get this
+  rekha-external:
+    driver: bridge
+
+services:
+
+  # ── Vendor Simulator ────────────────────────────────────────
+  vendorsim:
+    build:
+      context: .
+      dockerfile: apps/vendorsim/Dockerfile
+    container_name: rekha-vendorsim
+    ports:
+      - "4100:4100"
+    networks:
+      - rekha-internal   # internal only — no egress to internet
+    environment:
+      - PORT=4100
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4100/catalog"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Core API (Policy Engine + SSE Bus) ─────────────────────
+  core:
+    build:
+      context: .
+      dockerfile: apps/core/Dockerfile
+    container_name: rekha-core
+    ports:
+      - "4000:4000"
+    networks:
+      - rekha-internal
+      - rekha-external   # needs Base Sepolia RPC
+    environment:
+      - PORT=4000
+      - LEASE_TTL_MS=5000
+      - DATABASE_URL=${DATABASE_URL:-}
+      - CORE_SIGNER_PRIVATE_KEY=${CORE_SIGNER_PRIVATE_KEY:-}
+      - BASE_SEPOLIA_RPC=${BASE_SEPOLIA_RPC:-https://sepolia.base.org}
+      - CORE_IMAGE_DIGEST=${CORE_IMAGE_DIGEST:-sha256:dev}
+      - POLICY_HASH=${POLICY_HASH:-0x0000000000000000000000000000000000000000000000000000000000000001}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - LOG_LEVEL=info
+    depends_on:
+      vendorsim:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Shopper Agent ───────────────────────────────────────────
+  shopper:
+    build:
+      context: .
+      dockerfile: apps/agents/shopper/Dockerfile
+    container_name: rekha-shopper
+    ports:
+      - "4200:4200"
+    networks:
+      - rekha-internal   # core + vendorsim only — no internet egress
+    environment:
+      - SHOPPER_PORT=4200
+      - CORE_URL=http://core:4000
+      - VENDOR_URL=http://vendorsim:4100
+      - LEASE_RENEW_INTERVAL_MS=4000
+    depends_on:
+      core:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4200/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── Adversary ───────────────────────────────────────────────
+  adversary:
+    build:
+      context: .
+      dockerfile: apps/agents/adversary/Dockerfile
+    container_name: rekha-adversary
+    ports:
+      - "4300:4300"
+    networks:
+      - rekha-internal
+      - rekha-external   # needs OpenAI API for LLM generator
+    environment:
+      - ADVERSARY_PORT=4300
+      - CORE_URL=http://core:4000
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ADVERSARY_MAX_ATTEMPTS=200
+    depends_on:
+      core:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Web Frontend (Person C) ─────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: rekha-web
+    ports:
+      - "3000:3000"
+    networks:
+      - rekha-internal
+      - rekha-external   # needs public internet for wallet RPC, fonts
+    environment:
+      - NEXT_PUBLIC_CORE_URL=http://core:4000
+      - NEXT_PUBLIC_VENDORSIM_URL=http://vendorsim:4100
+      - NEXT_PUBLIC_BASE_SEPOLIA_RPC=${BASE_SEPOLIA_RPC:-https://sepolia.base.org}
+      - DATABASE_URL=${DATABASE_URL:-}
+    depends_on:
+      core:
+        condition: service_healthy
+    restart: unless-stopped

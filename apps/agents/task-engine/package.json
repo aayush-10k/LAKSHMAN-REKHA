@@ -1,0 +1,1 @@
+{"name":"task-engine","private":true,"type":"module","scripts":{"build":"node --check src/index.js","test":"node --test"}}
