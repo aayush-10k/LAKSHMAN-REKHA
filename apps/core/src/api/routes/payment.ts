@@ -159,10 +159,20 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
     emit({ t: 'decision.made', trace });
 
     if (trace.outcome === 'APPROVED') {
-      // Simulate FROST signing ceremony (3 rounds) for M3
+      // Signing ceremony (3 rounds) for M3.
+      //
+      // The revocation re-check between rounds is the substance of the claim
+      // that an owner can kill a payment mid-signature. At the old hardcoded
+      // 60ms per round the whole ceremony was 180ms, so nobody could ever hit
+      // REVOKE during it and the highest-value demo moment could not be
+      // performed live — the check was real but unobservable.
+      //
+      // CEREMONY_ROUND_MS makes it demonstrable. The default 1200ms gives a
+      // ~3.6s ceremony: long enough to interrupt by hand, short enough that a
+      // normal approval still reads as frictionless.
       const of = 3;
       for (let round = 1; round <= of; round++) {
-        await delay(60);
+        await delay(ceremonyRoundMs());
         emit({ t: 'ceremony.round', decisionId: trace.decisionId, round, of });
 
         // Check if revoked mid-ceremony
@@ -171,6 +181,18 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
           emit({ t: 'ceremony.aborted', decisionId: trace.decisionId, atRound: round, reason: 'revoked' });
           return reply.code(403).send({ error: { code: 'REVOKED', message: 'Revoked mid-ceremony.' } });
         }
+      }
+
+      // The ceremony takes real time now, and the lease was issued before it.
+      // If it has expired underneath us the chain would revert LeaseExpired, so
+      // refuse here rather than hand out a settlement context that cannot settle.
+      if (lease.expiresAtMs < Date.now()) {
+        return reply.code(403).send({
+          error: {
+            code: 'LEASE_EXPIRED',
+            message: 'The lease expired during the signing ceremony; nothing was signed for settlement.',
+          },
+        });
       }
 
       // Only now is the request settle-able. Storing the exact struct that was
@@ -317,4 +339,18 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Per-round pause in the signing ceremony, in milliseconds.
+ *
+ * Read per call rather than pinned at module load so it can be changed between
+ * demo runs without a restart. Clamped: 0 makes the revocation window
+ * unobservable again, and anything beyond a couple of seconds a round pushes the
+ * ceremony past the lease it is running under.
+ */
+function ceremonyRoundMs(): number {
+  const configured = Number(process.env['CEREMONY_ROUND_MS']);
+  if (!Number.isFinite(configured) || configured <= 0) return 1200;
+  return Math.min(configured, 3000);
 }
