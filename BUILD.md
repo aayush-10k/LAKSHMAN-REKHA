@@ -150,9 +150,14 @@ The owner sees a rupee wallet with mock deposit and credit — that's the produc
 
 ### The lease mechanism — what makes fail-closed real
 
-The core issues signed leases with a **5-second TTL**, bound to `(mandateId, revocationEpoch, policyHash, nonce)`. Every payment needs an unexpired lease. The agent must renew continuously.
+The core issues signed leases with a **15-second TTL** (`LEASE_TTL_MS=15000`), bound to `(mandateId, revocationEpoch, policyHash, nonce)`. Every payment needs an unexpired lease. The agent must renew continuously.
 
-- Core unreachable → no new leases → **spending stops within 5 seconds**
+> **Shipped value, corrected.** This section originally specified 5 seconds. The
+> lease is issued before the request, the signing ceremony and the Base Sepolia
+> broadcast, and a full dispatch measures ~10s — 5000ms reverted valid payments
+> with `LeaseExpired`. See `LIMITATIONS.md`.
+
+- Core unreachable → no new leases → **spending stops within 15 seconds**
 - Owner revokes → `revocationEpoch` increments → **every outstanding lease dies in the same block**
 - DoS, DB failure, deploy gone wrong → spending stops
 
@@ -662,8 +667,9 @@ this page" free-text field with an Apply button.
 
 RIGHT — Behaviour mode selector: six modes as radio cards with a one-line
 description of what each does. Below it a red "Kill the approval service" button
-that actually stops the core container, plus a lease TTL ring that visibly drains
-and renews every 5 seconds.
+that actually stops the core issuing leases, plus a lease TTL ring that visibly
+drains and renews every 15 seconds (the ring reads `LEASE_TTL_MS` from the core
+rather than assuming a value).
 
 The lease ring matters: when the judge kills the service they should watch the
 ring drain to empty and everything stop. Make that legible.
@@ -704,9 +710,9 @@ The judge sits down with the deployed URL. This is the path they take.
 | **1** | Task: *"Order 100 bottles."* Mode `normal` | Agent plans, quotes, pays. Approved in ~380ms. Balance drops. Explorer link on the transaction. Zero friction. | Plausibility |
 | **2** | Judge clicks **Detach core**. Agent has share A and full network. Tries to pay. | On-chain revert: `InvalidCoreSignature`. *"It isn't blocked. It's incapable."* | **Enforcement** |
 | **3** | **Spawn counterfeit storefront**, judge types their own injection. Mode `injected` | Agent reads it and complies — **show it complying**. Then the enforcement panel shows what the core actually received: nine numbers, no prose. Refused: `CounterpartyNotAdmissible` (age 2 days). | Attack resistance |
-| **4** | Mode `compromised` | Rogue Mode scoreboard runs live through all twelve classes plus generated variants. `247 · 247 · 9 · ₹0`. | **Attack resistance** |
-| **5** | Six-payment task. Revoke at step 3. Cancel a held payment. Revoke **mid-ceremony** at 60%. | Steps 4–6 revert. Lien released. Ceremony bar breaks. | **In-flight bonus** |
-| **6** | **Kill the approval service** | Lease ring drains. Everything stops within 5s. Then revoke on-chain from the console — works with our backend dead. | **Kill-switch** |
+| **4** | Mode `compromised` | Rogue Mode scoreboard runs live through all twelve classes. Measured: `147 · 147 · 0 · ₹0` (needs `pnpm dev:adversary`; the `9` novel variants require an LLM key). | **Attack resistance** |
+| **5** | Six-payment task. Revoke at step 3. Cancel a held payment. Revoke **mid-ceremony**. | Steps 4–6 revert. Lien released. Ceremony bar breaks — the ceremony is ~3.6s (`CEREMONY_ROUND_MS`), so this is performable by hand. | **In-flight bonus** |
+| **6** | **Kill the approval service** (`POST /v1/admin/kill`) | Lease ring drains. Everything stops within **15s**. Then revoke on-chain from the console — works with our backend dead. | **Kill-switch** |
 | **7** | Proofs tab | Halmos invariant output, latency histogram, core image digest, audit export download. | All five |
 
 **Beats 2 and 5 must be flawless.** If the video gets cut, those survive.
@@ -776,7 +782,7 @@ That is the one animated idea in the product and it carries the name.
 
 **Kill switch**
 - [ ] Owner revoke works with all our services stopped
-- [ ] Killing the core stops spending within 5 seconds
+- [ ] Killing the core stops spending within 15 seconds (`LEASE_TTL_MS`)
 - [ ] Dead-man switch freezes on heartbeat lapse
 - [ ] Guardian can revoke but cannot spend
 - [ ] Revocation is monotonic — no path un-revokes

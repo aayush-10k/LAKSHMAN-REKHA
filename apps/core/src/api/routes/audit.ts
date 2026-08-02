@@ -13,7 +13,7 @@ export async function registerAuditRoutes(app: FastifyInstance): Promise<void> {
     // In production, mandateId comes from the authenticated session
     const mandateId = request.query.mandateId ?? 'demo';
 
-    const audit = store.buildAuditExport(mandateId);
+    const audit = await store.buildAuditExport(mandateId);
 
     reply.header('Content-Disposition', `attachment; filename="rekha-audit-${Date.now()}.json"`);
     return reply.code(200).send(audit);

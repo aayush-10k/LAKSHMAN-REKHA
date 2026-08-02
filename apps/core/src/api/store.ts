@@ -8,10 +8,10 @@
 
 import { randomBytes } from 'node:crypto';
 import { sign } from 'viem/accounts';
-import type { Hex } from 'viem';
+import { keccak256, toBytes, type Hex } from 'viem';
 import { CATEGORY_CODES, type MandateState, type DecisionTrace, type CategoryCode } from '../types.js';
 import type { PaymentRequestStruct } from '../signing/constants.js';
-import { hasCoreKey, corePrivateKey } from '../keys.js';
+import { hasCoreKey, corePrivateKey, coreSignerAddress } from '../keys.js';
 import { leaseDigest } from '../lease/index.js';
 
 // ──────────────────────────────────────────────
@@ -477,9 +477,43 @@ export function logRevocation(epoch: number, source: string): void {
 // Audit export
 // ──────────────────────────────────────────────
 
-export function buildAuditExport(mandateId: string) {
-  return {
-    version: '1.0.0' as const,
+/**
+ * The audit export, signed by the core key.
+ *
+ * It used to return `signature: '0x' + '00'.repeat(32)` with the comment "real
+ * sig from A's signing service" — a 32-byte zero string presented in a field
+ * called `signature`, which is worse than an unsigned export, because a reader
+ * checking that the export is signed sees a signature there.
+ *
+ * Now: `digest` is keccak256 over the exact `body` as serialised here, and
+ * `signature` is that digest signed with the core key. A verifier recomputes
+ * keccak256(JSON.stringify(body)) and recovers the signer, so the export proves
+ * which core produced it.
+ *
+ * If no core key is configured, `signature` is null and `signatureStatus` says
+ * why. Fail closed: no key means no signature, never a placeholder that reads
+ * like one.
+ */
+export type AuditExport = {
+  version: '1.0.0';
+  body: {
+    mandateId: string;
+    exportedAtMs: number;
+    decisions: DecisionTrace[];
+    settlements: Array<{ decisionId: string; txHash: string; blockNumber: number }>;
+    revocations: Array<{ epoch: number; source: string; atMs: number }>;
+  };
+  /** keccak256 of JSON.stringify(body). Recompute it to verify. */
+  digest: Hex;
+  /** 65-byte core-key ECDSA signature over `digest`, or null if unsigned. */
+  signature: Hex | null;
+  signatureStatus: 'signed' | 'unsigned: no core key configured' | 'unsigned: signing failed';
+  /** Address `signature` must recover to. */
+  coreSignerAddress: string | null;
+};
+
+export async function buildAuditExport(mandateId: string): Promise<AuditExport> {
+  const body = {
     mandateId,
     exportedAtMs: Date.now(),
     decisions: [...decisions.values()],
@@ -489,8 +523,21 @@ export function buildAuditExport(mandateId: string) {
       blockNumber: s.blockNumber,
     })),
     revocations: revocationLog.map(r => ({ epoch: r.epoch, source: r.source, atMs: r.atMs })),
-    signature: `0x${'00'.repeat(32)}`, // real sig from A's signing service
   };
+
+  const digest = keccak256(toBytes(JSON.stringify(body)));
+
+  if (!hasCoreKey()) {
+    return { version: '1.0.0', body, digest, signature: null, signatureStatus: 'unsigned: no core key configured', coreSignerAddress: null };
+  }
+
+  try {
+    const signature = await sign({ hash: digest, privateKey: corePrivateKey(), to: 'hex' });
+    return { version: '1.0.0', body, digest, signature, signatureStatus: 'signed', coreSignerAddress: coreSignerAddress() };
+  } catch (e) {
+    console.error('[audit] signing failed:', e instanceof Error ? e.message : String(e));
+    return { version: '1.0.0', body, digest, signature: null, signatureStatus: 'unsigned: signing failed', coreSignerAddress: null };
+  }
 }
 
 export function getBalance(): number {

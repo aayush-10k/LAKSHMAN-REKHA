@@ -14,10 +14,12 @@
 | PolicyModule | ✅ All 14 predicates on-chain, named custom errors |
 | RekhaAccount | ✅ Dual-signature enforcement, no admin backdoor |
 | Deterministic policy evaluator | ✅ Pure TypeScript, zero I/O, zero LLM, mirrors contract exactly |
-| Fail-closed lease TTL | ✅ 5-second TTL; core unreachable = spending stops |
-| 2-of-2 ECDSA co-signing | ✅ Agent sig + core sig both required |
+| Fail-closed lease TTL | ✅ **15-second** TTL (`LEASE_TTL_MS=15000`), not 5 — see below. Core unreachable, or `POST /v1/admin/kill`, = no new leases = spending stops within that window |
+| 2-of-2 ECDSA co-signing | ✅ Agent sig + core sig both required. The agent share lives in a separate process (`pnpm dev:agent`); the core never calls `agentSign()` on a request path |
 | Dead-man switch | ✅ Heartbeat lapse auto-freezes |
-| 12-class adversary attack library | ✅ All 12 classes block deterministically |
+| 12-class adversary attack library | ✅ All 12 classes run against the live core via `pnpm dev:adversary`. Last measured run: **147 attempts, 147 blocked, 0 novel, ₹0 lost** — see FIXLOG3.md for the revert-reason breakdown |
+| Signing ceremony | ✅ 3 rounds, revocation re-checked between each. `CEREMONY_ROUND_MS` (default 1200) makes it ~3.6s so the mid-ceremony revoke is performable by hand |
+| Audit export | ✅ Signed by the core key. `digest` is keccak256 of the serialised body; recompute it and recover the signer. Unsigned exports say so in `signatureStatus` rather than carrying a zero signature |
 | Typed-schema injection boundary | ✅ Extractor converts prose → FactSheet; no strings egress |
 | SSE event stream | ✅ All events real-time, no polling |
 
@@ -38,6 +40,48 @@
 
 ---
 
+## The fail-closed window is 15 seconds, not 5
+
+Earlier drafts of this file, `BUILD.md` and the deck all said 5. The shipped
+value is `LEASE_TTL_MS=15000`, and the claim has been corrected everywhere
+rather than the value quietly lowered.
+
+PolicyModule reverts `LeaseExpired` when `block.timestamp > req.leaseExpiry`,
+and the lease is issued *before* the request, the signing ceremony and the Base
+Sepolia broadcast. A full browser dispatch measures ~10s end to end, so 5000ms
+left no headroom and one slow block reverted an otherwise valid payment.
+
+This weakens a product claim and should be read as one: **kill the core and
+spending stops within 15 seconds, not 5.** It is a single environment variable,
+the reasoning is written into `.env.example`, and the UI reads the value from
+the core rather than assuming it.
+
+## The browser-side prototype has been deleted
+
+`/` used to serve ~44KB of inlined HTML that loaded
+`public/js/{app,agent,auth,supabase}.js`. Those scripts evaluated "policy" in
+the browser — a client-side if/else chain, denominated in dollars, matching
+counterparties by display name, with `Math.random()` nonces — and pointed at a
+production API endpoint that was never built.
+
+All of it is gone, along with `public/console.html` and
+`public/css/styles.css`. **Nothing in the shipped UI evaluates policy
+client-side.** Every outcome on screen comes from the core, and every
+settlement figure from the chain. `/` redirects to `/console`.
+
+## Both key shares live in one `.env` on the demo machine
+
+The 2-of-2 argument is that no single party can move money: the core holds one
+ECDSA share, the agent the other. **The code paths really are separate** — the
+agent runner is its own process (`pnpm dev:agent`, `:4200`) and computes its
+signature from `AGENT_SIGNER_PRIVATE_KEY` by rebuilding the `PaymentRequest`
+itself; the core never calls `agentSign()` on a request path.
+
+**The deployment is not separate.** Both keys sit in one `.env` on one laptop.
+A real deployment gives the agent service its own secret store on its own host.
+We name it because the 2-of-2 claim is only as strong as the weaker custody, and
+here that is the file, not the cryptography.
+
 ## Known Rough Edge: The Agent Must Rebuild The Request Itself
 
 `POST /v1/payment/request` returns the core's signature but **not** the
@@ -56,6 +100,47 @@ Today both sides agree only because VendorSim is the registry for both. A real
 deployment needs the request struct (or its digest) returned from `/request`.
 
 ---
+
+## The differential claim, and how to reproduce it
+
+"The TypeScript evaluator and the Solidity `PolicyModule.validate` agree on
+10,000 random inputs" is **true and was re-run for this pass** — but it needs
+anvil, and without it three test files fail on `ECONNREFUSED` and only 79 of 86
+tests run. If you are checking the claim, start anvil first:
+
+```bash
+anvil --fork-url https://sepolia.base.org --port 8546   # fork tests
+anvil --port 8545                                        # differential
+pnpm --filter core test
+```
+
+Measured 2026-08-02:
+
+```
+ ✓ test/explain.test.ts            (11 tests)
+ ✓ test/evaluator.test.ts          (32 tests)
+ ✓ test/lease.test.ts              (19 tests)
+ ✓ test/signing.test.ts            (17 tests)
+ ✓ test/hash-request.fork.test.ts   (2 tests)
+ ✓ test/execute.fork.test.ts        (4 tests)
+ ✓ test/differential.test.ts        (1 test)  10000/10000 agree
+ Test Files  7 passed (7)
+      Tests  86 passed (86)
+```
+
+`hash-request.fork.test.ts` is the canary for the signing digest: if it fails,
+every signature the core produces reverts on chain with `InvalidCoreSignature`.
+It passes.
+
+## The window cap will stop a long demo
+
+The rolling window is **₹1,00,000 per 24 hours**, read live from PolicyModule.
+Repeated dispatches will eventually `REFUSE` on `windowCap`, and the spend
+counters are on-chain, so restarting the core does not reset them.
+
+That is the policy working, not a failure — but a judge should know before they
+hit it rather than after. Per transaction the caps are ₹25,000, or ₹5,000 for a
+tier-2 counterparty.
 
 ## What We Aligned With But Don't Claim Compliance To
 
