@@ -4,8 +4,25 @@ import { registry, vendors } from '../seed/vendors.js';
 const injectedText = new Map();
 let counterfeitCount = 0;
 
+/**
+ * CORS. The playground's judge controls (spawn-counterfeit, inject) and its
+ * vendor selector are called from the browser on :3000, so without these headers
+ * every one of them fails with "blocked by CORS policy" no matter how correctly
+ * it is wired — which is exactly what happened once FIX3.md BUG 4 pointed them
+ * at this service. Same failure the SSE stream had (FIXLOG2).
+ *
+ * `*` is right here: this is a simulator serving a public fake catalogue, it
+ * holds no credentials and authenticates nobody.
+ */
+const CORS_HEADERS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-allow-headers': 'content-type',
+  'access-control-max-age': '86400',
+};
+
 const send = (response, status, body, contentType = 'application/json; charset=utf-8') => {
-  response.writeHead(status, { 'content-type': contentType });
+  response.writeHead(status, { 'content-type': contentType, ...CORS_HEADERS });
   response.end(contentType.startsWith('application/json') ? JSON.stringify(body) : body);
 };
 
@@ -48,6 +65,14 @@ const spawnCounterfeit = (target) => {
 export const createVendorSim = () => createServer(async (request, response) => {
   const url = new URL(request.url, 'http://localhost');
   const parts = url.pathname.split('/').filter(Boolean);
+
+  // Preflight. A POST carrying `content-type: application/json` is not a simple
+  // request, so the browser sends OPTIONS first — which used to fall through to
+  // the 405 below and kill the call before it was ever made.
+  if (request.method === 'OPTIONS') {
+    response.writeHead(204, CORS_HEADERS);
+    return response.end();
+  }
 
   if (request.method === 'POST' && url.pathname === '/vendorsim/spawn-counterfeit') {
     const body = await readJson(request);

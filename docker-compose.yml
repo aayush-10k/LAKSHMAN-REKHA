@@ -63,7 +63,13 @@ services:
       - rekha-external   # needs Base Sepolia RPC
     environment:
       - PORT=4000
-      - LEASE_TTL_MS=5000
+      # 15000, not 5000: the lease is issued before the request, the ceremony
+      # and the Base Sepolia broadcast, and a full dispatch measures ~5s. See
+      # the reasoning in .env.example.
+      - LEASE_TTL_MS=${LEASE_TTL_MS:-15000}
+      - CEREMONY_ROUND_MS=${CEREMONY_ROUND_MS:-1200}
+      # Rogue Mode proxies to the adversary service (FIX3.md BUG 5).
+      - ADVERSARY_URL=http://adversary:4300
       - DATABASE_URL=${DATABASE_URL:-}
       - CORE_SIGNER_PRIVATE_KEY=${CORE_SIGNER_PRIVATE_KEY:-}
       - BASE_SEPOLIA_RPC=${BASE_SEPOLIA_RPC:-https://sepolia.base.org}
@@ -140,8 +146,14 @@ services:
       - rekha-internal
       - rekha-external   # needs public internet for wallet RPC, fonts
     environment:
-      - NEXT_PUBLIC_CORE_URL=http://core:4000
-      - NEXT_PUBLIC_VENDORSIM_URL=http://vendorsim:4100
+      # NEXT_PUBLIC_* are resolved by the JUDGE'S BROWSER, not by this container,
+      # so they must NOT be compose service names: http://core:4000 does not
+      # exist outside the docker network, and the console would silently reach
+      # nothing (FIX3.md BUG 3). Published ports are the correct default;
+      # override with public URLs when the stack is hosted.
+      - NEXT_PUBLIC_CORE_URL=${NEXT_PUBLIC_CORE_URL:-http://localhost:4000}
+      - NEXT_PUBLIC_AGENT_URL=${NEXT_PUBLIC_AGENT_URL:-http://localhost:4200}
+      - NEXT_PUBLIC_VENDORSIM_URL=${NEXT_PUBLIC_VENDORSIM_URL:-http://localhost:4100}
       - NEXT_PUBLIC_BASE_SEPOLIA_RPC=${BASE_SEPOLIA_RPC:-https://sepolia.base.org}
       - DATABASE_URL=${DATABASE_URL:-}
     depends_on:

@@ -245,11 +245,68 @@ export default function PlaygroundPage() {
    * runs the whole path. The reply carries each line item's decision and, for an
    * approved one, the mined transaction.
    */
+  /**
+   * Rogue Mode: run the twelve deterministic attack classes against the core.
+   *
+   * FIX3.md BUG 5. `mode` used to be threaded all the way through and then
+   * ignored — every behaviour ran the same honest path and no attack.attempt
+   * event existed anywhere, so the scoreboard sat at 0 · 0 · 0 · ₹0 and read as
+   * "nobody tried" rather than "nothing got through".
+   *
+   * The counters are driven by the SSE attack.attempt stream, not by this
+   * response: the board fills as the core reports each verdict. On failure the
+   * score stays at zero and the row carries the error, because a scoreboard
+   * that invents a 12/12 is worth less than no scoreboard at all.
+   */
+  const runAdversary = async (description: string) => {
+    const rowId = `rogue-${Date.now()}`;
+    setTasks(prev => [{ id: rowId, description, status: 'running', mode, plan: [], results: [], error: null }, ...prev]);
+    setAttackLog([]);
+    setRogueStats({ attempts: 0, blocked: 0, novel: 0, fundsLost: 0 });
+
+    try {
+      const res = await fetch(`${CORE_URL}/v1/adversary/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'deterministic' }),
+      });
+      const body = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setTasks(prev => prev.map(t => (t.id === rowId
+          ? { ...t, status: 'failed', error: body?.error?.message ?? `Adversary run failed (HTTP ${res.status}).` }
+          : t)));
+        return;
+      }
+
+      const s = body.summary;
+      setTasks(prev => prev.map(t => (t.id === rowId
+        ? {
+            ...t,
+            status: 'done',
+            error: s.total === s.blocked
+              ? null
+              : `${s.total - s.blocked} of ${s.total} attacks were NOT blocked. See the attack log.`,
+          }
+        : t)));
+    } catch (e) {
+      setTasks(prev => prev.map(t => (t.id === rowId
+        ? { ...t, status: 'failed', error: `Could not reach the core at ${CORE_URL}. No attacks were run. (${(e as Error).message})` }
+        : t)));
+    }
+  };
+
   const dispatchTask = async () => {
     if (!taskInput.trim() || dispatching) return;
     const description = taskInput.trim();
     setDispatching(true);
     setTaskInput('');
+
+    if (mode === 'compromised') {
+      await runAdversary(description);
+      setDispatching(false);
+      return;
+    }
 
     try {
       const res = await fetch(`${AGENT_URL}/dispatch`, {

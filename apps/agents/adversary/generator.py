@@ -18,7 +18,16 @@ import urllib.request
 import urllib.error
 from typing import Any, Callable
 
-from .library import AttackResult, _valid_fact_sheet, _post, _is_blocked, _emit_attempt, _now, _next_nonce
+# runner.py and test_library.py both import this module by plain name, with the
+# directory on sys.path — so a relative import here made `python3 runner.py` die
+# on "attempted relative import with no known parent package" before it could
+# bind a socket. The adversary runner had therefore never started at all.
+# Absolute first, matching the rest of the package; relative kept as the fallback
+# for `from apps.agents.adversary import generator`.
+try:
+    from library import AttackResult, _valid_fact_sheet, _post, _is_blocked, _emit_attempt, _now, _next_nonce
+except ImportError:  # pragma: no cover - package-style import
+    from .library import AttackResult, _valid_fact_sheet, _post, _is_blocked, _emit_attempt, _now, _next_nonce
 
 EventSink = Callable[[dict[str, Any]], None]
 

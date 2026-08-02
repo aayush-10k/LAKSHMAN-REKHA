@@ -130,6 +130,9 @@ packages:
   "scripts": {
     "dev:web": "pnpm --filter web dev",
     "dev:core": "pnpm --filter core dev",
+    "dev:agent": "pnpm --filter core agent",
+    "dev:vendorsim": "pnpm --filter vendorsim dev",
+    "dev:adversary": "python3 -u apps/agents/adversary/runner.py",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test"
@@ -137,6 +140,23 @@ packages:
   "packageManager": "pnpm@9.0.0"
 }
 ```
+
+### Running the stack
+
+Five processes. The first four are needed for a payment to settle; the fifth
+powers Rogue Mode.
+
+```bash
+pnpm dev:vendorsim   # :4100  vendor registry and storefronts
+pnpm dev:core        # :4000  enforcement core + SSE
+pnpm dev:agent       # :4200  agent runner — holds the OTHER key share
+pnpm dev:web         # :3000  console + playground
+pnpm dev:adversary   # :4300  12 deterministic attack classes (Rogue Mode)
+```
+
+`dev:adversary` needs Python 3.11+ and no packages — the attack library is
+standard library only, and it runs without any API key. The LLM variant
+generator is an optional extra layer on top of it, not a prerequisite.
 
 **`.env.example`** — the template. Real secrets go in `.env`, which is gitignored. **Never put a real key in `.env.example`.**
 ```bash

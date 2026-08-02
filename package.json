@@ -6,6 +6,7 @@
     "dev:core": "pnpm --filter core dev",
     "dev:agent": "pnpm --filter core agent",
     "dev:vendorsim": "pnpm --filter vendorsim dev",
+    "dev:adversary": "python3 -u apps/agents/adversary/runner.py",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",

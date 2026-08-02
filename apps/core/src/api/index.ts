@@ -22,6 +22,7 @@ import { registerTaskRoutes } from './routes/task.js';
 import { registerAuditRoutes } from './routes/audit.js';
 import { registerRevokeRoutes } from './routes/revoke.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerAdversaryRoutes } from './routes/adversary.js';
 import { registerSseRoute } from '../events/sse.js';
 import { emit } from '../events/bus.js';
 import * as store from './store.js';
@@ -86,6 +87,7 @@ async function buildApp() {
   await registerAuditRoutes(app);
   await registerRevokeRoutes(app);
   await registerAdminRoutes(app);
+  await registerAdversaryRoutes(app);
 
   // Global error handler — fail closed: unknown errors never return 200
   app.setErrorHandler((error, _request, reply) => {
