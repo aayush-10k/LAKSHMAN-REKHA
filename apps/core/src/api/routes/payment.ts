@@ -31,7 +31,10 @@ import { toPolicyFactSheet, toPolicyState, type RegistryTier } from '../policy-s
 import {
   broadcastExecute,
   counterpartyTierOnChain,
+  inrxBalanceAtBlock,
   nonceUsedOnChain,
+  readDeployedPolicy,
+  rekhaAccountAddress,
   settlementConfig,
   SettlementRevertedError,
 } from '../chain.js';
@@ -264,17 +267,50 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
     // Reached only for a receipt with status 'success'.
     const result = store.settleDecision(decisionId, receipt.txHash, receipt.blockNumber);
 
+    // The money moved on chain, so the chain is what the console must show. The
+    // local counter in settleDecision is bookkeeping for the audit export; the
+    // balance the judge reads has to be RekhaAccount's actual INRx balance, or
+    // "the wallet balance matches on-chain state" is not a claim we can make.
+    // Pinned to the receipt's block, not 'latest': the public RPC is a load
+    // balancer and the node that answers may be a block or two behind, which
+    // once produced a real settlement reported with the PRE-payment balance.
+    const account = rekhaAccountAddress();
+    let balanceAfterMinor: number | null = null;
+    if (account !== null) {
+      try {
+        balanceAfterMinor = Number(await inrxBalanceAtBlock(account, receipt.blockNumber));
+      } catch (e) {
+        // The payment DID happen; only the follow-up read failed. Report the
+        // balance as unknown rather than passing a local figure off as on-chain.
+        request.log.warn(e, 'settled, but the post-settlement balance read failed');
+      }
+    }
+    const balanceSource = balanceAfterMinor === null ? ('unavailable' as const) : ('chain' as const);
+
+    // Settling advanced windowSpentMinor and cumulativeSpentMinor in PolicyModule.
+    // Pull them back so the next decision is evaluated against the counters the
+    // chain now holds instead of a copy that stopped tracking at boot.
+    store.seedPolicy(await readDeployedPolicy());
+
     emit({
       t: 'payment.settled',
       decisionId,
       txHash: result.txHash,
-      balanceAfterMinor: result.balanceAfterMinor,
+      // null when the post-settlement read failed. The UI shows "unavailable"
+      // for that; it must not fall back to a number that was never verified.
+      balanceAfterMinor,
+      balanceSource,
+      blockNumber: result.blockNumber,
+      amountMinor: trace.amountMinor,
     });
 
     return reply.code(200).send({
       txHash: result.txHash,
-      balanceAfterMinor: result.balanceAfterMinor,
+      balanceAfterMinor,
+      balanceSource,
       blockNumber: result.blockNumber,
+      amountMinor: trace.amountMinor,
+      explorerUrl: `https://sepolia.basescan.org/tx/${result.txHash}`,
     });
   });
 }

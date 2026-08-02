@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/api/index.ts",
+    "agent": "tsx watch src/agent/runner.ts",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

@@ -273,16 +273,139 @@ export async function counterpartyTierOnChain(address: string): Promise<number> 
 }
 
 // ---------------------------------------------------------------------------
+//  Policy snapshot
+// ---------------------------------------------------------------------------
+
+/**
+ * Every enforcement parameter PolicyModule currently holds, plus the live
+ * accounting counters.
+ *
+ * The core's in-memory mandate is seeded from this at boot instead of from
+ * hardcoded constants. The constants had drifted: they said perTxCap ₹10,000 and
+ * "OTHER only" while the chain said ₹25,000 and everything-but-SOFTWARE, so the
+ * off-chain evaluator REFUSED payments the chain would have accepted, and the
+ * decision panel explained a policy nobody was enforcing.
+ *
+ * windowSpentMinor/cumulativeSpentMinor matter as much as the caps: settling
+ * moves them on chain, and an off-chain zero would make predicates 13 and 14
+ * looser than PolicyModule's, which is the direction that produces an APPROVED
+ * trace followed by a revert.
+ */
+export type DeployedPolicySnapshot = {
+  perTxCapMinor: number;
+  windowCapMinor: number;
+  windowSeconds: number;
+  cumulativeCapMinor: number;
+  permittedCategories: bigint;
+  tier2MinAgeDays: number;
+  tier2MinSettledTxns: number;
+  tier2MaxPriceBandZ: number;
+  tier2CapMinor: number;
+  windowStartS: number;
+  windowSpentMinor: number;
+  cumulativeSpentMinor: number;
+  revocationEpoch: number;
+  policyHash: string;
+  coreImageDigest: string;
+  deadmanSeconds: number;
+  frozen: boolean;
+};
+
+const POLICY_FIELDS = [
+  'perTxCapMinor', 'windowCapMinor', 'windowSeconds', 'cumulativeCapMinor',
+  'permittedCategories', 'tier2MinAgeDays', 'tier2MinSettledTxns',
+  'tier2MaxPriceBandZ', 'tier2CapMinor', 'windowStart', 'windowSpentMinor',
+  'cumulativeSpentMinor', 'revocationEpoch', 'policyHash', 'coreImageDigest',
+  'deadmanSeconds', 'frozen',
+] as const;
+
+/**
+ * Reads the whole policy in one batch. Returns null if ANY field is unreadable —
+ * a half-read policy is worse than no read, because the caller would mix live
+ * caps with stale counters and have no way to tell.
+ */
+export async function readDeployedPolicy(): Promise<DeployedPolicySnapshot | null> {
+  try {
+    const values = await Promise.all(POLICY_FIELDS.map((f) => policyRead(f)));
+    const raw = Object.fromEntries(POLICY_FIELDS.map((f, i) => [f, values[i]])) as Record<string, unknown>;
+    const num = (k: string) => Number(raw[k] as number | bigint);
+    return {
+      perTxCapMinor: num('perTxCapMinor'),
+      windowCapMinor: num('windowCapMinor'),
+      windowSeconds: num('windowSeconds'),
+      cumulativeCapMinor: num('cumulativeCapMinor'),
+      permittedCategories: BigInt(raw['permittedCategories'] as bigint | number),
+      tier2MinAgeDays: num('tier2MinAgeDays'),
+      tier2MinSettledTxns: num('tier2MinSettledTxns'),
+      tier2MaxPriceBandZ: num('tier2MaxPriceBandZ'),
+      tier2CapMinor: num('tier2CapMinor'),
+      windowStartS: num('windowStart'),
+      windowSpentMinor: num('windowSpentMinor'),
+      cumulativeSpentMinor: num('cumulativeSpentMinor'),
+      revocationEpoch: num('revocationEpoch'),
+      policyHash: raw['policyHash'] as string,
+      coreImageDigest: raw['coreImageDigest'] as string,
+      deadmanSeconds: num('deadmanSeconds'),
+      frozen: raw['frozen'] as boolean,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 //  INRx balance (FIX.md TASK 2: the account must actually hold tokens)
 // ---------------------------------------------------------------------------
 
-export async function inrxBalanceOf(who: Address): Promise<bigint> {
+/** The account whose INRx balance is the wallet balance the console shows. */
+export function rekhaAccountAddress(): Address | null {
+  return envAddress('REKHA_ACCOUNT_ADDRESS', REKHA_ACCOUNT_ADDRESS);
+}
+
+/**
+ * INRx balance, optionally pinned to a specific block.
+ *
+ * Pass `atBlock` when reading straight after a settlement. Without it the read
+ * goes to 'latest', and https://sepolia.base.org is a load balancer: the node
+ * that answers may not have the block the receipt just came from. That produced
+ * a settlement whose txHash was real, whose on-chain balance had genuinely moved
+ * by ₹9,520, and whose reported balanceAfterMinor was the PRE-payment figure —
+ * a wrong number presented as fact. Pinned to the receipt's block, a node that
+ * is behind raises instead of answering from stale state.
+ */
+export async function inrxBalanceOf(who: Address, atBlock?: number): Promise<bigint> {
   return (await publicClient().readContract({
     address: INRX_ADDRESS,
     abi: inrxAbi(),
     functionName: 'balanceOf',
     args: [who],
+    ...(atBlock === undefined ? {} : { blockNumber: BigInt(atBlock) }),
   })) as bigint;
+}
+
+/**
+ * inrxBalanceOf pinned to `atBlock`, retried while the RPC has not caught up.
+ *
+ * Only the "node is behind" case is worth retrying, and it resolves in a block
+ * or two. After the last attempt the error propagates: the caller then reports
+ * that the balance is unknown rather than substituting a plausible number.
+ */
+export async function inrxBalanceAtBlock(
+  who: Address,
+  atBlock: number,
+  attempts = 4,
+  delayMs = 700,
+): Promise<bigint> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await inrxBalanceOf(who, atBlock);
+    } catch (e) {
+      lastError = e;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastError;
 }
 
 /**

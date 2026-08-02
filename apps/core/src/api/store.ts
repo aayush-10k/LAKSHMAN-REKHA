@@ -9,7 +9,7 @@
 import { randomBytes } from 'node:crypto';
 import { sign } from 'viem/accounts';
 import type { Hex } from 'viem';
-import type { MandateState, DecisionTrace, CategoryCode } from '../types.js';
+import { CATEGORY_CODES, type MandateState, type DecisionTrace, type CategoryCode } from '../types.js';
 import type { PaymentRequestStruct } from '../signing/constants.js';
 import { hasCoreKey, corePrivateKey } from '../keys.js';
 import { leaseDigest } from '../lease/index.js';
@@ -22,38 +22,98 @@ const mandates = new Map<string, MandateState>();
 const pairingCodes = new Map<string, string>(); // code → mandateId
 
 /**
- * The policy as PolicyModule 0x933b… actually holds it on Base Sepolia, read on
- * 2026-08-02 (apps/core/scripts/chain-state.mjs prints it).
+ * Fallback policy, used only when PolicyModule cannot be read at boot.
  *
- * The demo mandate is seeded from these rather than from invented numbers
- * because settlement now really broadcasts: if the mandate says ₹25,000 per
- * transaction and the contract says ₹10,000, the core hands out an APPROVED
- * trace for a payment the chain then reverts, and the decision panel is a lie.
- * The chain is the authority, so these are its values.
+ * The chain is the authority — seedPolicyFromChain() below replaces every one of
+ * these with the live value, because a mandate that disagrees with PolicyModule
+ * produces APPROVED traces for payments the chain then reverts, and the decision
+ * panel becomes a lie.
  *
- * KNOWN GAP, deliberately not papered over: `permittedCategories` is 128 —
- * bit 7 only, i.e. OTHER and nothing else. That is the untouched fallback in
- * contracts/script/Deploy.s.sol (`vm.envOr("PERMITTED_CATEGORIES", 1 << 7)`),
- * so the deployment was made without that variable set. Mirroring it means the
- * vendor demo's PACKAGING/LOGISTICS/... purchases now REFUSE on predicate 7
- * off-chain instead of reverting on-chain after the ceremony. Widening it is an
- * owner `setPolicy` call against the live deployment — a policy decision for the
- * team, not this fix. See FIXLOG.md and apps/core/scripts/set-policy.mjs.
+ * These numbers are the values read from 0x933b… on 2026-08-02
+ * (apps/core/scripts/chain-state.mjs prints them), so an RPC outage degrades to
+ * "slightly stale" rather than to "invented". They will drift; the seed is what
+ * keeps the running core correct.
  */
 export const DEPLOYED_POLICY = {
-  perTxCapMinor: 1_000_000,        // ₹10,000
+  perTxCapMinor: 2_500_000,        // ₹25,000
   windowCapMinor: 10_000_000,      // ₹1,00,000
   windowSeconds: 86_400,
   cumulativeCapMinor: 100_000_000, // ₹10,00,000
-  permittedCategories: ['OTHER'] as CategoryCode[],
+  // permittedCategories 223 = 0b11011111: everything except SOFTWARE (bit 5).
+  permittedCategories: ['PACKAGING', 'ADVERTISING', 'CONTENT', 'COMPUTE', 'LOGISTICS', 'UTILITIES', 'OTHER'] as CategoryCode[],
   tier2MinAgeDays: 30,
   tier2MinSettledTxns: 5,
   tier2MaxPriceBandZ: 2,
   tier2CapMinor: 500_000,          // ₹5,000
   deadmanSeconds: 604_800,
-  policyHash: '0x7994236ca1cbe9890f5c118fd307afc36d0ea865d558c8112c030e702b3a7078',
+  policyHash: '0x8960a494209993e857a6573ef8ee53e56371acd8e67309a06bccf0fed65204c6',
   revocationEpoch: 0,
 } as const;
+
+/** Bitmap -> category list, the inverse of policy-state.ts categoryBitmap(). */
+function categoriesFromBitmap(bits: bigint): CategoryCode[] {
+  return CATEGORY_CODES.filter((_, i) => ((bits >> BigInt(i)) & 1n) === 1n) as CategoryCode[];
+}
+
+/**
+ * Overwrites every mandate with the live PolicyModule state.
+ *
+ * Called at boot and after each settlement. The counters matter as much as the
+ * caps: settling advances windowSpentMinor and cumulativeSpentMinor on chain, so
+ * an off-chain copy that stays at zero makes predicates 13 and 14 LOOSER than
+ * the contract's — the one direction that yields an approval the chain refuses.
+ *
+ * Returns false and changes nothing if the read failed. Refusing a partial
+ * update is the point: mixing live caps with stale counters would be undetectable.
+ */
+export function seedPolicy(snapshot: {
+  perTxCapMinor: number;
+  windowCapMinor: number;
+  windowSeconds: number;
+  cumulativeCapMinor: number;
+  permittedCategories: bigint;
+  tier2MinAgeDays: number;
+  tier2MinSettledTxns: number;
+  tier2MaxPriceBandZ: number;
+  tier2CapMinor: number;
+  windowStartS: number;
+  windowSpentMinor: number;
+  cumulativeSpentMinor: number;
+  revocationEpoch: number;
+  policyHash: string;
+  deadmanSeconds: number;
+  frozen: boolean;
+} | null): boolean {
+  if (snapshot === null) return false;
+  for (const [id, mandate] of mandates.entries()) {
+    mandates.set(id, {
+      ...mandate,
+      perTxCapMinor: snapshot.perTxCapMinor,
+      windowCapMinor: snapshot.windowCapMinor,
+      windowSeconds: snapshot.windowSeconds,
+      cumulativeCapMinor: snapshot.cumulativeCapMinor,
+      permittedCategories: categoriesFromBitmap(snapshot.permittedCategories),
+      tier2MinAgeDays: snapshot.tier2MinAgeDays,
+      tier2MinSettledTxns: snapshot.tier2MinSettledTxns,
+      tier2MaxPriceBandZ: snapshot.tier2MaxPriceBandZ,
+      tier2CapMinor: snapshot.tier2CapMinor,
+      // windowStart 0 on chain means "no window open"; keep it 0 so
+      // effectiveWindowSpent() rolls, rather than inventing a start time.
+      windowStartMs: snapshot.windowStartS === 0 ? 0 : snapshot.windowStartS * 1000,
+      windowSpentMinor: snapshot.windowSpentMinor,
+      cumulativeSpentMinor: snapshot.cumulativeSpentMinor,
+      revocationEpoch: snapshot.revocationEpoch,
+      policyHash: snapshot.policyHash,
+      deadmanSeconds: snapshot.deadmanSeconds,
+      // A chain freeze can only ADD. An off-chain revoke (POST /v1/revoke, or
+      // the dead-man switch) must never be cleared by a later chain read that
+      // happens to say frozen: false — this runs after every settlement, so a
+      // plain assignment would quietly un-revoke a revoked mandate.
+      frozen: mandate.frozen || snapshot.frozen,
+    });
+  }
+  return true;
+}
 
 export function createMandate(ownerAddress = '0x' + '0'.repeat(40)): { mandateId: string; pairingCode: string } {
   const mandateId = `mnd_${randomBytes(4).toString('hex')}`;

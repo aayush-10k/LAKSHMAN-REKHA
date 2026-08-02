@@ -40,7 +40,9 @@ function timeAgo(ts: number) {
 export default function ConsolePage() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [selected, setSelected] = useState<DecisionTrace | null>(null);
-  const [balance, setBalance] = useState(5_000_000);
+  // RekhaAccount's on-chain INRx balance. null until read, and null again if a
+  // read fails — never a placeholder that looks like real money.
+  const [balance, setBalance] = useState<number | null>(null);
   const [frozen, setFrozen] = useState(false);
   const [mandateId, setMandateId] = useState<string | null>(null);
   const [pairing, setPairing] = useState<Pairing | null>(null);
@@ -71,6 +73,7 @@ export default function ConsolePage() {
         setPairing(p);
         setMandateId(p.mandateId);
         setLeaseTtlMax(p.leaseTtlMs);
+        setLeaseTtl(p.leaseTtlMs); // until the first lease.tick lands
         setPairError(null);
       })
       .catch((e: Error) => setPairError(e.message));
@@ -170,7 +173,10 @@ export default function ConsolePage() {
     }
 
     if (event.t === 'payment.settled') {
-      setBalance(event.balanceAfterMinor);
+      // Only ever the chain-read balance. null means the post-settlement read
+      // failed — the payment happened, the figure is unknown, and showing the
+      // last known number would be presenting a stale value as current.
+      setBalance(event.balanceAfterMinor ?? null);
       addFeedItem({ id: `set-${event.decisionId}`, type: 'settled', text: `✓ Settled — tx: ${event.txHash.slice(0, 10)}…`, ts, outcome: 'APPROVED', txHash: event.txHash });
     }
 
@@ -230,9 +236,9 @@ export default function ConsolePage() {
           {frozen && <span className="frozen-chip">FROZEN</span>}
         </div>
         <div className="topbar-center">
-          <div className="balance-block">
-            <span className="balance-label">Available</span>
-            <span className="balance-amount">{fmtInr(balance)}</span>
+          <div className="balance-block" title="RekhaAccount INRx balance on Base Sepolia">
+            <span className="balance-label">On-chain</span>
+            <span className="balance-amount">{balance === null ? 'unavailable' : fmtInr(balance)}</span>
           </div>
         </div>
         <div className="topbar-right">

@@ -9,6 +9,7 @@
 import type { FastifyInstance } from 'fastify';
 import * as store from '../store.js';
 import { emit } from '../../events/bus.js';
+import { inrxBalanceOf, rekhaAccountAddress } from '../chain.js';
 
 export async function registerRevokeRoutes(app: FastifyInstance): Promise<void> {
   // POST /v1/revoke
@@ -74,8 +75,35 @@ export async function registerRevokeRoutes(app: FastifyInstance): Promise<void> 
   });
 
   // GET /v1/wallet/balance — frontend shows balance
+  //
+  // This is RekhaAccount's INRx balance on Base Sepolia, not a number this
+  // process keeps. It used to be an in-memory ₹50,000 that the core decremented
+  // itself, so the console's headline figure was decorative: it moved when a
+  // payment settled but had never had any relationship to the money on chain.
+  //
+  // An unreachable RPC returns 503 rather than the old local number. A balance
+  // that might be wrong is worse than a balance that says it is unavailable.
   app.get('/v1/wallet/balance', async (_request, reply) => {
-    return reply.code(200).send({ balanceMinor: store.getBalance() });
+    const account = rekhaAccountAddress();
+    if (account === null) {
+      return reply.code(503).send({
+        error: { code: 'CORE_UNAVAILABLE', message: 'REKHA_ACCOUNT_ADDRESS is not configured.' },
+      });
+    }
+    try {
+      const balance = await inrxBalanceOf(account);
+      return reply.code(200).send({
+        balanceMinor: Number(balance),
+        account,
+        source: 'chain' as const,
+        asOfMs: Date.now(),
+      });
+    } catch (e) {
+      app.log.error(e);
+      return reply.code(503).send({
+        error: { code: 'CORE_UNAVAILABLE', message: 'Could not read the on-chain INRx balance.' },
+      });
+    }
   });
 
   // GET /v1/holds — active holds list

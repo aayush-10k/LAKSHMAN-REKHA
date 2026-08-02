@@ -51,6 +51,47 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
+  /**
+   * The agent's narration: what it is doing, and what a vendor quoted.
+   *
+   * The agent runs in its own process, so it cannot emit onto this core's SSE bus
+   * directly. Only two event types are accepted, both of them display-only. That
+   * restriction is the whole design: nothing posted here can produce a decision,
+   * a signature or a settlement, so an agent that lies to this endpoint can only
+   * lie about its own narration — never about what the enforcement layer did.
+   */
+  app.post<{ Body: { t: string; [k: string]: unknown } }>('/v1/agent/event', async (request, reply) => {
+    const body = request.body ?? ({} as Record<string, unknown>);
+
+    if (body.t === 'agent.thought' && typeof body['text'] === 'string' && typeof body['taskId'] === 'string') {
+      emit({ t: 'agent.thought', taskId: body['taskId'], text: String(body['text']).slice(0, 400) });
+      return reply.code(202).send({ accepted: true });
+    }
+
+    if (
+      body.t === 'quote.received' &&
+      typeof body['lineItemId'] === 'string' &&
+      typeof body['vendorId'] === 'string' &&
+      typeof body['amountMinor'] === 'number'
+    ) {
+      emit({
+        t: 'quote.received',
+        lineItemId: body['lineItemId'],
+        vendorId: body['vendorId'],
+        amountMinor: body['amountMinor'],
+        simElapsedMs: typeof body['simElapsedMs'] === 'number' ? body['simElapsedMs'] : 0,
+      });
+      return reply.code(202).send({ accepted: true });
+    }
+
+    return reply.code(400).send({
+      error: {
+        code: 'INVALID_REQUEST',
+        message: 'Only agent.thought {taskId,text} and quote.received {lineItemId,vendorId,amountMinor} are accepted.',
+      },
+    });
+  });
+
   app.post<{ Body: { pairingCode: string } }>('/v1/agent/pair', async (request, reply) => {
     const { pairingCode: code } = request.body ?? {};
 
