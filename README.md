@@ -13,12 +13,12 @@
 
 ## 🔑 Quick Start & Demo Credentials
 
-Access the live platform locally or via deployed instance using the official judge credentials:
+Access the unified live platform via the official deployed instance or locally using judge credentials:
 
 | Parameter | Value |
 |---|---|
-| **Console URL** | [http://localhost:3001/console](http://localhost:3001/console) (or `/index.html`) |
-| **Playground URL** | [http://localhost:3001/playground](http://localhost:3001/playground) |
+| **Live Deployed App (Unified)** | [https://lakshman-rekha.vercel.app/](https://lakshman-rekha.vercel.app/) |
+| **Local Development URL** | [http://localhost:3001](http://localhost:3001) |
 | **Username** | `demo` |
 | **Password** | `123` |
 | **Proxy Token** | `lr_live_sk_892374982374` |
@@ -26,12 +26,14 @@ Access the live platform locally or via deployed instance using the official jud
 | **INR Ledger Contract (`INRx`)** | `0x3a4b9c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b` |
 | **Policy Module (`PolicyModule`)**| `0x7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a` |
 
+> 💡 **Single Deployed Platform**: The production URL [`https://lakshman-rekha.vercel.app/`](https://lakshman-rekha.vercel.app/) is a single, unified web application combining both the **Lakshman Rekha Console** and **Agent Playground** into a single seamless experience with a top view switcher (`Lakshman Rekha` ↔ `Agent Playground`), eliminating the need for separate dashboard and playground URLs or distinct deployments.
+
 ### Running Locally
 ```bash
 # Navigate to project directory
 cd project3
 
-# Serve static web application and API simulation server
+# Serve static web application (Unified Console & Playground at http://localhost:3001)
 npx -y serve . -p 3001
 # Or run Node backend server
 node server.js
@@ -206,7 +208,10 @@ type DecisionTrace = {
 
 ## 🌐 Product Surfaces
 
-### Surface 1: `/console` (Main Payment Control Room)
+### Deployed Single URL: `https://lakshman-rekha.vercel.app/`
+The application is deployed as a single, unified web application at [https://lakshman-rekha.vercel.app/](https://lakshman-rekha.vercel.app/). Both the **Lakshman Rekha Console** and **Agent Playground** operate within this single URL, seamlessly toggled via the fixed top view switcher (`Lakshman Rekha` ↔ `Agent Playground`).
+
+#### View 1: Lakshman Rekha Console (Main Payment Control Room)
 The business owner's control center designed like a modern financial app:
 - **Rupee Wallet**: Live ₹ balance backed by Base Sepolia `INRx` ERC-20 tokens with mock credit line & deposit controls.
 - **Agent Connection**: Agent pairing flow displaying ID, status, key share fingerprint, and pulsing 5s lease TTL ring.
@@ -215,8 +220,8 @@ The business owner's control center designed like a modern financial app:
 - **Holds Inbox**: Pending held transactions featuring live countdown rings and manual **Cancel / Release** controls.
 - **On-Chain Revocation Controls**: Per-transaction, per-agent, and global **REVOKE ALL** buttons submitted directly from owner's browser wallet to the blockchain.
 
-### Surface 2: `/playground` (Agent Simulator & Adversary Arena)
-Interactive testbed for judges to simulate real agent workflows and execute attacks:
+#### View 2: Agent Playground (Agent Simulator & Adversary Arena)
+Interactive testbed for judges to simulate real agent workflows and execute attacks directly inside the unified app:
 - **Task Console**: 6 business tasks (`procure`, `ads`, `content`, `compute`, `logistics`, `subscription`) with simulated clock.
 - **6 Behaviour Modes**:
   1. `normal` — Standard compliant purchasing.
