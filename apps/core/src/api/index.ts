@@ -3,7 +3,9 @@
  *
  * Fastify server exposing all /v1/* routes plus the SSE stream.
  * Person B owns apps/core/src/api/ and apps/core/src/events/.
- * A's policy/lease/signing modules plug into mock-evaluator.ts when ready.
+ * A's policy/lease/signing modules are now wired in: /v1/payment/request goes
+ * through coreSign(), which runs the real evaluator. mock-evaluator.ts is kept
+ * on disk, unimported, as the rollback.
  */
 
 import Fastify from 'fastify';
