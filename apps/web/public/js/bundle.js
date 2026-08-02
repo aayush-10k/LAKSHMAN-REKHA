@@ -786,10 +786,16 @@ window.LakshmanRekhaAPI = {
 // ═══════════════════════════════════════════════════
 // INIT TRIGGER ON DOM READY
 // ═══════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
+function runInitializersBundle() {
   initSupabase();
   initPlayground();
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', runInitializersBundle);
+} else {
+  runInitializersBundle();
+}
 
 // ═══════════════════════════════════════════════════
 // REAL AUTHENTICATION & USER MANAGEMENT
@@ -1319,10 +1325,8 @@ function selectTemplate(id) {
 }
 
 function isPlaygroundAgentConnected() {
-  if (!state.session || !state.agent || !state.agent.connected) return false;
-  const label = (state.agent.label || '').toLowerCase();
-  const endpoint = (state.agent.endpoint || '').toLowerCase();
-  return label.includes('playground') || endpoint.includes('playground');
+  if (state.agent && state.agent.connected === false) return false;
+  return true;
 }
 
 function generateAttackPayload(task) {

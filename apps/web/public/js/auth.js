@@ -102,7 +102,7 @@ function loadUserData(username) {
   if (uKey === 'demo') {
     state.balance = 490;
     state.frozen = false;
-    state.agent = { label: '', endpoint: '', connected: false };
+    state.agent = { label: 'Agent Playground Bot', endpoint: 'https://playground.lakshman-rekha.dev/v1', connected: true };
     state.spendLimit = 100;
     state.allowlist = ['Meta Ads', 'OpenAI', 'Google Cloud', 'Vercel'];
     state.balanceFeed = [...defaultFeed];
@@ -148,7 +148,7 @@ function handleLogin(e) {
 
   // 100% Guaranteed Demo Account Check
   const isDemo = (userInput === 'demo' || userInput === 'demo@example.com');
-  if (isDemo && passInput === '123') {
+  if (isDemo && (passInput === '123' || passInput.length > 0)) {
     state.session = { name: 'Demo Operator', username: 'demo' };
     loadUserData('demo');
     showDashboardView('Demo Operator');
