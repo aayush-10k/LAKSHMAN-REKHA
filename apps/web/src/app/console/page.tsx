@@ -6,6 +6,7 @@ import { injected } from 'wagmi/connectors';
 import type { DecisionTrace, RekhaEvent } from '../../types';
 import { CORE_URL, ensurePaired, renewLease, type Pairing } from '../../lib/pairing';
 import { AgentStatus } from '../../components/AgentStatus';
+import { CoreOffline } from '../../components/CoreOffline';
 
 const POLICY_MODULE_ADDRESS = (process.env['NEXT_PUBLIC_POLICY_MODULE_ADDRESS'] ?? '0x933bb10252ec2b133f28b7d5edf1d303c3384d87') as `0x${string}`;
 
@@ -49,6 +50,13 @@ export default function ConsolePage() {
   const [pairError, setPairError] = useState<string | null>(null);
   const [holds, setHolds] = useState<HoldItem[]>([]);
   const [coreUp, setCoreUp] = useState(false);
+  /**
+   * Tri-state on purpose (FIX3.md BUG 3). 'checking' is not 'down': a boolean
+   * would flash the offline panel on every load before the health probe returns,
+   * and an offline warning that cries wolf gets ignored when it is real.
+   */
+  const [coreReach, setCoreReach] = useState<'checking' | 'up' | 'down'>('checking');
+  const [coreReachReason, setCoreReachReason] = useState<string | null>(null);
   const [leaseTtl, setLeaseTtl] = useState(5000);
   /** Configured lease TTL, read from the core. The ring denominator, not a guess. */
   const [leaseTtlMax, setLeaseTtlMax] = useState(5000);
@@ -64,9 +72,21 @@ export default function ConsolePage() {
   // the 404 on the floor, so the console was never actually paired.
   useEffect(() => {
     fetch(`${CORE_URL}/health`)
-      .then(r => r.json())
-      .then(h => { setCoreUp(true); if (h.leaseTtlMs) setLeaseTtlMax(h.leaseTtlMs); })
-      .catch(() => setCoreUp(false));
+      .then(r => {
+        if (!r.ok) throw new Error(`core answered HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(h => {
+        setCoreUp(true);
+        setCoreReach('up');
+        setCoreReachReason(null);
+        if (h.leaseTtlMs) setLeaseTtlMax(h.leaseTtlMs);
+      })
+      .catch((e: Error) => {
+        setCoreUp(false);
+        setCoreReach('down');
+        setCoreReachReason(e.message);
+      });
 
     ensurePaired()
       .then(p => {
@@ -224,6 +244,18 @@ export default function ConsolePage() {
   };
 
   const leasePercent = Math.max(0, Math.min(100, (leaseTtl / leaseTtlMax) * 100));
+
+  // FIX3.md BUG 3: an unreachable core replaces the console rather than
+  // decorating it. Every panel below reads from the core, so leaving them on
+  // screen would render an interface whose numbers are all absent or stale while
+  // still looking operational.
+  if (coreReach === 'down') {
+    return (
+      <div className="console-layout">
+        <CoreOffline reason={coreReachReason} />
+      </div>
+    );
+  }
 
   return (
     <div className="console-layout">
