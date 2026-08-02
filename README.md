@@ -18,7 +18,6 @@ Access the unified live platform via the official deployed instance or locally u
 | Parameter | Value |
 |---|---|
 | **Live Deployed App (Unified)** | [https://lakshman-rekha.vercel.app/](https://lakshman-rekha.vercel.app/) |
-| **Local Development URL** | [http://localhost:3001](http://localhost:3001) |
 | **Username** | `demo` |
 | **Password** | `123` |
 | **Proxy Token** | `lr_live_sk_892374982374` |
