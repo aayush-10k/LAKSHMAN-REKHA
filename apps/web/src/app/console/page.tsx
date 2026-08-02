@@ -49,6 +49,7 @@ export default function ConsolePage() {
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [pairError, setPairError] = useState<string | null>(null);
   const [holds, setHolds] = useState<HoldItem[]>([]);
+  const [holdsError, setHoldsError] = useState<string | null>(null);
   const [coreUp, setCoreUp] = useState(false);
   /**
    * Tri-state on purpose (FIX3.md BUG 3). 'checking' is not 'down': a boolean
@@ -98,15 +99,24 @@ export default function ConsolePage() {
       })
       .catch((e: Error) => setPairError(e.message));
 
+    // FIX3.md BUG 4: no empty catches. Balance is already fail-visible — it
+    // stays null and the topbar reads "unavailable" rather than showing a
+    // plausible figure — but the reason belongs in the console, not nowhere.
     fetch(`${CORE_URL}/v1/wallet/balance`)
       .then(r => r.json())
       .then(d => { if (d.balanceMinor !== undefined) setBalance(d.balanceMinor); })
-      .catch(() => {});
+      .catch((e: Error) => {
+        setBalance(null);
+        console.error('[console] balance read failed:', e.message);
+      });
 
     fetch(`${CORE_URL}/v1/holds`)
       .then(r => r.json())
       .then(d => { if (Array.isArray(d.holds)) setHolds(d.holds); })
-      .catch(() => {});
+      .catch((e: Error) => {
+        setHoldsError(e.message);
+        console.error('[console] holds read failed:', e.message);
+      });
   }, []);
 
   // Keep the lease alive so the TTL ring shows a real lease rather than a
@@ -312,6 +322,9 @@ export default function ConsolePage() {
           </div>
 
           {/* Holds Inbox */}
+          {holdsError && (
+            <div className="control-msg-err">Could not load holds: {holdsError}</div>
+          )}
           {holds.length > 0 && (
             <div className="holds-section">
               <h3 className="holds-title">Holds Inbox ({holds.length})</h3>

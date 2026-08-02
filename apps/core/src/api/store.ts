@@ -225,7 +225,48 @@ export type LeaseFailureCode =
   | 'MANDATE_NOT_FOUND'
   | 'MANDATE_FROZEN'
   | 'NO_CORE_KEY'
-  | 'SIGNING_FAILED';
+  | 'SIGNING_FAILED'
+  | 'CORE_KILLED';
+
+// ──────────────────────────────────────────────
+// Kill switch (FIX3.md BUG 4)
+// ──────────────────────────────────────────────
+
+/**
+ * Whether this core is refusing to issue leases.
+ *
+ * The "Kill Approval Service" button used to POST a route that did not exist and
+ * swallow the 404, then grey itself out and announce that the core was offline
+ * while the core carried on issuing leases perfectly happily. It demonstrated
+ * nothing except that the UI would say whatever it was told to.
+ *
+ * The real beat is worth having, and it is this: no new lease means no new
+ * payment, so spending stops within LEASE_TTL_MS of the kill with no other
+ * moving parts. Killing issuance here — rather than at the route — puts the stop
+ * on the same code path every caller uses, so nothing can route around it.
+ *
+ * In-memory and process-local, like the rest of this store. A restart clears it.
+ */
+let issuanceKilledAtMs: number | null = null;
+
+export function killIssuance(): { killedAtMs: number; leaseTtlMs: number } {
+  issuanceKilledAtMs ??= Date.now();
+  return { killedAtMs: issuanceKilledAtMs, leaseTtlMs: leaseTtlMs() };
+}
+
+/**
+ * Resumes issuance. A demo affordance, not a product feature: a judge who kills
+ * the core mid-demo should be able to carry on without restarting four
+ * processes. It cannot resurrect leases that already expired, so the stop it
+ * undoes has already been demonstrated.
+ */
+export function reviveIssuance(): void {
+  issuanceKilledAtMs = null;
+}
+
+export function issuanceKilledAt(): number | null {
+  return issuanceKilledAtMs;
+}
 
 export type IssueLeaseResult =
   | { ok: true; lease: LeaseRecord }
@@ -250,6 +291,16 @@ export function leaseTtlMs(): number {
  * says so now.
  */
 export async function issueLease(agentId: string): Promise<IssueLeaseResult> {
+  // Checked first: a killed core refuses everyone, for reasons that have nothing
+  // to do with the agent or the mandate.
+  if (issuanceKilledAtMs !== null) {
+    return {
+      ok: false,
+      code: 'CORE_KILLED',
+      reason: `Approval service was killed at ${new Date(issuanceKilledAtMs).toISOString()}; no leases are being issued.`,
+    };
+  }
+
   const agent = agents.get(agentId);
   if (!agent) {
     return { ok: false, code: 'AGENT_NOT_FOUND', reason: `No agent ${agentId} is registered with this core.` };

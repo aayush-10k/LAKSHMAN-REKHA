@@ -11,6 +11,19 @@ import { AgentStatus } from '../../components/AgentStatus';
  */
 const AGENT_URL = process.env['NEXT_PUBLIC_AGENT_URL'] ?? 'http://localhost:4200';
 
+/**
+ * The vendor registry is its own service (apps/vendorsim). "Spawn Counterfeit"
+ * and "Inject" are its endpoints, and the playground was calling the CORE for
+ * both — /v1/vendorsim/counterfeit and /v1/task/inject, neither of which exists.
+ * Both 404s were swallowed by `.catch(() => {})` and reported as success.
+ */
+const VENDORSIM_URL = process.env['NEXT_PUBLIC_VENDORSIM_URL'] ?? 'http://localhost:4100';
+
+type Vendor = { id: string; name: string; tier: number; address: string };
+
+/** Outcome of a judge control, shown verbatim. Never a fabricated success. */
+type ControlResult = { ok: boolean; text: string } | null;
+
 type BehaviourMode = 'normal' | 'hallucinating' | 'injected' | 'compromised' | 'overreach' | 'colluding';
 type AttackLog = { id: number; technique: string; revertReason: string; blocked: boolean; novel: boolean; ts: number };
 type CeremonyState = { decisionId: string; round: number; of: number; aborted: boolean; abortedAt: number | null };
@@ -73,6 +86,14 @@ export default function PlaygroundPage() {
   const [speed, setSpeed] = useState(1);
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [pairError, setPairError] = useState<string | null>(null);
+  // Judge controls (FIX3.md BUG 4): the target vendor, and the last real result
+  // of each control. Both controls need a vendor — vendorsim's endpoints take a
+  // vendorId, which is why calling the core for them could never have worked.
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [targetVendorId, setTargetVendorId] = useState('');
+  const [counterfeitResult, setCounterfeitResult] = useState<ControlResult>(null);
+  const [injectResult, setInjectResult] = useState<ControlResult>(null);
+  const [killResult, setKillResult] = useState<ControlResult>(null);
   const attackIdRef = useRef(0);
   const thoughtsRef = useRef<HTMLDivElement>(null);
 
@@ -90,6 +111,23 @@ export default function PlaygroundPage() {
         setPairError(null);
       })
       .catch((e: Error) => setPairError(e.message));
+  }, []);
+
+  // The vendor catalogue, for the judge controls. Both of them target a specific
+  // vendor, so the selector has to be populated from the registry that actually
+  // holds them rather than from a list hardcoded here.
+  useEffect(() => {
+    fetch(`${VENDORSIM_URL}/catalog`)
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((list: Vendor[]) => {
+        setVendors(list);
+        if (list.length > 0) setTargetVendorId(prev => prev || list[0].id);
+      })
+      .catch(() => {
+        // Leave the list empty: the controls then say vendorsim is unreachable
+        // when pressed, instead of offering a menu of vendors that do not exist.
+        setVendors([]);
+      });
   }, []);
 
   // RekhaAccount's INRx balance on Base Sepolia. Not a number this page keeps —
@@ -263,15 +301,107 @@ export default function PlaygroundPage() {
     }
   };
 
+  /**
+   * Clones a real vendor at 40% of its prices, aged 2 days, tier 2.
+   *
+   * Reports what vendorsim actually returned. The old version alerted that a
+   * storefront had been spawned regardless of outcome, while POSTing a core
+   * route that does not exist — so the alert described something that had never
+   * happened, every time.
+   */
   const spawnCounterfeit = async () => {
-    await fetch(`${CORE_URL}/v1/vendorsim/counterfeit`, { method: 'POST' }).catch(() => {});
-    alert('Counterfeit storefront spawned! It clones a real vendor at 60% off, aged 2 days. The enforcement layer will refuse it on counterpartyAge predicate.');
+    setCounterfeitResult(null);
+    if (!targetVendorId) {
+      setCounterfeitResult({ ok: false, text: 'Pick a vendor to clone first.' });
+      return;
+    }
+    try {
+      const res = await fetch(`${VENDORSIM_URL}/vendorsim/spawn-counterfeit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetVendorId }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setCounterfeitResult({ ok: false, text: `vendorsim returned HTTP ${res.status}${body?.error ? ` — ${body.error}` : ''}` });
+        return;
+      }
+      setVendors(v => [...v, { id: body.id, name: body.name, tier: body.tier, address: body.address }]);
+      setCounterfeitResult({
+        ok: true,
+        text: `Spawned ${body.id} — "${body.name}", tier ${body.tier}, aged ${body.ageDays}d, ${body.settledTxns} settled, address ${body.address}. It is now in the catalogue; dispatch a task to see the enforcement layer meet it.`,
+      });
+    } catch (e) {
+      setCounterfeitResult({ ok: false, text: `Could not reach vendorsim at ${VENDORSIM_URL} — is \`pnpm dev:vendorsim\` running? (${(e as Error).message})` });
+    }
   };
 
+  /**
+   * Really stops the core issuing leases, so spending stops within LEASE_TTL_MS.
+   *
+   * The button used to set coreUp=false locally and POST a 404 into a swallowed
+   * catch: the UI said "Core is offline" while the core kept issuing leases.
+   * Now the local state follows the core's answer instead of leading it.
+   */
   const killCoreService = async () => {
-    setCoreUp(false);
-    // Calling /v1/admin/kill will stop new leases — spending stops within 5s
-    await fetch(`${CORE_URL}/v1/admin/kill`, { method: 'POST' }).catch(() => {});
+    setKillResult(null);
+    try {
+      const res = await fetch(`${CORE_URL}/v1/admin/kill`, { method: 'POST' });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setKillResult({ ok: false, text: `Core refused the kill: HTTP ${res.status}. It is still issuing leases.` });
+        return;
+      }
+      setCoreUp(false);
+      setKillResult({ ok: true, text: body?.message ?? 'Approval service killed.' });
+    } catch (e) {
+      // Nothing was killed, so the UI must not claim it was.
+      setKillResult({ ok: false, text: `Could not reach the core at ${CORE_URL}; nothing was killed. (${(e as Error).message})` });
+    }
+  };
+
+  const reviveCoreService = async () => {
+    setKillResult(null);
+    try {
+      const res = await fetch(`${CORE_URL}/v1/admin/revive`, { method: 'POST' });
+      if (!res.ok) {
+        setKillResult({ ok: false, text: `Core refused to resume: HTTP ${res.status}.` });
+        return;
+      }
+      setCoreUp(true);
+      setKillResult({ ok: true, text: 'Approval service resumed. Leases are being issued again.' });
+    } catch (e) {
+      setKillResult({ ok: false, text: `Could not reach the core at ${CORE_URL}. (${(e as Error).message})` });
+    }
+  };
+
+  /** Puts attacker-controlled text on a vendor's storefront, which the agent reads. */
+  const injectIntoVendor = async () => {
+    setInjectResult(null);
+    if (!targetVendorId) {
+      setInjectResult({ ok: false, text: 'Pick a vendor to inject into first.' });
+      return;
+    }
+    if (!injectText.trim()) {
+      setInjectResult({ ok: false, text: 'Nothing to inject.' });
+      return;
+    }
+    try {
+      const res = await fetch(`${VENDORSIM_URL}/vendorsim/inject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vendorId: targetVendorId, text: injectText }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setInjectResult({ ok: false, text: `vendorsim returned HTTP ${res.status}${body?.error ? ` — ${body.error}` : ''}` });
+        return;
+      }
+      setInjectResult({ ok: true, text: `Injected into ${body.vendorId}'s storefront. The agent will read it the next time it visits that page.` });
+      setInjectText('');
+    } catch (e) {
+      setInjectResult({ ok: false, text: `Could not reach vendorsim at ${VENDORSIM_URL} — is \`pnpm dev:vendorsim\` running? (${(e as Error).message})` });
+    }
   };
 
   const leasePercent = Math.max(0, Math.min(100, (leaseTtl / leaseTtlMax) * 100));
@@ -439,23 +569,26 @@ export default function PlaygroundPage() {
         <div className="pg-panel-centre">
           <div className="panel-header"><h2>Agent&apos;s World</h2></div>
 
-          {/* Inject text */}
+          {/* Inject text into the selected vendor's storefront, which the agent reads. */}
           <div className="inject-row">
             <input
               className="inject-input"
-              placeholder="Inject text into agent's context..."
+              placeholder={
+                targetVendorId
+                  ? `Inject hidden text into ${targetVendorId}'s storefront...`
+                  : 'Pick a target vendor in Judge Controls first...'
+              }
               value={injectText}
               onChange={e => setInjectText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') void injectIntoVendor(); }}
             />
-            <button className="btn-inject" onClick={async () => {
-              await fetch(`${CORE_URL}/v1/task/inject`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: injectText }),
-              }).catch(() => {});
-              setInjectText('');
-            }}>Inject</button>
+            <button className="btn-inject" onClick={injectIntoVendor}>Inject</button>
           </div>
+          {injectResult && (
+            <div className={injectResult.ok ? 'control-msg-ok' : 'control-msg-err'}>
+              {injectResult.text}
+            </div>
+          )}
 
           {/* Agent reasoning stream */}
           <div className="thoughts-box" ref={thoughtsRef}>
@@ -529,15 +662,51 @@ export default function PlaygroundPage() {
 
           <div className="judge-controls">
             <h3>Judge Controls</h3>
+
+            <label className="control-label" htmlFor="target-vendor">Target vendor</label>
+            <select
+              id="target-vendor"
+              className="control-select"
+              value={targetVendorId}
+              onChange={e => setTargetVendorId(e.target.value)}
+              disabled={vendors.length === 0}
+            >
+              {vendors.length === 0 ? (
+                <option value="">vendorsim unreachable</option>
+              ) : (
+                vendors.map(v => (
+                  <option key={v.id} value={v.id}>{v.name} (tier {v.tier})</option>
+                ))
+              )}
+            </select>
+
             <button className="btn-judge" onClick={spawnCounterfeit}>
               🏪 Spawn Counterfeit Storefront
             </button>
-            <button className="btn-judge-danger" onClick={killCoreService} disabled={!coreUp}>
-              ☠ Kill Approval Service
-            </button>
-            {!coreUp && (
+            {counterfeitResult && (
+              <div className={counterfeitResult.ok ? 'control-msg-ok' : 'control-msg-err'}>
+                {counterfeitResult.text}
+              </div>
+            )}
+
+            {coreUp ? (
+              <button className="btn-judge-danger" onClick={killCoreService}>
+                ☠ Kill Approval Service
+              </button>
+            ) : (
+              <button className="btn-judge" onClick={reviveCoreService}>
+                ⏻ Resume Approval Service
+              </button>
+            )}
+            {killResult && (
+              <div className={killResult.ok ? 'control-msg-ok' : 'control-msg-err'}>
+                {killResult.text}
+              </div>
+            )}
+            {!coreUp && killResult?.ok && (
               <div className="core-killed-msg">
-                Core is offline. Watch the lease ring drain. All spending stops within 5s.
+                No new leases are being issued. Watch the ring drain — all spending
+                stops within {(leaseTtlMax / 1000).toFixed(0)}s.
               </div>
             )}
           </div>

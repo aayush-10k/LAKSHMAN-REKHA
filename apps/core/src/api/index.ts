@@ -21,6 +21,7 @@ import { registerHoldRoutes } from './routes/hold.js';
 import { registerTaskRoutes } from './routes/task.js';
 import { registerAuditRoutes } from './routes/audit.js';
 import { registerRevokeRoutes } from './routes/revoke.js';
+import { registerAdminRoutes } from './routes/admin.js';
 import { registerSseRoute } from '../events/sse.js';
 import { emit } from '../events/bus.js';
 import * as store from './store.js';
@@ -66,6 +67,10 @@ async function buildApp() {
     ts: Date.now(),
     coreKey: hasCoreKey(),
     leaseTtlMs: store.leaseTtlMs(),
+    // A killed core is still up enough to answer /health, so it has to say so —
+    // otherwise the one state where spending has stopped looks like the one
+    // where everything is fine (FIX3.md BUG 4).
+    issuanceKilledAtMs: store.issuanceKilledAt(),
     envFilesLoaded: LOADED_ENV_FILES.map((f) => f.path),
   }));
 
@@ -80,6 +85,7 @@ async function buildApp() {
   await registerTaskRoutes(app);
   await registerAuditRoutes(app);
   await registerRevokeRoutes(app);
+  await registerAdminRoutes(app);
 
   // Global error handler — fail closed: unknown errors never return 200
   app.setErrorHandler((error, _request, reply) => {
@@ -127,11 +133,14 @@ await seedPolicyFromChain();
 await app.listen({ port: PORT, host: '0.0.0.0' });
 console.log(`core API listening on http://localhost:${PORT}`);
 
-// Emit periodic core.status so C's enforcement panel stays current
+// Emit periodic core.status so C's enforcement panel stays current.
+// `up` reports issuance, not process liveness: a killed core is still running
+// well enough to send this, and hardcoding true here would quietly flip the UI
+// back to healthy within 30s of a kill that is still in force (FIX3.md BUG 4).
 setInterval(() => {
   emit({
     t: 'core.status',
-    up: true,
+    up: store.issuanceKilledAt() === null,
     imageDigest: process.env['CORE_IMAGE_DIGEST'] ?? 'sha256:dev',
   });
 }, 30_000);
