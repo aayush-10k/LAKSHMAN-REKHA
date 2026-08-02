@@ -8,6 +8,10 @@
  * on disk, unimported, as the rollback.
  */
 
+// MUST be the first import: it populates process.env from .env, and api/chain.ts
+// reads BASE_SEPOLIA_RPC at module scope. See src/env.ts (FIX2.md BUG 1).
+import { LOADED_ENV_FILES } from '../env.js';
+
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { registerAgentRoutes } from './routes/agent.js';
@@ -21,7 +25,26 @@ import { registerSseRoute } from '../events/sse.js';
 import { emit } from '../events/bus.js';
 import * as store from './store.js';
 
+import { hasCoreKey } from '../keys.js';
+
 const PORT = Number(process.env['PORT'] ?? 4000);
+
+/**
+ * Names only — these files hold private keys. The point is that a core with no
+ * key says so at boot instead of at the first 503.
+ */
+function reportEnv(): void {
+  for (const file of LOADED_ENV_FILES) {
+    console.log(`[env] ${file.path}: applied ${file.keys.length} variable(s)${file.keys.length ? ` (${file.keys.join(', ')})` : ''}`);
+  }
+  if (LOADED_ENV_FILES.length === 0) console.warn('[env] no .env file found');
+  if (!hasCoreKey()) {
+    console.warn(
+      '[env] WARNING: no core signing key. CORE_SIGNER_PRIVATE_KEY is unset or malformed, so ' +
+      'no lease can be signed and no payment can settle. Every affected route will 503 and say so.',
+    );
+  }
+}
 
 async function buildApp() {
   const app = Fastify({
@@ -35,8 +58,15 @@ async function buildApp() {
     methods: ['GET', 'POST', 'OPTIONS'],
   });
 
-  // Health check
-  app.get('/health', () => ({ ok: true, ts: Date.now() }));
+  // Health check. `coreKey` and `leaseTtlMs` are here so the UI can show the
+  // real configuration rather than assuming a 5s lease and a working signer.
+  app.get('/health', () => ({
+    ok: true,
+    ts: Date.now(),
+    coreKey: hasCoreKey(),
+    leaseTtlMs: store.leaseTtlMs(),
+    envFilesLoaded: LOADED_ENV_FILES.map((f) => f.path),
+  }));
 
   // SSE — must be registered before other routes to avoid route conflicts
   await registerSseRoute(app);
@@ -66,6 +96,7 @@ async function buildApp() {
 }
 
 // Start if run directly
+reportEnv();
 const app = await buildApp();
 await app.listen({ port: PORT, host: '0.0.0.0' });
 console.log(`core API listening on http://localhost:${PORT}`);

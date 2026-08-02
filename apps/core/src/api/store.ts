@@ -156,6 +156,27 @@ export interface LeaseRecord {
 const leases = new Map<string, LeaseRecord>();
 
 /**
+ * Why a lease could not be issued. The route turns this into the 503/409 body so
+ * the failure is never invisible again (FIX2.md BUG 1: a bare "Could not issue
+ * lease" cost an afternoon of guessing that the core simply had no key).
+ */
+export type LeaseFailureCode =
+  | 'AGENT_NOT_FOUND'
+  | 'MANDATE_NOT_FOUND'
+  | 'MANDATE_FROZEN'
+  | 'NO_CORE_KEY'
+  | 'SIGNING_FAILED';
+
+export type IssueLeaseResult =
+  | { ok: true; lease: LeaseRecord }
+  | { ok: false; code: LeaseFailureCode; reason: string };
+
+/** The current lease TTL, so clients can size their own timers off the truth. */
+export function leaseTtlMs(): number {
+  return Number(process.env['LEASE_TTL_MS']) || 5_000;
+}
+
+/**
  * Issues a lease carrying a real core signature.
  *
  * It used to ship `0x00…00` with a "real sig from A's signing service" note.
@@ -164,38 +185,60 @@ const leases = new Map<string, LeaseRecord>();
  * signer. A placeholder recovers to some unrelated address, so every payment
  * would fail lease validation and nothing could ever settle.
  *
- * Async because signing is. Returns null — never an unsigned lease — when there
- * is no mandate, the mandate is frozen, or no core key is configured; the route
- * renders each of those as 503/409.
+ * Async because signing is. Every failure path returns `ok: false` with the
+ * reason — never an unsigned lease. A missing key still fails closed; it just
+ * says so now.
  */
-export async function issueLease(agentId: string): Promise<LeaseRecord | null> {
+export async function issueLease(agentId: string): Promise<IssueLeaseResult> {
   const agent = agents.get(agentId);
-  if (!agent) return null;
+  if (!agent) {
+    return { ok: false, code: 'AGENT_NOT_FOUND', reason: `No agent ${agentId} is registered with this core.` };
+  }
   const mandate = mandates.get(agent.mandateId);
-  if (!mandate || mandate.frozen) return null;
+  if (!mandate) {
+    return { ok: false, code: 'MANDATE_NOT_FOUND', reason: `Mandate ${agent.mandateId} is not in this core's store.` };
+  }
+  if (mandate.frozen) {
+    return { ok: false, code: 'MANDATE_FROZEN', reason: `Mandate ${agent.mandateId} is frozen; no leases will be issued.` };
+  }
   // Checked rather than caught: corePrivateKey() throws when unconfigured, and a
   // lease with no signature is not a lease.
-  if (!hasCoreKey()) return null;
+  if (!hasCoreKey()) {
+    return {
+      ok: false,
+      code: 'NO_CORE_KEY',
+      reason: 'No core signing key is configured (set CORE_SIGNER_PRIVATE_KEY, e.g. in .env).',
+    };
+  }
 
   const unsigned = {
     leaseId: `lse_${randomBytes(4).toString('hex')}`,
     agentId,
     mandateId: agent.mandateId,
-    expiresAtMs: Date.now() + (Number(process.env['LEASE_TTL_MS']) || 5_000),
+    expiresAtMs: Date.now() + leaseTtlMs(),
     revocationEpoch: mandate.revocationEpoch,
     policyHash: mandate.policyHash,
   };
 
-  // Raw digest signing, matching src/lease/index.ts. NEVER signMessage.
-  const signature = await sign({
-    hash: leaseDigest(unsigned),
-    privateKey: corePrivateKey(),
-    to: 'hex',
-  });
+  let signature: Hex;
+  try {
+    // Raw digest signing, matching src/lease/index.ts. NEVER signMessage.
+    signature = await sign({
+      hash: leaseDigest(unsigned),
+      privateKey: corePrivateKey(),
+      to: 'hex',
+    });
+  } catch (e) {
+    // The exception this swallowed is exactly what BUG 1 needed to see. Log it
+    // and hand the message up; still no lease, so it is as fail-closed as before.
+    const reason = e instanceof Error ? e.message : String(e);
+    console.error('[lease] signing failed:', reason);
+    return { ok: false, code: 'SIGNING_FAILED', reason };
+  }
 
   const record: LeaseRecord = { ...unsigned, signature };
   leases.set(record.leaseId, record);
-  return record;
+  return { ok: true, lease: record };
 }
 
 export function getLease(leaseId: string): LeaseRecord | undefined {
