@@ -11,5 +11,5 @@
     "allowJs": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*", "../../agents/task-engine/src/**/*"]
+  "include": ["src/**/*", "test/**/*", "../../agents/task-engine/src/**/*"]
 }

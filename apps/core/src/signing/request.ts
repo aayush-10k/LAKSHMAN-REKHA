@@ -1,5 +1,5 @@
 import { encodeAbiParameters, getAddress, keccak256, toBytes, type Address, type Hex } from 'viem';
-import { CATEGORY_INDEX, type FactSheet, type MandateState } from '../types.js';
+import { CATEGORY_INDEX, type PolicyFactSheet, type PolicyState } from '../types.js';
 import type { Lease } from '../lease/types.js';
 import {
   CHAIN_ID,
@@ -36,8 +36,8 @@ export function leaseIdToBytes32(leaseId: string): Hex {
  * signature.
  */
 export function buildPaymentRequest(
-  factSheet: FactSheet,
-  mandateState: MandateState,
+  factSheet: PolicyFactSheet,
+  mandateState: PolicyState,
   lease: Lease,
   coreImageDigest: Hex,
 ): PaymentRequestStruct {

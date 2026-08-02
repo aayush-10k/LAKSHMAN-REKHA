@@ -94,6 +94,41 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   letter-spacing: 0.5px;
 }
 
+/* ── Agent pairing chip (FIX2 BUG 3) ────────────────────── */
+.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 46ch;
+  padding: 2px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-chip-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted);
+}
+.agent-chip-ok   { color: var(--chalk); }
+.agent-chip-ok   .agent-chip-dot { background: var(--clear); box-shadow: 0 0 5px var(--clear); }
+.agent-chip-wait .agent-chip-dot { background: var(--lien); animation: blink 1s step-end infinite; }
+.agent-chip-err  { color: var(--breach); border-color: var(--breach); }
+.agent-chip-err  .agent-chip-dot { background: var(--breach); }
+.agent-chip-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.agent-chip-sep { color: var(--border); }
+
 .mode-badge {
   font-size: 12px;
   font-weight: 600;
@@ -496,21 +531,85 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 .task-input:focus { border-color: var(--accent); }
 .task-input::placeholder { color: var(--muted); }
 
-.task-list  { flex: 1; overflow-y: auto; }
+.task-list  { flex: 1; overflow-y: auto; min-height: 120px; }
 .task-empty { padding: 20px 16px; color: var(--muted); font-size: 12px; }
 .task-item  {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   font-size: 12px;
 }
+.task-head { display: flex; align-items: flex-start; gap: 8px; }
 .task-dot  { font-size: 14px; flex-shrink: 0; }
 .task-item.task-running .task-dot { animation: spin 1s linear infinite; display: inline-block; }
+.task-item.task-failed  .task-dot { color: var(--breach); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .task-desc { flex: 1; }
 .task-mode { font-size: 11px; font-weight: 600; flex-shrink: 0; }
+
+.task-error {
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(255,77,77,0.08);
+  border: 1px solid var(--breach);
+  color: var(--breach);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* ── Line items under a task (FIX2 end-to-end flow) ─────── */
+.line-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 22px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--border);
+  background: rgba(255,255,255,0.015);
+}
+.li-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.li-vendor { font-family: var(--font-mono); font-size: 11px; color: var(--chalk); }
+.li-cat    { font-size: 10px; color: var(--muted); letter-spacing: 0.4px; }
+.li-amount {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.li-outcome {
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--chalk);
+}
+.li-approved { color: var(--clear);  border-color: var(--clear); }
+.li-held     { color: var(--lien);   border-color: var(--lien); }
+.li-refused  { color: var(--breach); border-color: var(--breach); }
+
+.li-settled { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 10px; color: var(--muted); }
+.li-settled-label { color: var(--clear); font-weight: 600; letter-spacing: 0.4px; }
+.li-tx { font-family: var(--font-mono); color: var(--accent); text-decoration: underline; }
+.li-block, .li-bal { font-variant-numeric: tabular-nums; }
+
+.li-reverted {
+  font-size: 10px;
+  color: var(--breach);
+}
+
+/* Decision trace, shown in the playground next to the task that produced it. */
+.pg-decision {
+  border-top: 1px solid var(--border);
+  padding: 0 16px 16px;
+  max-height: 46%;
+  overflow-y: auto;
+}
+.pg-decision .panel-header { padding-left: 0; padding-right: 0; }
 
 /* ── Ceremony Bar (M3) ─────────────────────────────────── */
 .ceremony-bar {

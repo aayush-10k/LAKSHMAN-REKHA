@@ -13,6 +13,17 @@ export async function registerSseRoute(app: FastifyInstance): Promise<void> {
   app.get('/v1/events', (request, reply) => {
     const raw = reply.raw;
 
+    // CORS has to be set here, by hand.
+    //
+    // @fastify/cors adds its headers in an onSend hook, but this route never
+    // goes through onSend — it writes to reply.raw and calls flushHeaders()
+    // itself. So the stream went out with no Access-Control-Allow-Origin and
+    // every browser on :3000 got "blocked by CORS policy", which took the whole
+    // live UI down: no feed, no decision panel, no lease ring, no settlement.
+    // Same origin value the plugin is configured with.
+    raw.setHeader('Access-Control-Allow-Origin', process.env['CORS_ORIGIN'] ?? '*');
+    raw.setHeader('Vary', 'Origin');
+
     raw.setHeader('Content-Type', 'text/event-stream');
     raw.setHeader('Cache-Control', 'no-cache, no-transform');
     raw.setHeader('Connection', 'keep-alive');

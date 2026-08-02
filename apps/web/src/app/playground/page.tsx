@@ -1,13 +1,45 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import type { RekhaEvent } from '../../types';
+import type { CategoryCode, DecisionTrace, RekhaEvent } from '../../types';
+import { CORE_URL, ensurePaired, type Pairing } from '../../lib/pairing';
+import { AgentStatus } from '../../components/AgentStatus';
 
-const CORE_URL = process.env['NEXT_PUBLIC_CORE_URL'] ?? 'http://localhost:4000';
+/**
+ * The agent runs in its own process holding the other half of the 2-of-2, so
+ * Dispatch talks to it and not to the core. See apps/core/src/agent/runner.ts.
+ */
+const AGENT_URL = process.env['NEXT_PUBLIC_AGENT_URL'] ?? 'http://localhost:4200';
 
 type BehaviourMode = 'normal' | 'hallucinating' | 'injected' | 'compromised' | 'overreach' | 'colluding';
 type AttackLog = { id: number; technique: string; revertReason: string; blocked: boolean; novel: boolean; ts: number };
 type CeremonyState = { decisionId: string; round: number; of: number; aborted: boolean; abortedAt: number | null };
+
+type PlanItem = { lineItemId: string; vendorId: string; categoryCode: CategoryCode; estimatedAmountMinor: number; description: string };
+
+/** One line item's whole journey, as the agent runner reports it. */
+type LineItemResult = {
+  lineItemId: string;
+  vendorId: string;
+  counterparty: string;
+  amountMinor: number;
+  outcome: 'APPROVED' | 'HELD' | 'REFUSED';
+  bindingPredicate: string | null;
+  decisionId: string;
+  trace: DecisionTrace;
+  settlement: { txHash: string; blockNumber: number; balanceAfterMinor: number | null; explorerUrl: string } | null;
+  refusedOnChain: string | null;
+};
+
+type TaskRow = {
+  id: string;
+  description: string;
+  status: 'running' | 'done' | 'failed';
+  mode: BehaviourMode;
+  plan: PlanItem[];
+  results: LineItemResult[];
+  error: string | null;
+};
 
 const MODE_INFO: Record<BehaviourMode, { label: string; description: string; color: string }> = {
   normal:       { label: 'Normal',        description: 'Executes tasks correctly. Zero friction.',                              color: 'var(--clear)' },
@@ -26,16 +58,56 @@ export default function PlaygroundPage() {
   const [mode, setMode] = useState<BehaviourMode>('normal');
   const [taskInput, setTaskInput] = useState('');
   const [injectText, setInjectText] = useState('');
-  const [tasks, setTasks] = useState<Array<{ id: string; description: string; status: string; mode: BehaviourMode }>>([]);
+  const [tasks, setTasks] = useState<TaskRow[]>([]);
+  const [selectedTrace, setSelectedTrace] = useState<DecisionTrace | null>(null);
+  const [dispatching, setDispatching] = useState(false);
+  const [balanceMinor, setBalanceMinor] = useState<number | null>(null);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
   const [agentThoughts, setAgentThoughts] = useState<string[]>([]);
   const [attackLog, setAttackLog] = useState<AttackLog[]>([]);
   const [rogueStats, setRogueStats] = useState({ attempts: 0, blocked: 0, novel: 0, fundsLost: 0 });
   const [ceremony, setCeremony] = useState<CeremonyState | null>(null);
   const [leaseTtl, setLeaseTtl] = useState(5000);
+  const [leaseTtlMax, setLeaseTtlMax] = useState(5000);
   const [coreUp, setCoreUp] = useState(true);
   const [speed, setSpeed] = useState(1);
+  const [pairing, setPairing] = useState<Pairing | null>(null);
+  const [pairError, setPairError] = useState<string | null>(null);
   const attackIdRef = useRef(0);
   const thoughtsRef = useRef<HTMLDivElement>(null);
+
+  // Pair on load against the core's CURRENT code (FIX2.md BUG 2). The agentId is
+  // what Dispatch hands the agent runner, so this has to succeed before a task
+  // can spend anything.
+  useEffect(() => {
+    ensurePaired()
+      .then(p => {
+        setPairing(p);
+        setLeaseTtlMax(p.leaseTtlMs);
+        // Show the configured TTL until the first lease.tick arrives, rather
+        // than the 5000 the component initialises with.
+        setLeaseTtl(p.leaseTtlMs);
+        setPairError(null);
+      })
+      .catch((e: Error) => setPairError(e.message));
+  }, []);
+
+  // RekhaAccount's INRx balance on Base Sepolia. Not a number this page keeps —
+  // a failed read shows as unavailable rather than as a stale figure.
+  const refreshBalance = useCallback(async () => {
+    try {
+      const res = await fetch(`${CORE_URL}/v1/wallet/balance`);
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
+      setBalanceMinor(body.balanceMinor);
+      setBalanceError(null);
+    } catch (e) {
+      setBalanceMinor(null);
+      setBalanceError((e as Error).message);
+    }
+  }, []);
+
+  useEffect(() => { void refreshBalance(); }, [refreshBalance]);
 
   // SSE
   useEffect(() => {
@@ -58,7 +130,21 @@ export default function PlaygroundPage() {
     if (event.t === 'lease.tick') { setLeaseTtl(event.ttlMs); return; }
 
     if (event.t === 'task.started') {
-      setTasks(prev => [{ id: event.taskId, description: event.description, status: 'running', mode: event.mode as BehaviourMode }, ...prev]);
+      setTasks(prev => [{
+        id: event.taskId,
+        description: event.description,
+        status: 'running',
+        mode: event.mode as BehaviourMode,
+        plan: event.plan as PlanItem[],
+        results: [],
+        error: null,
+      }, ...prev]);
+    }
+
+    // The decision arrives on the stream before the runner's reply does, so the
+    // trace panel fills in while the settlement is still being mined.
+    if (event.t === 'decision.made') {
+      setSelectedTrace(event.trace);
     }
 
     if (event.t === 'agent.thought') {
@@ -97,21 +183,83 @@ export default function PlaygroundPage() {
     }
 
     if (event.t === 'payment.settled') {
-      setTasks(prev => prev.map(t => t.status === 'running' ? { ...t, status: 'done' } : t));
+      // Only the chain-read balance is shown. null means the post-settlement
+      // read failed; the payment still happened, we just cannot state a figure.
+      if (event.balanceAfterMinor !== null && event.balanceAfterMinor !== undefined) {
+        setBalanceMinor(event.balanceAfterMinor);
+        setBalanceError(null);
+      } else {
+        setBalanceMinor(null);
+        setBalanceError('post-settlement balance read failed');
+      }
     }
   }, []);
 
+  /**
+   * Dispatch.
+   *
+   * It used to POST /v1/task — a route that does not exist; the real one is
+   * /v1/task/create — and even that only announced a task. Nothing asked for a
+   * lease, built a FactSheet, requested a decision or settled, so the button
+   * could never produce a trace or a txHash.
+   *
+   * It now calls the agent runner, which holds the other half of the 2-of-2 and
+   * runs the whole path. The reply carries each line item's decision and, for an
+   * approved one, the mined transaction.
+   */
   const dispatchTask = async () => {
-    if (!taskInput.trim()) return;
+    if (!taskInput.trim() || dispatching) return;
+    const description = taskInput.trim();
+    setDispatching(true);
+    setTaskInput('');
+
     try {
-      await fetch(`${CORE_URL}/v1/task`, {
+      const res = await fetch(`${AGENT_URL}/dispatch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: taskInput, mode, speedMultiplier: speed }),
+        body: JSON.stringify({ description, mode, agentId: pairing?.agentId }),
       });
-      setTaskInput('');
-    } catch {
-      alert('Could not reach core API. Is it running?');
+      const body = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const message = body?.error?.message ?? `Dispatch failed (HTTP ${res.status}).`;
+        // The task row may already exist from task.started; if the failure came
+        // earlier there is no row, so add one carrying the reason.
+        setTasks(prev => {
+          const running = prev.findIndex(t => t.status === 'running');
+          if (running === -1) {
+            return [{ id: `failed-${Date.now()}`, description, status: 'failed', mode, plan: [], results: [], error: message }, ...prev];
+          }
+          return prev.map((t, i) => (i === running ? { ...t, status: 'failed', error: message } : t));
+        });
+        return;
+      }
+
+      // The runner re-paired mid-flight (core restart) — adopt its agentId so
+      // the status chip names the agent that actually spent.
+      if (body.agentId && body.agentId !== pairing?.agentId) {
+        setPairing(p => (p ? { ...p, agentId: body.agentId } : p));
+      }
+
+      setTasks(prev => prev.map(t => (t.id === body.taskId
+        ? { ...t, status: 'done', plan: body.plan, results: body.results as LineItemResult[], error: null }
+        : t)));
+
+      const last = (body.results as LineItemResult[]).at(-1);
+      if (last) setSelectedTrace(last.trace);
+      void refreshBalance();
+    } catch (e) {
+      setTasks(prev => [{
+        id: `failed-${Date.now()}`,
+        description,
+        status: 'failed',
+        mode,
+        plan: [],
+        results: [],
+        error: `Could not reach the agent runner at ${AGENT_URL}. Is \`pnpm dev:agent\` running? (${(e as Error).message})`,
+      }, ...prev]);
+    } finally {
+      setDispatching(false);
     }
   };
 
@@ -126,7 +274,7 @@ export default function PlaygroundPage() {
     await fetch(`${CORE_URL}/v1/admin/kill`, { method: 'POST' }).catch(() => {});
   };
 
-  const leasePercent = Math.max(0, Math.min(100, (leaseTtl / 5000) * 100));
+  const leasePercent = Math.max(0, Math.min(100, (leaseTtl / leaseTtlMax) * 100));
 
   return (
     <div className="playground-layout">
@@ -136,8 +284,16 @@ export default function PlaygroundPage() {
           <div className={`core-dot ${coreUp ? 'up' : 'down'}`} />
           <a href="/console" className="topbar-brand">← Console</a>
           <span className="topbar-page">Agent Playground</span>
+          <AgentStatus pairing={pairing} error={pairError} leaseTtlMs={leaseTtl} />
         </div>
         <div className="topbar-right">
+          {/* RekhaAccount's INRx balance on Base Sepolia — not a local counter. */}
+          <div className="balance-block" title={balanceError ?? 'RekhaAccount INRx balance on Base Sepolia'}>
+            <span className="balance-label">On-chain</span>
+            <span className="balance-amount">
+              {balanceMinor === null ? 'unavailable' : fmtInr(balanceMinor)}
+            </span>
+          </div>
           <span className="mode-badge" style={{ color: MODE_INFO[mode].color }}>
             {MODE_INFO[mode].label} Mode
           </span>
@@ -166,19 +322,90 @@ export default function PlaygroundPage() {
               onChange={e => setTaskInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && dispatchTask()}
             />
-            <button className="btn-dispatch" onClick={dispatchTask}>▶ Dispatch</button>
+            <button className="btn-dispatch" onClick={dispatchTask} disabled={dispatching}>
+              {dispatching ? '⋯ Settling on Base Sepolia' : '▶ Dispatch'}
+            </button>
           </div>
 
-          {/* Task list */}
+          {/* Task list — each task expands into its line items, and each line
+              item into its decision and, if it settled, its transaction. */}
           <div className="task-list">
             {tasks.length === 0 && <p className="task-empty">No tasks yet. Enter a task above to begin.</p>}
             {tasks.map(task => (
               <div key={task.id} className={`task-item task-${task.status}`}>
-                <span className="task-dot">{task.status === 'running' ? '⟳' : '✓'}</span>
-                <span className="task-desc">{task.description}</span>
-                <span className="task-mode" style={{ color: MODE_INFO[task.mode].color }}>{task.mode}</span>
+                <div className="task-head">
+                  <span className="task-dot">
+                    {task.status === 'running' ? '⟳' : task.status === 'failed' ? '✗' : '✓'}
+                  </span>
+                  <span className="task-desc">{task.description}</span>
+                  <span className="task-mode" style={{ color: MODE_INFO[task.mode].color }}>{task.mode}</span>
+                </div>
+
+                {task.error && <div className="task-error">{task.error}</div>}
+
+                {task.plan.map(item => {
+                  const result = task.results.find(r => r.lineItemId === item.lineItemId);
+                  return (
+                    <div key={item.lineItemId} className="line-item">
+                      <div className="li-row">
+                        <span className="li-vendor">{item.vendorId}</span>
+                        <span className="li-cat">{item.categoryCode}</span>
+                        <span className="li-amount">{fmtInr(item.estimatedAmountMinor)}</span>
+                        {result && (
+                          <button
+                            className={`li-outcome li-${result.outcome.toLowerCase()}`}
+                            onClick={() => setSelectedTrace(result.trace)}
+                            title="Show the predicate trace"
+                          >
+                            {result.outcome}
+                            {result.bindingPredicate ? ` · ${result.bindingPredicate}` : ''}
+                          </button>
+                        )}
+                      </div>
+
+                      {result?.settlement && (
+                        <div className="li-settled">
+                          <span className="li-settled-label">settled</span>
+                          <a
+                            className="li-tx"
+                            href={result.settlement.explorerUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={result.settlement.txHash}
+                          >
+                            {result.settlement.txHash.slice(0, 18)}… ↗
+                          </a>
+                          <span className="li-block">block {result.settlement.blockNumber}</span>
+                          <span className="li-bal">
+                            balance {result.settlement.balanceAfterMinor === null
+                              ? 'unavailable'
+                              : fmtInr(result.settlement.balanceAfterMinor)}
+                          </span>
+                        </div>
+                      )}
+
+                      {result?.refusedOnChain && (
+                        <div className="li-reverted">
+                          PolicyModule refused on chain: {result.refusedOnChain}. No funds moved.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ))}
+          </div>
+
+          {/* Decision Panel — the predicate trace for whatever was last decided
+              or clicked. FIX2 asks for this to be visible here, not only in the
+              console. */}
+          <div className="pg-decision">
+            <div className="panel-header"><h2>Decision</h2></div>
+            {selectedTrace === null ? (
+              <p className="task-empty">Dispatch a task, or click an outcome above, to see the predicate trace.</p>
+            ) : (
+              <PredicateTrace trace={selectedTrace} />
+            )}
           </div>
 
           {/* Ceremony Bar (M3) */}
@@ -339,11 +566,53 @@ export default function PlaygroundPage() {
             </div>
             <p className="lease-note">
               {coreUp
-                ? 'Renews every 5s. Kill the service to watch it drain.'
+                ? `Renews every ${(leaseTtlMax / 1000).toFixed(0)}s. Kill the service to watch it drain.`
                 : '⚠ Core offline — lease draining. Spending stops at 0.'}
             </p>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The 14 predicates, in the order PolicyModule.validate runs them.
+ *
+ * The binding one is highlighted, because "why" is the product: a REFUSED
+ * decision that does not name the predicate it failed on is just a rejection.
+ * Same table as the console's Decision Panel, rendered where the task is.
+ */
+function PredicateTrace({ trace }: { trace: DecisionTrace }) {
+  const colour = trace.outcome === 'APPROVED' ? 'var(--clear)'
+    : trace.outcome === 'HELD' ? 'var(--lien)'
+    : 'var(--breach)';
+
+  return (
+    <div className="decision-inner">
+      <div className="decision-outcome" style={{ color: colour }}>{trace.outcome}</div>
+      <p className="decision-summary">{trace.summary}</p>
+      <div className="decision-meta">
+        <span>{trace.decisionId}</span>
+        <span>{fmtInr(trace.amountMinor)}</span>
+      </div>
+      <table className="predicate-table">
+        <thead>
+          <tr><th>Predicate</th><th>Expected</th><th>Actual</th><th>Pass</th></tr>
+        </thead>
+        <tbody>
+          {trace.predicates.map(pred => (
+            <tr key={pred.name} className={pred.name === trace.bindingPredicate ? 'binding-row' : ''}>
+              <td className="pred-name">{pred.name}</td>
+              <td className="pred-expected">{pred.expected}</td>
+              <td className={`pred-actual ${pred.passed ? 'pass' : 'fail'}`}>{pred.actual}</td>
+              <td>{pred.passed ? '✓' : '✗'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="decision-hash">
+        <span>Policy: </span><code className="mono-sm">{trace.policyHash.slice(0, 18)}…</code>
       </div>
     </div>
   );

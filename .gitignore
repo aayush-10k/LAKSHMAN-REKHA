@@ -23,3 +23,9 @@ venv/
 .DS_Store
 .vscode/settings.json
 *.log
+
+# Local dev process logs, pids and throwaway verification scripts
+.run/
+
+# Playwright MCP session artefacts
+.playwright-mcp/

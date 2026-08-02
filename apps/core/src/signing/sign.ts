@@ -3,7 +3,7 @@ import { sign } from 'viem/accounts';
 import { evaluate } from '../evaluator.js';
 import { agentPrivateKey, corePrivateKey } from '../keys.js';
 import { LeaseInvalidError, validateLease, type Lease } from '../lease/index.js';
-import type { DecisionTrace, FactSheet, MandateState } from '../types.js';
+import type { DecisionTrace, PolicyFactSheet, PolicyState } from '../types.js';
 import type { PaymentRequestStruct } from './constants.js';
 import { buildPaymentRequest, hashRequest, DEPLOYED_TARGET, type PolicyTarget } from './request.js';
 
@@ -43,8 +43,8 @@ export type CoreSignResult = {
  * can sign for a PolicyModule at a different address; production passes nothing.
  */
 export async function coreSign(
-  factSheet: FactSheet,
-  mandateState: MandateState,
+  factSheet: PolicyFactSheet,
+  mandateState: PolicyState,
   lease: Lease,
   nowMs: number,
   target: PolicyTarget = DEPLOYED_TARGET,

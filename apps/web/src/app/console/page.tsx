@@ -4,8 +4,9 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useWriteContract, useAccount, useConnect, useDisconnect } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import type { DecisionTrace, RekhaEvent } from '../../types';
+import { CORE_URL, ensurePaired, renewLease, type Pairing } from '../../lib/pairing';
+import { AgentStatus } from '../../components/AgentStatus';
 
-const CORE_URL = process.env['NEXT_PUBLIC_CORE_URL'] ?? 'http://localhost:4000';
 const POLICY_MODULE_ADDRESS = (process.env['NEXT_PUBLIC_POLICY_MODULE_ADDRESS'] ?? '0x933bb10252ec2b133f28b7d5edf1d303c3384d87') as `0x${string}`;
 
 const revokeAbi = [{ type: 'function', name: 'revoke', stateMutability: 'nonpayable', inputs: [], outputs: [] }] as const;
@@ -39,13 +40,18 @@ function timeAgo(ts: number) {
 export default function ConsolePage() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [selected, setSelected] = useState<DecisionTrace | null>(null);
-  const [balance, setBalance] = useState(5_000_000);
+  // RekhaAccount's on-chain INRx balance. null until read, and null again if a
+  // read fails — never a placeholder that looks like real money.
+  const [balance, setBalance] = useState<number | null>(null);
   const [frozen, setFrozen] = useState(false);
   const [mandateId, setMandateId] = useState<string | null>(null);
-  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [pairing, setPairing] = useState<Pairing | null>(null);
+  const [pairError, setPairError] = useState<string | null>(null);
   const [holds, setHolds] = useState<HoldItem[]>([]);
   const [coreUp, setCoreUp] = useState(false);
   const [leaseTtl, setLeaseTtl] = useState(5000);
+  /** Configured lease TTL, read from the core. The ring denominator, not a guess. */
+  const [leaseTtlMax, setLeaseTtlMax] = useState(5000);
   const [imageDigest, setImageDigest] = useState('loading…');
   const feedRef = useRef<HTMLDivElement>(null);
   const { writeContract, isPending: revokePending } = useWriteContract();
@@ -53,19 +59,24 @@ export default function ConsolePage() {
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
 
-  // Boot: get mandate + pairing code from core
+  // Boot: pair with the core, then load balance and holds.
+  // FIX2.md BUG 2 — this used to POST a literal '------' pairing code and drop
+  // the 404 on the floor, so the console was never actually paired.
   useEffect(() => {
-    fetch(`${CORE_URL}/v1/agent/pair`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pairingCode: '------' }), // will fail, we need init endpoint
-    }).catch(() => {});
-
-    // Actually just hit the health endpoint to check core status
     fetch(`${CORE_URL}/health`)
       .then(r => r.json())
-      .then(() => setCoreUp(true))
+      .then(h => { setCoreUp(true); if (h.leaseTtlMs) setLeaseTtlMax(h.leaseTtlMs); })
       .catch(() => setCoreUp(false));
+
+    ensurePaired()
+      .then(p => {
+        setPairing(p);
+        setMandateId(p.mandateId);
+        setLeaseTtlMax(p.leaseTtlMs);
+        setLeaseTtl(p.leaseTtlMs); // until the first lease.tick lands
+        setPairError(null);
+      })
+      .catch((e: Error) => setPairError(e.message));
 
     fetch(`${CORE_URL}/v1/wallet/balance`)
       .then(r => r.json())
@@ -77,6 +88,34 @@ export default function ConsolePage() {
       .then(d => { if (Array.isArray(d.holds)) setHolds(d.holds); })
       .catch(() => {});
   }, []);
+
+  // Keep the lease alive so the TTL ring shows a real lease rather than a
+  // decorative one. renewLease re-pairs by itself if the core has restarted and
+  // forgotten this agentId — the failure mode BUG 2 is about.
+  useEffect(() => {
+    if (!pairing) return;
+    let current = pairing.agentId;
+    let stopped = false;
+
+    const tick = async () => {
+      try {
+        const lease = await renewLease(current);
+        if (stopped) return;
+        if (lease.agentId !== current) {
+          current = lease.agentId;
+          setPairing(p => (p ? { ...p, agentId: lease.agentId } : p));
+        }
+        setLeaseTtlMax(lease.ttlMs);
+        setPairError(null);
+      } catch (e) {
+        if (!stopped) setPairError((e as Error).message);
+      }
+    };
+
+    void tick();
+    const timer = setInterval(tick, Math.max(1000, pairing.leaseTtlMs * 0.6));
+    return () => { stopped = true; clearInterval(timer); };
+  }, [pairing?.agentId, pairing?.leaseTtlMs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // SSE subscription
   useEffect(() => {
@@ -134,7 +173,10 @@ export default function ConsolePage() {
     }
 
     if (event.t === 'payment.settled') {
-      setBalance(event.balanceAfterMinor);
+      // Only ever the chain-read balance. null means the post-settlement read
+      // failed — the payment happened, the figure is unknown, and showing the
+      // last known number would be presenting a stale value as current.
+      setBalance(event.balanceAfterMinor ?? null);
       addFeedItem({ id: `set-${event.decisionId}`, type: 'settled', text: `✓ Settled — tx: ${event.txHash.slice(0, 10)}…`, ts, outcome: 'APPROVED', txHash: event.txHash });
     }
 
@@ -181,7 +223,7 @@ export default function ConsolePage() {
     setHolds(h => h.filter(x => x.decisionId !== decisionId));
   };
 
-  const leasePercent = Math.max(0, Math.min(100, (leaseTtl / 5000) * 100));
+  const leasePercent = Math.max(0, Math.min(100, (leaseTtl / leaseTtlMax) * 100));
 
   return (
     <div className="console-layout">
@@ -190,12 +232,13 @@ export default function ConsolePage() {
         <div className="topbar-left">
           <div className={`core-dot ${coreUp ? 'up' : 'down'}`} title={coreUp ? 'Core online' : 'Core offline'} />
           <span className="topbar-brand">Lakshman Rekha</span>
+          <AgentStatus pairing={pairing} error={pairError} leaseTtlMs={leaseTtl} />
           {frozen && <span className="frozen-chip">FROZEN</span>}
         </div>
         <div className="topbar-center">
-          <div className="balance-block">
-            <span className="balance-label">Available</span>
-            <span className="balance-amount">{fmtInr(balance)}</span>
+          <div className="balance-block" title="RekhaAccount INRx balance on Base Sepolia">
+            <span className="balance-label">On-chain</span>
+            <span className="balance-amount">{balance === null ? 'unavailable' : fmtInr(balance)}</span>
           </div>
         </div>
         <div className="topbar-right">

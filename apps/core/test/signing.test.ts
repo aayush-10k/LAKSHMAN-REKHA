@@ -5,7 +5,7 @@ import { issueLease, clearLeaseStore, LeaseInvalidError, type Lease } from '../s
 import { setCoreKey, setAgentKey, resetKeys } from '../src/keys.js';
 import { buildPaymentRequest, hashRequest, leaseIdToBytes32 } from '../src/signing/request.js';
 import { agentSign, coreSign } from '../src/signing/sign.js';
-import type { FactSheet, MandateState } from '../src/types.js';
+import type { PolicyFactSheet, PolicyState } from '../src/types.js';
 import {
   factSheet,
   mandateState,
@@ -30,9 +30,9 @@ beforeEach(() => {
  * the same three-way consistency coreSign insists on.
  */
 async function scenario(
-  fsOver: Partial<FactSheet> = {},
-  mOver: Partial<MandateState> = {},
-): Promise<{ fs: FactSheet; m: MandateState; lease: Lease }> {
+  fsOver: Partial<PolicyFactSheet> = {},
+  mOver: Partial<PolicyState> = {},
+): Promise<{ fs: PolicyFactSheet; m: PolicyState; lease: Lease }> {
   const base = mandateState(mOver);
   const lease = await issueLease('agent-1', base, T0);
   const m = mandateState({

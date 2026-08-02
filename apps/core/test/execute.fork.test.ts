@@ -23,7 +23,7 @@ import {
   REKHA_ACCOUNT_ADDRESS,
   type PaymentRequestStruct,
 } from '../src/signing/constants.js';
-import type { FactSheet, MandateState } from '../src/types.js';
+import type { PolicyFactSheet, PolicyState } from '../src/types.js';
 import { factSheet, mandateState, TEST_AGENT_PK, TEST_CORE_PK, TIER1_COUNTERPARTY } from './fixtures.js';
 
 /**
@@ -60,7 +60,7 @@ const client = createTestClient({
   .extend(walletActions);
 
 function loadAbi(name: string): unknown[] {
-  const p = resolve(process.cwd(), `../out/${name}.sol/${name}.json`);
+  const p = resolve(process.cwd(), `../../contracts/out/${name}.sol/${name}.json`);
   return JSON.parse(readFileSync(p, 'utf8')).abi;
 }
 
@@ -178,19 +178,19 @@ async function armRequest(nonce: number): Promise<{
 
   const nowMs = blockTs * 1000;
 
-  const base: MandateState = mandateState({
+  const base: PolicyState = mandateState({
     revocationEpoch: onChainEpoch,
     policyHash: onChainPolicyHash,
     coreImageDigest: onChainImage.toLowerCase(),
   });
   const lease: Lease = await issueLease('agent-1', base, nowMs);
 
-  const m: MandateState = {
+  const m: PolicyState = {
     ...base,
     requestRevocationEpoch: lease.revocationEpoch,
     leaseExpiryS: Math.floor(lease.expiresAtMs / 1000),
   };
-  const fs: FactSheet = factSheet({
+  const fs: PolicyFactSheet = factSheet({
     leaseId: lease.leaseId,
     nonce,
     amountMinor: Number(AMOUNT),

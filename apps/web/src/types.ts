@@ -85,7 +85,10 @@ export type RekhaEvent =
   | { t: 'decision.made'; atMs: number; trace: DecisionTrace }
   | { t: 'ceremony.round'; atMs: number; decisionId: string; round: number; of: number }
   | { t: 'ceremony.aborted'; atMs: number; decisionId: string; atRound: number; reason: 'revoked' | 'timeout' }
-  | { t: 'payment.settled'; atMs: number; decisionId: string; txHash: string; balanceAfterMinor: number }
+  // balanceAfterMinor is RekhaAccount's on-chain INRx balance read at
+  // blockNumber, or null when that read failed. Render null as "unavailable" —
+  // never fall back to a locally tracked number.
+  | { t: 'payment.settled'; atMs: number; decisionId: string; txHash: string; blockNumber: number; amountMinor: number; balanceAfterMinor: number | null; balanceSource: 'chain' | 'unavailable' }
   | { t: 'payment.held'; atMs: number; decisionId: string; expiresAtMs: number; amountMinor: number }
   | { t: 'hold.released'; atMs: number; decisionId: string; amountMinor: number }
   | { t: 'revocation'; atMs: number; epoch: number; source: 'owner' | 'guardian' | 'deadman'; latencyMs: number }

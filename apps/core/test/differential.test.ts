@@ -20,8 +20,8 @@ import {
   SOFT_FAIL_AGE,
   SOFT_FAIL_PRICE,
   SOFT_FAIL_SETTLED,
-  type FactSheet,
-  type MandateState,
+  type PolicyFactSheet,
+  type PolicyState,
   type Outcome,
   type PredicateName,
 } from '../src/types.js';
@@ -201,7 +201,7 @@ function times(c: Case, tSnap: number) {
 //  TS derivation
 // ---------------------------------------------------------------------------
 
-function buildTs(c: Case, tValidate: number, leaseExpiryS: number): { fs: FactSheet; m: MandateState; nowMs: number } {
+function buildTs(c: Case, tValidate: number, leaseExpiryS: number): { fs: PolicyFactSheet; m: PolicyState; nowMs: number } {
   const addr = ADDR[c.cpKind].toLowerCase();
   const registry = new Map<string, number>([
     [ADDR.t1.toLowerCase(), 1],
@@ -222,7 +222,7 @@ function buildTs(c: Case, tValidate: number, leaseExpiryS: number): { fs: FactSh
     usedNonces.add(c.seed.nonce);
   }
 
-  const fs: FactSheet = {
+  const fs: PolicyFactSheet = {
     amountMinor: c.amount,
     currency: 'INR',
     categoryCode: CATEGORY_CODES[c.categoryIdx]!,
@@ -238,7 +238,7 @@ function buildTs(c: Case, tValidate: number, leaseExpiryS: number): { fs: FactSh
     nonce: c.nonce,
   };
 
-  const m: MandateState = {
+  const m: PolicyState = {
     perTxCapMinor: c.cfg.perTxCap,
     windowCapMinor: c.cfg.windowCap,
     windowSeconds: c.cfg.windowSeconds,
@@ -408,7 +408,7 @@ function bindingFromBitmask(mask: number): PredicateName | null {
 // ---------------------------------------------------------------------------
 
 beforeAll(async () => {
-  const artifactPath = resolve(process.cwd(), '../out/PolicyModule.sol/PolicyModule.json');
+  const artifactPath = resolve(process.cwd(), '../../contracts/out/PolicyModule.sol/PolicyModule.json');
   const artifact = JSON.parse(readFileSync(artifactPath, 'utf8'));
   abi = artifact.abi;
   bytecode = artifact.bytecode.object as Hex;
@@ -515,5 +515,7 @@ describe('differential: TypeScript evaluator vs Solidity PolicyModule.validate',
       throw new Error(`${N - agree}/${N} mismatches. First ${failures.length}:\n\n${failures.join('\n\n')}`);
     }
     expect(agree).toBe(N);
-  });
+    // N cases x (revert + snapshot + validate) RPC round-trips. Nowhere near
+    // vitest's 5s default, which is the only reason this used to fail.
+  }, 1_800_000);
 });

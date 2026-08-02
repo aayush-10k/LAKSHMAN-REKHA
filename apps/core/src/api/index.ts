@@ -3,8 +3,14 @@
  *
  * Fastify server exposing all /v1/* routes plus the SSE stream.
  * Person B owns apps/core/src/api/ and apps/core/src/events/.
- * A's policy/lease/signing modules plug into mock-evaluator.ts when ready.
+ * A's policy/lease/signing modules are now wired in: /v1/payment/request goes
+ * through coreSign(), which runs the real evaluator. mock-evaluator.ts is kept
+ * on disk, unimported, as the rollback.
  */
+
+// MUST be the first import: it populates process.env from .env, and api/chain.ts
+// reads BASE_SEPOLIA_RPC at module scope. See src/env.ts (FIX2.md BUG 1).
+import { LOADED_ENV_FILES } from '../env.js';
 
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
@@ -19,7 +25,27 @@ import { registerSseRoute } from '../events/sse.js';
 import { emit } from '../events/bus.js';
 import * as store from './store.js';
 
+import { hasCoreKey } from '../keys.js';
+import { readDeployedPolicy } from './chain.js';
+
 const PORT = Number(process.env['PORT'] ?? 4000);
+
+/**
+ * Names only — these files hold private keys. The point is that a core with no
+ * key says so at boot instead of at the first 503.
+ */
+function reportEnv(): void {
+  for (const file of LOADED_ENV_FILES) {
+    console.log(`[env] ${file.path}: applied ${file.keys.length} variable(s)${file.keys.length ? ` (${file.keys.join(', ')})` : ''}`);
+  }
+  if (LOADED_ENV_FILES.length === 0) console.warn('[env] no .env file found');
+  if (!hasCoreKey()) {
+    console.warn(
+      '[env] WARNING: no core signing key. CORE_SIGNER_PRIVATE_KEY is unset or malformed, so ' +
+      'no lease can be signed and no payment can settle. Every affected route will 503 and say so.',
+    );
+  }
+}
 
 async function buildApp() {
   const app = Fastify({
@@ -33,8 +59,15 @@ async function buildApp() {
     methods: ['GET', 'POST', 'OPTIONS'],
   });
 
-  // Health check
-  app.get('/health', () => ({ ok: true, ts: Date.now() }));
+  // Health check. `coreKey` and `leaseTtlMs` are here so the UI can show the
+  // real configuration rather than assuming a 5s lease and a working signer.
+  app.get('/health', () => ({
+    ok: true,
+    ts: Date.now(),
+    coreKey: hasCoreKey(),
+    leaseTtlMs: store.leaseTtlMs(),
+    envFilesLoaded: LOADED_ENV_FILES.map((f) => f.path),
+  }));
 
   // SSE — must be registered before other routes to avoid route conflicts
   await registerSseRoute(app);
@@ -63,8 +96,34 @@ async function buildApp() {
   return app;
 }
 
+/**
+ * Replaces the seeded mandate's policy with what PolicyModule actually holds.
+ *
+ * Runs after the routes, because registerAgentRoutes is what creates the demo
+ * mandate. If the RPC is unreachable the mandate keeps the pinned fallback
+ * constants and the log says so — the alternative, refusing to boot, would take
+ * out pairing and the decision panel over a read the demo can survive without.
+ */
+async function seedPolicyFromChain(): Promise<void> {
+  const snapshot = await readDeployedPolicy();
+  if (!store.seedPolicy(snapshot) || snapshot === null) {
+    console.warn(
+      '[policy] could not read PolicyModule; the mandate is using the pinned fallback in store.ts. ' +
+      'Decisions may disagree with the chain until the RPC is reachable.',
+    );
+    return;
+  }
+  console.log(
+    `[policy] seeded from PolicyModule: perTxCap=${snapshot.perTxCapMinor} windowCap=${snapshot.windowCapMinor} ` +
+    `categories=${snapshot.permittedCategories} epoch=${snapshot.revocationEpoch} ` +
+    `windowSpent=${snapshot.windowSpentMinor} cumulativeSpent=${snapshot.cumulativeSpentMinor}`,
+  );
+}
+
 // Start if run directly
+reportEnv();
 const app = await buildApp();
+await seedPolicyFromChain();
 await app.listen({ port: PORT, host: '0.0.0.0' });
 console.log(`core API listening on http://localhost:${PORT}`);
 

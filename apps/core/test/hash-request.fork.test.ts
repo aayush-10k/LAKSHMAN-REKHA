@@ -81,7 +81,7 @@ const client = createPublicClient({ transport: http(FORK_RPC) });
 let abi: any;
 
 beforeAll(async () => {
-  const artifactPath = resolve(process.cwd(), '../out/PolicyModule.sol/PolicyModule.json');
+  const artifactPath = resolve(process.cwd(), '../../contracts/out/PolicyModule.sol/PolicyModule.json');
   abi = JSON.parse(readFileSync(artifactPath, 'utf8')).abi;
 
   // Guard rails: a fork pointing at the wrong chain, or an address with no code,
