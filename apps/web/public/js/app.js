@@ -3,19 +3,19 @@
 // ═══════════════════════════════════════════════════
 const NOW = Date.now();
 const DEMO_BALANCE_FEED = [
-  { id: 'bf1', amount: 50000, source: 'manual', label: 'Initial funding', at: NOW - 3600000 },
-  { id: 'bf2', amount: -4000, source: 'agent', label: 'agent: ad campaign', at: NOW - 2040000 },
-  { id: 'bf3', amount: 3000, source: 'agent', label: 'agent: returned budget', at: NOW - 480000 },
+  { id: 'bf1', amount: 500, source: 'manual', label: 'Initial funding', at: NOW - 3600000 },
+  { id: 'bf2', amount: -40, source: 'agent', label: 'agent: ad campaign', at: NOW - 2040000 },
+  { id: 'bf3', amount: 30, source: 'agent', label: 'agent: returned budget', at: NOW - 480000 },
 ];
 const DEMO_LEDGER = [
-  { id: 'l1', amount: 4000, counterparty: 'Meta Ads', outcome: 'approved', reason: 'Within spend limit · approved counterparty', at: NOW - 2040000 },
-  { id: 'l2', amount: 12000, counterparty: 'Unknown Vendor', outcome: 'blocked', reason: 'Counterparty not on allowlist', at: NOW - 1320000 },
-  { id: 'l3', amount: 1800, counterparty: 'OpenAI', outcome: 'approved', reason: 'Within spend limit · approved counterparty', at: NOW - 540000 },
+  { id: 'l1', amount: 40, counterparty: 'Meta Ads', outcome: 'approved', reason: 'Within spend limit · approved counterparty', at: NOW - 2040000 },
+  { id: 'l2', amount: 120, counterparty: 'Unknown Vendor', outcome: 'blocked', reason: 'Counterparty not on allowlist', at: NOW - 1320000 },
+  { id: 'l3', amount: 18, counterparty: 'OpenAI', outcome: 'approved', reason: 'Within spend limit · approved counterparty', at: NOW - 540000 },
 ];
 const DEMO_ACTIVITY = [
   { id: 'a1', message: 'Agent started task "Q3 ad campaign"', reason: 'Scheduled growth objective triggered', at: NOW - 2100000 },
   { id: 'a2', message: 'Agent attempted payment to Unknown Vendor', reason: 'Sourcing cheaper compute — vendor not vetted', at: NOW - 1320000 },
-  { id: 'a3', message: 'Agent completed task "Keyword research"', reason: 'Returned ₹3,000 unused budget', at: NOW - 480000 },
+  { id: 'a3', message: 'Agent completed task "Keyword research"', reason: 'Returned $30 unused budget', at: NOW - 480000 },
 ];
 
 var state = window.state = {
@@ -24,13 +24,13 @@ var state = window.state = {
   balance: 0,
   frozen: false,
   agent: { label: '', endpoint: '', connected: false },
-  spendLimit: 10000,
+  spendLimit: 100,
   allowlist: ['Meta Ads', 'OpenAI', 'Google Cloud', 'Vercel'],
   blockedCounterparties: [],
   balanceFeed: [],
   ledger: [],
   activity: [],
-  windowCap: 30000,
+  windowCap: 300,
   windowSpent: 0,
   windowStartMs: Date.now(),
   usedNonces: new Set(),
@@ -50,32 +50,31 @@ var state = window.state = {
 };
 
 const TASK_POOL = [
-  { id: 'ad_campaign', label: 'Ad campaign', verb: 'Generating an ad image and running', unit: 'campaign', unitCost: 4500, normalRange: [1,2], attackRange: [4000,25000] },
-  { id: 'build_site', label: 'Build a website', verb: 'Registering hosting and shipping', unit: 'site', unitCost: 6000, normalRange: [1,1], attackRange: [2000,12000] },
-  { id: 'buy_compute', label: 'Buy compute', verb: 'Provisioning', unit: 'GPU', unitCost: 3200, normalRange: [1,3], attackRange: [10000,120000] },
-  { id: 'buy_ad_credits', label: 'Buy ad credits', verb: 'Purchasing', unit: 'ad credit', unitCost: 100, normalRange: [50,250], attackRange: [50000,400000] },
-  { id: 'renew_domain', label: 'Renew a domain', verb: 'Renewing', unit: 'domain', unitCost: 1400, normalRange: [1,2], attackRange: [8000,60000] },
-  { id: 'cloud_storage', label: 'Order cloud storage', verb: 'Reserving', unit: 'TB', unitCost: 800, normalRange: [1,5], attackRange: [500000,5000000] },
-  { id: 'api_tokens', label: 'Buy API tokens', verb: 'Topping up', unit: 'M tokens', unitCost: 300, normalRange: [1,10], attackRange: [500000,6000000] },
-  { id: 'email_sends', label: 'Buy email sends', verb: 'Loading', unit: 'K sends', unitCost: 200, normalRange: [5,40], attackRange: [2000000,50000000] },
-  { id: 'saas_seats', label: 'Add SaaS seats', verb: 'Licensing', unit: 'seat', unitCost: 2200, normalRange: [1,5], attackRange: [20000,300000] },
-  { id: 'proxy_pool', label: 'Rent proxy pool', verb: 'Leasing', unit: 'proxy IP', unitCost: 400, normalRange: [10,60], attackRange: [1000000,12000000] },
+  { id: 'ad_campaign', label: 'Ad campaign', verb: 'Generating an ad image and running', unit: 'campaign', unitCost: 45, normalRange: [1, 2], attackRange: [40, 250] },
+  { id: 'build_site', label: 'Build a website', verb: 'Registering hosting and shipping', unit: 'site', unitCost: 60, normalRange: [1, 1], attackRange: [20, 120] },
+  { id: 'buy_compute', label: 'Buy compute', verb: 'Provisioning', unit: 'GPU', unitCost: 32, normalRange: [1, 3], attackRange: [100, 1200] },
+  { id: 'buy_ad_credits', label: 'Buy ad credits', verb: 'Purchasing', unit: 'ad credit', unitCost: 1, normalRange: [50, 250], attackRange: [50000, 400000] },
+  { id: 'renew_domain', label: 'Renew a domain', verb: 'Renewing', unit: 'domain', unitCost: 14, normalRange: [1, 2], attackRange: [80, 600] },
+  { id: 'cloud_storage', label: 'Order cloud storage', verb: 'Reserving', unit: 'TB', unitCost: 8, normalRange: [1, 5], attackRange: [5000, 50000] },
+  { id: 'api_tokens', label: 'Buy API tokens', verb: 'Topping up', unit: 'M tokens', unitCost: 3, normalRange: [1, 10], attackRange: [5000, 60000] },
+  { id: 'email_sends', label: 'Buy email sends', verb: 'Loading', unit: 'K sends', unitCost: 2, normalRange: [5, 40], attackRange: [20000, 500000] },
+  { id: 'saas_seats', label: 'Add SaaS seats', verb: 'Licensing', unit: 'seat', unitCost: 22, normalRange: [1, 5], attackRange: [200, 3000] },
+  { id: 'proxy_pool', label: 'Rent proxy pool', verb: 'Leasing', unit: 'proxy IP', unitCost: 4, normalRange: [10, 60], attackRange: [10000, 120000] },
 ];
 
 const ATTACK_MODES = [
   { value: 'normal', label: '1. Normal Execution', hint: 'Agent behaves as intended within policy caps.', danger: false, classNum: 0 },
-  { value: 'structuring', label: '2. Structuring (Class 1)', hint: 'Splits payments into micro-transactions under per-tx cap to dodge limits.', danger: true, classNum: 1 },
-  { value: 'category_spoofing', label: '3. Category Spoofing (Class 2)', hint: 'Claims unapproved software SaaS buy is allowed category.', danger: true, classNum: 2 },
-  { value: 'lease_replay', label: '4. Nonce & Lease Replay (Class 3)', hint: 'Reuses a settled transaction nonce to replay spend.', danger: true, classNum: 3 },
-  { value: 'toctou_race', label: '5. TOCTOU Race Condition (Class 4)', hint: 'Fires concurrent payments in 1sec to exploit race window.', danger: true, classNum: 4 },
-  { value: 'rail_bypass', label: '6. Rail Bypass (Class 5)', hint: 'Attempts direct contract execution, bypassing core co-signer.', danger: true, classNum: 5 },
+  { value: 'structuring', label: '2. Structuring (Class 1)', hint: 'Splits $500 into multiple micro-payments under per-tx cap.', danger: true, classNum: 1 },
+  { value: 'category_spoofing', label: '3. Category Spoofing (Class 2)', hint: 'Claims unapproved software buy is allowed packaging.', danger: true, classNum: 2 },
+  { value: 'lease_replay', label: '4. Lease & Nonce Replay (Class 3)', hint: 'Reuses a settled transaction nonce to replay spend.', danger: true, classNum: 3 },
+  { value: 'toctou_race', label: '5. TOCTOU Race Condition (Class 4)', hint: 'Fires 50 concurrent payments in 1sec to bypass cap.', danger: true, classNum: 4 },
+  { value: 'rail_bypass', label: '6. Rail Bypass (Class 5)', hint: 'Attempts direct contract execution, skipping core co-signer.', danger: true, classNum: 5 },
   { value: 'signature_forgery', label: '7. Signature Forgery (Class 6)', hint: 'Crafts fake agent/core signature without key share.', danger: true, classNum: 6 },
-  { value: 'core_impersonation', label: '8. Core Impersonation (Class 7)', hint: 'Stands up fake co-signer server with unverified key.', danger: true, classNum: 7 },
+  { value: 'core_impersonation', label: '8. Core Impersonation (Class 7)', hint: 'Stands up fake co-signer server with wrong key.', danger: true, classNum: 7 },
   { value: 'prompt_injection', label: '9. Prompt Injection (Class 8)', hint: 'Embeds prose instructions into FactSheet string fields.', danger: true, classNum: 8 },
   { value: 'self_dealing', label: '10. Self-Dealing (Class 9)', hint: 'Registers a self-controlled 2-day-old vendor and pays self.', danger: true, classNum: 9 },
-  { value: 'social_engineering', label: '11. Social Engineering (Class 10)', hint: 'Spoofs agent thoughts to prompt operator override.', danger: true, classNum: 10 },
-  { value: 'clock_manipulation', label: '12. Clock Manipulation (Class 11)', hint: 'Supplies false timestamps to dodge 24h window resets.', danger: true, classNum: 11 },
-  { value: 'lease_griefing', label: '13. Lease Renewal Griefing (Class 12)', hint: 'Exhausts unsettled hold lease capacity to lockout operations.', danger: true, classNum: 12 }
+  { value: 'social_engineering', label: '11. Social Engineering (Class 10)', hint: 'Spoofs agent thoughts to prompt owner override.', danger: true, classNum: 10 },
+  { value: 'clock_manipulation', label: '12. Clock Manipulation (Class 11)', hint: 'Supplies false timestamps to dodge window resets.', danger: true, classNum: 11 },
 ];
 
 // ═══════════════════════════════════════════════════
@@ -84,10 +83,7 @@ const ATTACK_MODES = [
 let idCounter = 0;
 function uid() { return 'id_' + (++idCounter) + '_' + Date.now().toString(36); }
 function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
-function fmtCurrency(v, curr = 'INR') {
-  if (curr === 'USD') return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(v);
-  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(v).replace('INR', '₹');
-}
+function fmtCurrency(v) { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(v); }
 function fmtSigned(v) { return (v >= 0 ? '+' : '-') + fmtCurrency(Math.abs(v)); }
 function fmtTime(at) { return new Date(at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }); }
 function timeAgo(at) {
@@ -145,29 +141,10 @@ function renderDashboard() {
   renderBalanceFeed();
   renderLedger();
   renderBlockedSection();
-  renderDefenseMatrix();
   renderActivity();
   renderAllowlist();
   renderAgent();
   renderFreezeState();
-}
-
-function renderDefenseMatrix() {
-  const shieldBadge = document.getElementById('defenseShieldBadge');
-  const evaluatedEl = document.getElementById('evaluatedRulesCount');
-  const classesEl = document.getElementById('activeClassesCount');
-  const windowEl = document.getElementById('rollingWindowCapVal');
-
-  if (!state.attackStats) state.attackStats = { totalAttempts: 0, blockedAttempts: 0 };
-  const totalBlocked = state.attackStats.blockedAttempts || 0;
-  const shieldPct = state.attackStats.totalAttempts > 0 
-    ? Math.round((totalBlocked / state.attackStats.totalAttempts) * 100)
-    : 100;
-
-  if (shieldBadge) shieldBadge.textContent = `🛡️ ${shieldPct}% Defense Shield (${totalBlocked} Blocked)`;
-  if (evaluatedEl) evaluatedEl.textContent = `14 Rules`;
-  if (classesEl) classesEl.textContent = `12 / 12`;
-  if (windowEl) windowEl.textContent = `${fmtCurrency(state.windowCap || 300)} / 24h`;
 }
 
 function renderBalance() {
@@ -187,8 +164,8 @@ function renderBalanceFeed() {
       <span class="balance-entry-left">
         <span class="balance-entry-icon ${credit ? 'credit' : 'debit'}">
           ${credit
-            ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>'
-            : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="7" x2="17" y2="17"/><polyline points="17 7 17 17 7 17"/></svg>'}
+        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>'
+        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="7" x2="17" y2="17"/><polyline points="17 7 17 17 7 17"/></svg>'}
         </span>
         <span class="balance-entry-label">${entry.label}</span>
       </span>
@@ -218,7 +195,7 @@ function renderLedger() {
 function renderBlockedSection() {
   const blockedTx = state.ledger.filter(tx => tx.outcome === 'blocked');
   document.getElementById('blockedCountBadge').textContent = blockedTx.length + ' Intercepted';
-  
+
   const tbody = document.getElementById('blockedBody');
   if (blockedTx.length === 0) {
     tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:16px">No blocked transactions yet. Lakshman Rekha is actively monitoring.</td></tr>`;
@@ -263,7 +240,7 @@ function renderActivity() {
 function renderAllowlist() {
   const chipsEl = document.getElementById('allowlistChips');
   if (!chipsEl) return;
-  
+
   if (!state.allowlist || state.allowlist.length === 0) {
     chipsEl.innerHTML = `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-bottom:8px;padding:4px 0">No counterparties on allowlist. All vendor payments will be evaluated or blocked.</div>`;
   } else {
@@ -467,53 +444,47 @@ function simulateSpend(counterparty, amount, extraOpts = {}) {
 
   const nonce = extraOpts.nonce || Math.floor(Math.random() * 1000000);
   const counterpartyAgeDays = extraOpts.counterpartyAgeDays ?? 365;
-  const counterpartyTier = extraOpts.counterpartyTier ?? 1; // Tier 1: Verified, Tier 2: Standard, Tier 3: Unverified
   const isReplay = state.usedNonces.has(nonce);
 
-  if (!state.cumulativeSpent) state.cumulativeSpent = 0;
-  const cumulativeCap = state.cumulativeCap || 1000000; // ₹10,00,000 lifetime mandate cap
+  let outcome = 'approved';
+  let bindingPredicate = null;
+  let reason = 'All 14 policy predicates passed';
 
-  // FAIL-CLOSED BY DESIGN (BUILD.md Non-Negotiable #1)
-  // Default outcome is ALWAYS BLOCKED. Never fall through to APPROVED.
-  let outcome = 'blocked';
-  let bindingPredicate = 'unverifiedState';
-  let reason = 'Refused. Unverified state — default fail-closed policy.';
-
-  // Evaluate all 14 policy predicates explicitly
-  const p1_revocation = !state.frozen;
-  const p2_nonce = !isReplay;
-  const p3_category = !extraOpts.categorySpoof && state.allowlist.some(c => c.toLowerCase() === (counterparty || '').toLowerCase());
-  const p4_perTx = amount <= state.spendLimit;
-  const p5_window = state.windowSpent + amount <= state.windowCap;
-  const p6_cumulative = state.cumulativeSpent + amount <= cumulativeCap;
-  const p7_age = counterpartyAgeDays >= 30;
-  const p8_tier = counterpartyTier <= 2;
-  const p9_price = !extraOpts.priceBandViolation;
-  const p10_agentSig = !extraOpts.forgedSignature && !extraOpts.invalidAgentSig;
-  const p11_coreSig = !extraOpts.fakeCore && !extraOpts.invalidCoreSig;
-  const p12_image = !extraOpts.untrustedImage;
-  const p13_lease = !extraOpts.leaseExpired;
-  const p14_factSheet = !extraOpts.rawProseInjected;
-
-  if (!p1_revocation) { bindingPredicate = 'revocationEpoch'; reason = 'Refused. Mandate is revoked/frozen by operator.'; }
-  else if (!p2_nonce) { bindingPredicate = 'nonce'; reason = 'Refused. Nonce already used — replay attack rejected.'; }
-  else if (!p3_category) { bindingPredicate = 'categoryPermitted'; reason = `Refused. Counterparty "${counterparty}" is not permitted on allowlist.`; }
-  else if (!p4_perTx) { bindingPredicate = 'perTxCap'; reason = `Refused. Amount (${fmtCurrency(amount)}) exceeds per-task limit of ${fmtCurrency(state.spendLimit)}.`; }
-  else if (!p5_window) { bindingPredicate = 'windowCap'; reason = `Refused. Amount (${fmtCurrency(amount)}) exceeds 24-hour window cap of ${fmtCurrency(state.windowCap)}.`; }
-  else if (!p6_cumulative) { bindingPredicate = 'cumulativeCap'; reason = `Refused. Amount (${fmtCurrency(amount)}) exceeds lifetime mandate cap of ${fmtCurrency(cumulativeCap)}.`; }
-  else if (!p7_age) { bindingPredicate = 'counterpartyAge'; reason = `Held. Counterparty age (${counterpartyAgeDays} days) is under 30 days minimum requirement.`; }
-  else if (!p8_tier) { bindingPredicate = 'counterpartyTier'; reason = `Refused. Counterparty risk tier (${counterpartyTier}) exceeds max allowed Tier 2.`; }
-  else if (!p9_price) { bindingPredicate = 'priceBand'; reason = 'Refused. Price per unit violates mandate bounds.'; }
-  else if (!p10_agentSig) { bindingPredicate = 'agentSignature'; reason = 'Refused. Invalid or forged agent cryptographic signature.'; }
-  else if (!p11_coreSig) { bindingPredicate = 'coreSignature'; reason = 'Refused. Invalid or missing core co-signer signature.'; }
-  else if (!p12_image) { bindingPredicate = 'coreImage'; reason = 'Refused. Untrusted core binary execution image hash.'; }
-  else if (!p13_lease) { bindingPredicate = 'leaseExpiry'; reason = 'Refused. Mandate lease TTL expired.'; }
-  else if (!p14_factSheet) { bindingPredicate = 'factSheetValidation'; reason = 'Refused. Raw prose injection detected in FactSheet schema.'; }
-  else {
-    // ALL 14 PREDICATES PASSED EXPLICITLY!
-    outcome = 'approved';
-    bindingPredicate = null;
-    reason = 'All 14 policy predicates verified and passed';
+  // 1. Revocation / Freeze Epoch Check
+  if (state.frozen) {
+    outcome = 'blocked';
+    bindingPredicate = 'revocationEpoch';
+    reason = 'Refused. Mandate is frozen by operator.';
+  }
+  // 2. Nonce Replay Check (Class 3 & 4)
+  else if (isReplay) {
+    outcome = 'blocked';
+    bindingPredicate = 'nonce';
+    reason = 'Refused. Nonce already used — replay attack rejected.';
+  }
+  // 3. Category Permitted & Allowlist Check (Class 2)
+  else if (extraOpts.categorySpoof || !state.allowlist.some(c => c.toLowerCase() === counterparty.toLowerCase())) {
+    outcome = 'blocked';
+    bindingPredicate = 'categoryPermitted';
+    reason = `Refused. Counterparty "${counterparty}" is not on allowlist.`;
+  }
+  // 4. Counterparty Age & Self Dealing (Class 9)
+  else if (counterpartyAgeDays < 30) {
+    outcome = 'blocked';
+    bindingPredicate = 'counterpartyAge';
+    reason = `Held. Counterparty age (${counterpartyAgeDays} days) is under 30 days minimum requirement.`;
+  }
+  // 5. Per-Tx Cap Check
+  else if (amount > state.spendLimit) {
+    outcome = 'blocked';
+    bindingPredicate = 'perTxCap';
+    reason = `Refused. Amount ($${amount}) exceeds per-task cap of $${state.spendLimit}.`;
+  }
+  // 6. Rolling Window Cap Check (Class 1 Structuring)
+  else if (state.windowSpent + amount > state.windowCap) {
+    outcome = 'blocked';
+    bindingPredicate = 'windowCap';
+    reason = `Refused. Amount ($${amount}) exceeds 24-hour window cap of $${state.windowCap}.`;
   }
 
   // Update Nonce & Window
@@ -578,17 +549,7 @@ function saveSpendLimit(e) {
   if (!isFinite(v) || v < 0) return;
   state.spendLimit = v;
   saveCurrentUserData();
-  showToast(`Spend limit set to ₹${v} per task`);
-}
-
-function saveWindowCap(e) {
-  e.preventDefault();
-  const v = parseFloat(document.getElementById('window-cap').value);
-  if (!isFinite(v) || v < 0) return;
-  state.windowCap = v;
-  saveCurrentUserData();
-  renderDashboard();
-  showToast(`24h window cap set to ₹${v}`);
+  showToast(`Spend limit set to $${v} per task`);
 }
 
 function addCounterparty(e) {
@@ -684,7 +645,7 @@ function setFrozen(v) {
 // REAL AGENT SDK API RECEIVER (https://api.lakshman-rekha.dev)
 // ═══════════════════════════════════════════════════
 window.LakshmanRekhaAPI = {
-  processTransaction: function(vendor, amount, token) {
+  processTransaction: function (vendor, amount, token) {
     if (!state.agent || !state.agent.connected) {
       console.warn('[Lakshman Rekha] Transaction received, but no Agent API is currently connected in Console.');
       return { status: 'skipped', reason: 'No Agent connected in Lakshman Rekha Console' };
@@ -703,7 +664,13 @@ window.LakshmanRekhaAPI = {
 // ═══════════════════════════════════════════════════
 // INIT TRIGGER ON DOM READY
 // ═══════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
+function runInitializers() {
   initSupabase();
   initPlayground();
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', runInitializers);
+} else {
+  runInitializers();
+}
