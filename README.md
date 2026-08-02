@@ -18,7 +18,6 @@ Access the unified live platform via the official deployed instance or locally u
 | Parameter | Value |
 |---|---|
 | **Live Deployed App (Unified)** | [https://lakshman-rekha.vercel.app/](https://lakshman-rekha.vercel.app/) |
-| **Local Development URL** | [http://localhost:3001](http://localhost:3001) |
 | **Username** | `demo` |
 | **Password** | `123` |
 | **Proxy Token** | `lr_live_sk_892374982374` |
@@ -31,7 +30,7 @@ Access the unified live platform via the official deployed instance or locally u
 ### Running Locally
 ```bash
 # Navigate to project directory
-cd project3
+cd directory
 
 # Serve static web application (Unified Console & Playground at http://localhost:3001)
 npx -y serve . -p 3001
