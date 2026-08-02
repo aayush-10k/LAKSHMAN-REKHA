@@ -13,8 +13,16 @@ import type { Address, Hex } from 'viem';
  * can install deterministic keys; this module never reads or writes .env itself.
  */
 
-const CORE_ENV = 'REKHA_CORE_PRIVATE_KEY';
-const AGENT_ENV = 'REKHA_AGENT_PRIVATE_KEY';
+/**
+ * Accepted env names, in precedence order.
+ *
+ * `CORE_SIGNER_PRIVATE_KEY` is the name .env.example and the deployment docs
+ * use; `REKHA_CORE_PRIVATE_KEY` is the name this module shipped with. Both are
+ * read so neither the deployment config nor A's existing setup silently ends up
+ * with no key — which, given resolve() throws, would take down signing entirely.
+ */
+const CORE_ENV = ['CORE_SIGNER_PRIVATE_KEY', 'REKHA_CORE_PRIVATE_KEY'];
+const AGENT_ENV = ['AGENT_SIGNER_PRIVATE_KEY', 'REKHA_AGENT_PRIVATE_KEY'];
 
 const PRIVATE_KEY_RE = /^0x[0-9a-fA-F]{64}$/;
 
@@ -28,13 +36,26 @@ function assertKeyShape(pk: string, label: string): Hex {
   return pk as Hex;
 }
 
-function resolve(current: Hex | null, envName: string, label: string): Hex {
+function resolve(current: Hex | null, envNames: string[], label: string): Hex {
   if (current !== null) return current;
-  const fromEnv = process.env[envName];
-  if (fromEnv === undefined || fromEnv === '') {
-    throw new Error(`${label} is not configured (set ${envName} or call the setter). Refusing to sign.`);
+  for (const name of envNames) {
+    const fromEnv = process.env[name];
+    if (fromEnv !== undefined && fromEnv !== '') return assertKeyShape(fromEnv, label);
   }
-  return assertKeyShape(fromEnv, label);
+  throw new Error(
+    `${label} is not configured (set ${envNames.join(' or ')}, or call the setter). Refusing to sign.`,
+  );
+}
+
+/** Whether a core key is available, without throwing. Callers use this to fail
+ *  closed with a 503 rather than letting an exception escape as a 500. */
+export function hasCoreKey(): boolean {
+  try {
+    corePrivateKey();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Installs the core key share. */

@@ -34,7 +34,9 @@ export async function registerLeaseRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(409).send({ error: { code: 'REVOKED', message: 'Mandate is revoked. No leases will be issued.' } });
     }
 
-    const lease = store.issueLease(agentId);
+    // Null covers "no core key configured" as well as a frozen/absent mandate.
+    // Every one of those must stop spending rather than yield an unsigned lease.
+    const lease = await store.issueLease(agentId);
     if (!lease) {
       return reply.code(503).send({ error: { code: 'CORE_UNAVAILABLE', message: 'Could not issue lease.' } });
     }
