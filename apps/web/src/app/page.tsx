@@ -5,6 +5,7 @@ import { useWriteContract } from 'wagmi';
 
 // Include the raw HTML of the body from project3
 const rawHtml = `
+
   <!-- ═══════════════════════════════════════════════════ -->
   <!-- SINGLE FIXED UNMOVED VIEW SWITCH                   -->
   <!-- ═══════════════════════════════════════════════════ -->
@@ -24,6 +25,7 @@ const rawHtml = `
   <!-- VIEW 1: LAKSHMAN REKHA DASHBOARD                   -->
   <!-- ═══════════════════════════════════════════════════ -->
   <div class="page-view active" id="dashboardView">
+
     <!-- Auth Screen -->
     <div id="auth-screen">
       <div class="auth-glow"></div>
@@ -89,93 +91,99 @@ const rawHtml = `
               <p id="topbar-agent-status">No agent linked</p>
             </div>
           </div>
-          <div class="topbar-center">
-            <div id="defenseShieldBadge" class="badge badge-success">
-              🛡️ 100% Defense Shield (0 Blocked)
-            </div>
-          </div>
+          <!-- Center gap for fixed switch -->
+          <div style="flex:1;min-width:280px"></div>
           <div class="topbar-right">
-            <button class="btn btn-ghost" onclick="showSupabaseModal()">
-              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-              Cloud DB
+            <button class="btn btn-outline btn-sm" onclick="openSupabaseModal()" id="supabaseStatusBadge" style="gap:5px;border-color:rgba(45,165,108,0.3);color:var(--success)">
+              <span style="width:6px;height:6px;border-radius:50%;background:var(--success)"></span>
+              <span>⚡ Supabase Cloud</span>
             </button>
             <span class="breach-counter-badge" id="breachBadge">
-              🛡️ Intercepted: <span id="breachCount">0</span>
+              ⚡ Intercepted: <span id="breachCount">0</span>
             </span>
-            <div class="topbar-user" id="topbar-user">Demo User</div>
-            <button class="btn btn-outline btn-sm" onclick="handleLogout()">Log out</button>
+            <span class="topbar-user" id="topbar-user"></span>
+            <button class="btn btn-ghost btn-sm" onclick="handleLogout()">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              <span>Log out</span>
+            </button>
           </div>
         </div>
       </div>
-      
-      <!-- Frozen Banner -->
+
       <div class="frozen-banner" id="frozenBanner">
         <div class="frozen-banner-inner">
           <p>
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-            Account is frozen. Agent capabilities suspended.
+            Account frozen — all agent spending is blocked.
           </p>
-          <button class="btn btn-sm" onclick="executeUnfreeze()">Un-freeze Now</button>
+          <button class="btn btn-sm" onclick="setFrozen(false)">Un-freeze</button>
         </div>
       </div>
 
-      <div class="dashboard-main">
+      <main class="dashboard-main">
         <div class="dashboard-heading">
-          <h1>Owner Console</h1>
-          <p>Manage agent spending caps, review holding queue, and configure policies.</p>
+          <h1>Enforcement console</h1>
+          <p>Monitor your agent's spending, set the rules, and cut it off instantly if anything looks wrong.</p>
         </div>
-
         <div class="dashboard-grid">
           <!-- Left Column -->
           <div class="dashboard-left">
+            <!-- Wallet -->
             <div class="card">
               <div class="card-header">
-                <span class="card-title">
-                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-                  Agent Balance
-                </span>
-                <button class="btn btn-secondary btn-sm" onclick="showAddFunds()">Add funds</button>
+                <div class="card-title">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 000 4h4v-4z"/></svg>
+                  Wallet balance
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="openAddFunds()">
+                  <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Add funds
+                </button>
               </div>
               <div class="card-content">
-                <div class="wallet-balance" id="walletBalance">₹0.00</div>
-                <div class="wallet-subtitle" id="walletSubtitle">Shared across manual top-ups and agent activity</div>
+                <p class="wallet-balance" id="walletBalance">$490.00</p>
+                <p class="wallet-subtitle" id="walletSubtitle">Shared across manual top-ups and agent activity</p>
                 <div class="balance-feed">
-                  <div class="balance-feed-title">Recent Activity</div>
+                  <p class="balance-feed-title">Recent balance changes</p>
                   <div class="balance-feed-list" id="balanceFeed"></div>
                 </div>
               </div>
             </div>
 
-            <div class="card freeze-card" id="freezeCard">
+            <!-- Agent -->
+            <div class="card">
               <div class="card-header">
-                <span class="card-title">
-                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                  Emergency Kill Switch
-                </span>
-              </div>
-              <div class="card-content">
-                <p class="freeze-desc">Instantly revoke the agent\\'s cryptographic mandate. Blocks all future transactions and cancels pending ones.</p>
-                <div style="display:flex;gap:10px">
-                  <button class="btn btn-danger" style="flex:1" onclick="showFreezeModal()" id="btnFreeze">FREEZE AGENT</button>
-                  <!-- We will inject the React Wagmi button here dynamically -->
-                  <div id="react-revoke-btn-container" style="flex:1"></div>
+                <div class="card-title">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4v4"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M9 13h.01"/><path d="M15 13h.01"/><path d="M10 17s1 1 2 1 2-1 2-1"/></svg>
+                  Linked agent
                 </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span class="badge" id="agentBadge">
+                    <span style="width:6px;height:6px;border-radius:50%;background:var(--muted)" id="agentDot"></span>
+                    <span id="agentBadgeText">Not connected</span>
+                  </span>
+                </div>
+              </div>
+              <div class="card-content" id="agentContent">
+                <!-- Dynamically rendered by renderAgent() -->
               </div>
             </div>
 
-            <div class="card">
-              <div class="card-header"><span class="card-title">Agent Connection</span></div>
-              <div class="card-content">
-                <div class="agent-info-box" id="agentInfoBox">
-                  <p>Not Connected</p>
-                  <p>Awaiting developer keys.</p>
+            <!-- Freeze -->
+            <div class="card freeze-card" id="freezeCard">
+              <div class="card-header">
+                <div class="card-title" style="color:var(--danger)">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                  Emergency freeze
                 </div>
-                <p class="agent-frozen-note" id="agentFrozenNote" style="display:none">
-                  Agent connection is currently frozen.
-                </p>
-                <div class="agent-buttons" style="margin-top:16px">
-                  <button class="btn btn-primary" onclick="showAgentDevModal()">Get API Keys</button>
-                  <button class="btn btn-outline" onclick="disconnectAgent()">Disconnect</button>
+              </div>
+              <div class="card-content">
+                <p class="freeze-desc">Immediately halt all agent-initiated payments. Manual controls stay available. Use this if the agent behaves unexpectedly.</p>
+                <div id="freezeButtons">
+                  <button class="btn btn-danger btn-lg" style="width:100%" onclick="confirmFreeze()">
+                    <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                    Freeze all spending
+                  </button>
                 </div>
               </div>
             </div>
@@ -183,47 +191,128 @@ const rawHtml = `
 
           <!-- Right Column -->
           <div class="dashboard-right">
+            <!-- Ledger -->
             <div class="card">
-              <div class="card-header"><span class="card-title">Live Transaction Ledger</span></div>
-              <div class="card-content" style="padding:0">
+              <div class="card-header">
+                <div class="card-title">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1z"/><path d="M14 8H8"/><path d="M16 12H8"/><path d="M13 16H8"/></svg>
+                  Transaction ledger
+                </div>
+              </div>
+              <div class="card-content" style="padding:0 0 0 0;">
                 <div class="ledger-scroll">
                   <table class="ledger-table">
-                    <thead><tr><th>Time</th><th>Counterparty / Vendor</th><th style="text-align:right">Amount</th><th style="text-align:right">Outcome</th></tr></thead>
+                    <thead><tr><th style="padding-left:20px">Time</th><th>Counterparty</th><th style="text-align:right">Amount</th><th style="text-align:right;padding-right:20px">Outcome</th></tr></thead>
                     <tbody id="ledgerBody"></tbody>
                   </table>
                 </div>
               </div>
             </div>
 
+            <!-- Intercepted Breaches & Blocked Activity Section -->
+            <div class="card" style="border-color:rgba(212,67,92,0.35);background:rgba(212,67,92,0.02)">
+              <div class="card-header" style="background:rgba(212,67,92,0.05)">
+                <div class="card-title" style="color:var(--danger)">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  Lakshman Rekha Intercepted Breaches
+                </div>
+                <span class="badge badge-danger" id="blockedCountBadge">0 Intercepted</span>
+              </div>
+              <div class="card-content" style="padding:0">
+                <div class="ledger-scroll" style="max-height:220px">
+                  <table class="ledger-table">
+                    <thead>
+                      <tr>
+                        <th style="padding-left:20px">Time</th>
+                        <th>Target Counterparty</th>
+                        <th style="text-align:right">Amount</th>
+                        <th style="padding-right:20px;text-align:right">Interception Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody id="blockedBody">
+                      <!-- Rendered by renderBlockedSection() -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- 12-Class Defense Matrix Scoreboard -->
+            <div class="card" style="border-color:rgba(108,99,255,0.35);background:rgba(108,99,255,0.02)">
+              <div class="card-header" style="background:rgba(108,99,255,0.06)">
+                <div class="card-title" style="color:var(--accent)">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+                  12-Class Adversarial Defense Matrix
+                </div>
+                <span class="badge badge-success" style="border-color:rgba(45,165,108,0.4);color:var(--success)">
+                  🛡️ 100% Defense Shield Active
+                </span>
+              </div>
+              <div class="card-content" style="padding:16px">
+                <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;text-align:center;margin-bottom:12px">
+                  <div style="background:var(--muted-bg);padding:10px;border-radius:8px;border:1px solid var(--border)">
+                    <div style="font-size:10px;color:var(--muted);font-weight:600">ATTACK CLASSES</div>
+                    <div style="font-size:18px;font-weight:700;color:var(--fg);margin-top:2px">12 / 12</div>
+                  </div>
+                  <div style="background:var(--muted-bg);padding:10px;border-radius:8px;border:1px solid var(--border)">
+                    <div style="font-size:10px;color:var(--muted);font-weight:600">EVALUATED PREDICATES</div>
+                    <div style="font-size:18px;font-weight:700;color:var(--accent);margin-top:2px">14 Rules</div>
+                  </div>
+                  <div style="background:var(--muted-bg);padding:10px;border-radius:8px;border:1px solid var(--border)">
+                    <div style="font-size:10px;color:var(--muted);font-weight:600">ROLLING WINDOW CAP</div>
+                    <div style="font-size:18px;font-weight:700;color:var(--success);margin-top:2px">$300 / 24h</div>
+                  </div>
+                </div>
+                <div style="font-size:11px;color:var(--muted);line-height:1.4">
+                  <strong>⚡ Active Protection:</strong> Structuring, Category Spoofing, Nonce Replay, TOCTOU Race, Rail Bypass, Signature Forgery, Core Impersonation, Prompt Injection, Self-Dealing, Social Engineering, Clock Manipulation, Lease Griefing.
+                </div>
+              </div>
+            </div>
+
             <div class="dashboard-right-row">
-              <div class="card" style="flex:1">
-                <div class="card-header"><span class="card-title">Smart Policy Simulator</span></div>
+              <!-- Policy -->
+              <div class="card">
+                <div class="card-header">
+                  <div class="card-title">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+                    Policy settings
+                  </div>
+                </div>
                 <div class="card-content">
-                  <div class="policy-form">
-                    <div class="policy-row">
-                      <div style="flex:1">
-                        <label class="label">Per-Transaction Limit</label>
-                        <div class="input-dollar"><input class="input-field" type="number" id="polTxLimit" value="10000" onchange="updatePolicy()" /></div>
-                      </div>
-                      <div style="flex:1">
-                        <label class="label">24h Rolling Window Cap</label>
-                        <div class="input-dollar"><input class="input-field" type="number" id="polWindowCap" value="30000" onchange="updatePolicy()" /></div>
-                      </div>
-                    </div>
+                  <form class="policy-form" onsubmit="saveSpendLimit(event)">
                     <div>
-                      <label class="label">Category Allowlist</label>
-                      <div class="allowlist-chips" id="allowlistChips"></div>
-                      <div style="display:flex;gap:8px">
-                        <input class="input-field" id="newCategory" placeholder="e.g. AWS" onkeypress="if(event.key==='Enter')addCategory()" />
-                        <button class="btn btn-secondary" onclick="addCategory()">Add</button>
+                      <label class="label" for="spend-limit">Per-task spend limit</label>
+                      <div class="policy-row">
+                        <div class="input-dollar" style="flex:1"><input class="input-field" id="spend-limit" type="number" min="0" step="1" value="100" /></div>
+                        <button type="submit" class="btn btn-secondary">Save</button>
                       </div>
+                      <p class="policy-note" style="margin-top:4px">Payments above this amount are blocked automatically.</p>
                     </div>
+                  </form>
+                  <div class="separator"></div>
+                  <div>
+                    <label class="label">Approved counterparties</label>
+                    <div class="allowlist-chips" id="allowlistChips"></div>
+                    <form class="policy-row" onsubmit="addCounterparty(event)">
+                      <input class="input-field" id="new-party" placeholder="Add a counterparty" />
+                      <button type="submit" class="btn btn-secondary">
+                        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Add
+                      </button>
+                    </form>
                   </div>
                 </div>
               </div>
-              <div class="card" style="flex:1">
-                <div class="card-header"><span class="card-title">Activity Log</span></div>
-                <div class="card-content" style="padding:16px 20px">
+
+              <!-- Activity -->
+              <div class="card">
+                <div class="card-header">
+                  <div class="card-title">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    Live activity log
+                  </div>
+                </div>
+                <div class="card-content">
                   <div class="activity-scroll">
                     <div class="activity-timeline" id="activityTimeline"></div>
                   </div>
@@ -232,182 +321,373 @@ const rawHtml = `
             </div>
           </div>
         </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- VIEW 2: AGENT PLAYGROUND                           -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <div class="page-view hidden-view" id="playgroundView">
+    <div class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-brand">
+          <div class="topbar-logo" style="background:rgba(108,99,255,0.15);color:var(--accent);border-color:rgba(108,99,255,0.3)">
+            <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4v4"/><rect x="4" y="8" width="16" height="12" rx="2"/></svg>
+          </div>
+          <div class="topbar-text">
+            <p>Agent Playground</p>
+            <p>Simulation Environment</p>
+          </div>
+        </div>
+        <!-- Center gap for fixed switch -->
+        <div style="flex:1;min-width:280px"></div>
+        <div class="topbar-right">
+          <button class="btn btn-outline btn-sm" onclick="toggleView()">
+            ← Back to Console
+          </button>
+        </div>
       </div>
     </div>
+    <div class="playground-container">
+      <div class="playground-box">
+        <div class="playground-header">
+          <h1>Agent Control</h1>
+          <p>Set the agent's behavior mode, then hand it a task. Spending outcomes appear on the Kill Switch dashboard.</p>
+        </div>
 
-    <!-- Agent Playground -->
-    <div class="page-view hidden-view" id="playgroundView">
-      <div class="playground-container">
-        <div class="playground-box">
-          <div class="playground-header">
-            <h1>Agent Simulator</h1>
-            <p>Run simulated objectives. Watch the agent evaluate quotes, forge payments, or get intercepted by Lakshman Rekha.</p>
-          </div>
-          
-          <div class="card">
-            <div class="card-content" style="padding-top:20px">
-              <div style="display:flex;justify-content:space-between;align-items:flex-end">
-                <div>
-                  <label class="label">Agent Status</label>
-                  <div class="status-pill pill-idle" id="pgStatusPill">
-                    <div class="status-dot-wrapper"><div class="status-dot"></div><div class="status-dot-ping"></div></div>
-                    <span id="pgStatusText">Idle · Waiting for task</span>
-                  </div>
-                </div>
-                <div style="margin-bottom:20px">
-                  <span id="autoModeCount" style="font-size:12px;color:var(--muted);margin-right:8px;font-variant-numeric:tabular-nums;display:none">0 runs</span>
-                </div>
-              </div>
-
-              <!-- Task Selector -->
-              <div style="margin-bottom:20px">
-                <label class="label" style="display:flex;justify-content:space-between">
-                  Objective Template
-                  <span style="font-weight:400;color:var(--muted);font-size:11px">Randomizes vendor & amount</span>
-                </label>
-                <div class="task-tabs">
-                  <button class="task-tab active" id="tabRandom" onclick="setTaskSource('random')">Random Template</button>
-                  <button class="task-tab" id="tabManual" onclick="setTaskSource('manual')">Select Manual</button>
-                </div>
-                <div class="task-list" id="taskList" style="display:none"></div>
-              </div>
-
-              <!-- Attack Mode Selector -->
-              <div>
-                <label class="label">Agent Behavior</label>
-                <div class="mode-list" id="modeList"></div>
-              </div>
-              
-              <!-- Progress -->
-              <div class="progress-section" id="pgProgressSection" style="opacity:0">
-                <div class="progress-header">
-                  <span class="progress-label" id="pgProgressLabel">Running task...</span>
-                  <span class="progress-pct" id="pgProgressPct">0%</span>
-                </div>
-                <div class="progress-track">
-                  <div class="progress-fill normal" id="pgProgressFill" style="width:0%"></div>
-                </div>
-                <div class="last-task-info" id="lastTaskInfo"></div>
-              </div>
-              
-              <!-- Auto Mode Settings -->
-              <div class="auto-mode-section">
-                <button class="auto-mode-toggle" id="autoModeToggle" onclick="toggleAutoMode()">
-                  <div class="auto-dot" id="autoModeDot"></div>
-                  <span>Rogue Mode: Continuous Attacks</span>
-                </button>
-                <div class="auto-stats" id="autoStats">
-                  <span>Speed: <strong>0.5s</strong></span>
-                  <div class="stat-divider"></div>
-                  <span>Blocked: <strong class="stat-value" id="autoBlockedStat" style="color:var(--danger)">0</strong></span>
-                  <div class="stat-divider"></div>
-                  <span>Breached: <strong class="stat-value" id="autoBreachedStat">0</strong></span>
-                </div>
-              </div>
-
-              <!-- Start Button -->
-              <div style="margin-top:24px">
-                <button class="btn btn-primary btn-lg" id="btnStartTask" style="width:100%" onclick="startPlaygroundTask()">
-                  Start Single Simulation
-                </button>
-              </div>
+        <div class="card" style="padding:20px">
+          <!-- Playground Frozen Alert Banner -->
+          <div id="playgroundFrozenAlert" class="locked-notice" style="display:none;border:1px solid var(--danger);background:rgba(212,67,92,0.1);color:var(--danger);margin-bottom:16px;text-align:left;padding:12px 14px;border-radius:10px">
+            <div style="font-weight:700;font-size:13px;display:flex;align-items:center;gap:6px">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              AGENT OPERATIONS HALTED BY LAKSHMAN REKHA
+            </div>
+            <div style="font-size:12px;margin-top:4px;color:var(--fg);opacity:0.9">
+              Account is <strong>FROZEN</strong>. All agent task dispatches and autopilot are suspended until an operator un-freezes spending on the dashboard.
             </div>
           </div>
+
+          <!-- Status pill -->
+          <div style="text-align:center;margin-bottom:20px">
+            <span class="status-pill pill-idle" id="statusPill">
+              <span class="status-dot-wrapper">
+                <span class="status-dot"></span>
+                <span class="status-dot-ping" id="statusPing" style="display:none"></span>
+              </span>
+              <span id="statusLabel">Idle</span>
+            </span>
+          </div>
+
+          <!-- Behavior mode -->
+          <div style="margin-bottom:20px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <h2 style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted)">Behavior mode</h2>
+              <span style="font-size:12px;color:var(--muted)">flip one</span>
+            </div>
+            <div class="mode-list" id="modeList"></div>
+            <textarea class="custom-textarea" id="customReason" style="display:none" placeholder="Describe the misbehavior scenario the agent should attempt…"></textarea>
+          </div>
+
+          <!-- Action Controls -->
+          <div style="margin-top:16px;margin-bottom:16px">
+            <button class="btn btn-primary btn-lg" style="width:100%;gap:8px" id="giveTaskBtn" onclick="giveTask()">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              Dispatch Single Task Now
+            </button>
+          </div>
+
+          <!-- Auto Mode (1 Task every 15s) -->
+          <div class="auto-mode-section">
+            <button class="auto-mode-toggle" id="autoModeBtn" onclick="toggleAutoMode()">
+              <span class="auto-dot" id="autoDot"></span>
+              <span id="autoModeLabel">Autopilot (1 Task / 15s)</span>
+              <span class="auto-mode-track" id="autoTrack"><span class="auto-mode-track-thumb"></span></span>
+            </button>
+            <div class="auto-stats" id="autoStats">
+              <span>Tasks: <span class="stat-value" id="autoCount">0</span></span>
+              <span class="stat-divider"></span>
+              <span>Total spent: <span class="stat-value" id="autoSpent">$0.00</span></span>
+              <span class="stat-divider"></span>
+              <span>Blocked: <span class="stat-value" style="color:var(--danger)" id="autoBlocked">0</span></span>
+            </div>
+          </div>
+
+          <!-- Get Credentials & SDK Code Button -->
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+            <button class="btn btn-outline" style="width:100%;gap:8px;border-color:rgba(108,99,255,0.4);color:var(--accent)" onclick="openAgentDevModal()">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>
+              🔑 Get Agent Keys & SDK Code (Claude / OpenAI)
+            </button>
+          </div>
+
+          <!-- Progress -->
+          <div id="progressSection" style="display:none" class="progress-section"></div>
+
+          <!-- Last task info -->
+          <div id="lastTaskInfo" style="display:none" class="last-task-info"></div>
         </div>
+
+        <p class="mode-footer" id="modeFooter">Normal mode — quantities stay within policy limits.</p>
       </div>
     </div>
+  </div>
 
-    <!-- Modals -->
-    <!-- Add Funds Modal -->
-    <div class="modal-overlay" id="addFundsModal">
-      <div class="modal-box">
-        <div class="modal-header"><h3>Add Funds</h3><p>Mock deposit to the agent\\'s shared wallet.</p></div>
-        <div class="modal-body">
-          <label class="label">Amount to add</label>
-          <div class="input-dollar"><input class="input-field" type="number" id="fundAmount" value="5000" /></div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-ghost" onclick="closeAddFunds()">Cancel</button>
-          <button class="btn btn-primary" onclick="executeAddFunds()">Deposit Funds</button>
-        </div>
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- MODALS                                             -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- Add Funds Modal -->
+  <div class="modal-overlay" id="addFundsModal">
+    <div class="modal-box" style="max-width:440px">
+      <div class="modal-header">
+        <h3>Add Funds</h3>
+        <p>Deposit funds into your agent enforcement wallet.</p>
       </div>
-    </div>
-
-    <!-- Agent Dev Modal -->
-    <div class="modal-overlay" id="agentDevModal">
-      <div class="modal-box" style="max-width:540px">
-        <div class="modal-header">
-          <h3 style="display:flex;align-items:center;gap:8px;color:var(--accent)">
-            <span>💻</span> Agent API Credentials
-          </h3>
-          <p>Use these credentials to connect real AI agents.</p>
+      <div class="modal-body">
+        <label class="label">Select Payment Method</label>
+        <div class="payment-methods-tabs">
+          <button type="button" class="payment-method-btn active" id="pmBtnManual" onclick="selectPaymentMethod('manual')">
+            <span>💵 Manual Deposit</span>
+            <span style="font-size:10px;color:var(--success);font-weight:600">Active</span>
+          </button>
+          <button type="button" class="payment-method-btn locked" id="pmBtnCard" onclick="selectPaymentMethod('card')">
+            <span>💳 Credit / Debit Card</span>
+            <span class="lock-tag">🔒 Locked</span>
+          </button>
+          <button type="button" class="payment-method-btn locked" id="pmBtnBank" onclick="selectPaymentMethod('bank')">
+            <span>🏦 Bank Wire / ACH</span>
+            <span class="lock-tag">🔒 Locked</span>
+          </button>
+          <button type="button" class="payment-method-btn locked" id="pmBtnCrypto" onclick="selectPaymentMethod('crypto')">
+            <span>🪙 Crypto Wallet</span>
+            <span class="lock-tag">🔒 Locked</span>
+          </button>
         </div>
-        <div class="modal-body">
-          <div style="margin-top:14px">
-            <pre id="devCodeBox" style="background:#0e1017;color:#80caff;padding:12px;border-radius:8px;font-family:monospace;font-size:11px;overflow-x:auto;line-height:1.5;max-height:160px">API KEY: lr_live_sk_892374982374</pre>
+
+        <!-- Manual Section -->
+        <div id="pmSectionManual">
+          <label class="label" for="add-amount">Amount (USD)</label>
+          <div class="input-dollar"><input class="input-field" id="add-amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="50.00" /></div>
+          <div class="preset-chips">
+            <button class="preset-chip" type="button" onclick="document.getElementById('add-amount').value='50'">+$50</button>
+            <button class="preset-chip" type="button" onclick="document.getElementById('add-amount').value='100'">+$100</button>
+            <button class="preset-chip" type="button" onclick="document.getElementById('add-amount').value='250'">+$250</button>
+            <button class="preset-chip" type="button" onclick="document.getElementById('add-amount').value='500'">+$500</button>
           </div>
         </div>
-        <div class="modal-footer">
-          <button class="btn btn-ghost" onclick="closeAgentDevModal()">Close</button>
-        </div>
-      </div>
-    </div>
 
-    <!-- Freeze Modal -->
-    <div class="modal-overlay" id="freezeModal">
-      <div class="modal-box">
-        <div class="modal-header">
-          <h3 style="color:var(--danger)">Freeze all spending?</h3>
-          <p>This immediately blocks every agent-initiated payment.</p>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-ghost" onclick="closeFreezeModal()">Cancel</button>
-          <button class="btn btn-danger" onclick="executeFreeze()">Yes, freeze now</button>
+        <!-- Locked Section Notice -->
+        <div id="pmSectionLocked" style="display:none">
+          <div class="locked-notice">
+            <div style="font-size:24px;margin-bottom:6px">🔒</div>
+            <strong id="lockedMethodTitle" style="display:block;color:var(--fg);margin-bottom:4px">Card Payments Disabled</strong>
+            <span id="lockedMethodDesc">Real card & banking integrations are locked in demo mode. Please use <strong>Manual Deposit</strong> to simulate wallet top-ups.</span>
+          </div>
         </div>
       </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeAddFunds()">Cancel</button>
+        <button class="btn btn-primary" id="depositBtn" onclick="depositFunds()">Deposit</button>
+      </div>
     </div>
+  </div>
 
-    <!-- Supabase Modal -->
-    <div class="modal-overlay" id="supabaseModal">
-      <div class="modal-box" style="max-width:480px">
-        <div class="modal-header">
-          <h3 style="color:var(--success)">Supabase Cloud DB</h3>
-        </div>
-        <div class="modal-body">
-          <form class="auth-form" id="supabaseForm" onsubmit="saveSupabaseConfig(event)">
-            <div><label class="label">Project URL</label><input class="input-field" id="supabase-url" /></div>
-            <div style="margin-top:12px"><label class="label">Anon Key</label><input class="input-field" id="supabase-key" type="password" /></div>
-          </form>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-ghost" onclick="closeSupabaseModal()">Cancel</button>
-          <button class="btn btn-primary" onclick="saveSupabaseConfig(event)">Connect</button>
-        </div>
+  <!-- Add Agent Modal -->
+  <div class="modal-overlay" id="addAgentModal">
+    <div class="modal-box" style="max-width:480px">
+      <div class="modal-header">
+        <h3 style="display:flex;align-items:center;gap:8px">
+          <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4v4"/><rect x="4" y="8" width="16" height="12" rx="2"/></svg>
+          Link Autonomous AI Agent
+        </h3>
+        <p>Route your real AI agent (Claude, OpenAI, or custom LLM) through Lakshman Rekha.</p>
       </div>
-    </div>
+      <div class="modal-body">
+        <form class="auth-form" id="modalAgentForm" onsubmit="submitAgentModal(event)">
 
-    <!-- Lakshman Overlay -->
-    <div class="lakshman-overlay" id="lakshmanOverlay" onclick="dismissLakshmanFlash()">
-      <div class="lakshman-grid"></div>
-      <div class="lakshman-laser-line"></div>
-      <div class="lakshman-alert-box" onclick="event.stopPropagation()">
-        <div style="font-size:36px;margin-bottom:8px">🚨 🛑 🚨</div>
-        <h2 class="lakshman-title">LAKSHMAN REKHA BREACH DETECTED</h2>
-        <p class="lakshman-subtitle">MALICIOUS AGENT TRANSACTION INTERCEPTED</p>
-        <div class="lakshman-details">
-          <div class="lakshman-detail-row"><span class="lakshman-detail-label">Target Vendor</span><span class="lakshman-detail-val" id="flashVendor">Unknown Vendor</span></div>
-          <div class="lakshman-detail-row"><span class="lakshman-detail-label">Intercepted Amount</span><span class="lakshman-detail-val danger" id="flashAmount">$450.00</span></div>
-          <div class="lakshman-detail-row"><span class="lakshman-detail-label">Reason</span><span class="lakshman-detail-val" id="flashReason" style="color:#ffb3c6">Exceeds limit</span></div>
-        </div>
-        <div style="display:flex;gap:10px">
-          <button class="btn btn-outline" style="flex:1;border-color:rgba(255,255,255,0.2);color:#fff" onclick="dismissLakshmanFlash()">Keep Frozen</button>
-          <button class="btn btn-primary" style="flex:1;background:var(--success);border-color:var(--success);color:#fff" onclick="unfreezeFromFlash()">Un-freeze Now</button>
-        </div>
+          <div>
+            <label class="label" for="modal-agent-label">Agent Label Name</label>
+            <input class="input-field" id="modal-agent-label" placeholder="e.g. Claude 3.5 Sonnet Assistant" required />
+          </div>
+          <div style="margin-top:12px">
+            <label class="label" for="modal-agent-endpoint">API Key / Webhook Endpoint</label>
+            <input class="input-field" id="modal-agent-endpoint" placeholder="sk-ant-api03-... or https://api.agent.dev" required />
+          </div>
+          <div style="margin-top:12px">
+            <label class="label">Lakshman Rekha Proxy Token (Generated)</label>
+            <div style="display:flex;gap:8px">
+              <input class="input-field" id="modal-lr-token" value="lr_live_sk_892374982374" readonly style="font-family:monospace;background:var(--muted-bg)" />
+              <button type="button" class="btn btn-secondary btn-sm" onclick="testAgentPing()">
+                ⚡ Test Ping
+              </button>
+            </div>
+          </div>
+
+          <!-- Step-by-Step Instructions Guide -->
+          <div class="locked-notice" style="margin-top:16px;text-align:left;font-size:12px;line-height:1.5;background:var(--muted-bg);border:1px solid var(--border)">
+            <div style="font-weight:700;color:var(--fg);margin-bottom:6px;display:flex;align-items:center;gap:6px">
+              <span>📖</span> How to Connect Real AI Agents (Step-by-Step)
+            </div>
+            <ol style="margin-left:18px;padding-left:0;display:flex;flex-direction:column;gap:6px;color:var(--muted)">
+              <li>Choose your agent provider above (e.g., <strong>🟣 Anthropic Claude</strong> or <strong>🟢 OpenAI GPT-4o</strong>).</li>
+              <li>Paste your real agent API Key or webhook endpoint URL.</li>
+              <li>In your agent's code, set <code style="color:var(--accent)">base_url = "https://api.lakshman-rekha.dev/v1/interceptor"</code> to route tool calls.</li>
+              <li>Click <strong>Connect Agent</strong> below. Lakshman Rekha will monitor every transaction live!</li>
+            </ol>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeAddAgentModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitAgentModal(event)">
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+          Connect Agent
+        </button>
       </div>
     </div>
-    
-    <div class="toast-container" id="toastContainer"></div>
-`;
+  </div>
+
+  <!-- Agent Credentials & Developer SDK Modal -->
+  <div class="modal-overlay" id="agentDevModal">
+    <div class="modal-box" style="max-width:540px">
+      <div class="modal-header">
+        <h3 style="display:flex;align-items:center;gap:8px;color:var(--accent)">
+          <span>🔑</span>
+          Agent API Credentials & Integration Code
+        </h3>
+        <p>Use these credentials to connect real AI agents (Claude, OpenAI, Python scripts) to Lakshman Rekha.</p>
+      </div>
+      <div class="modal-body">
+        <div>
+          <label class="label">Proxy Interceptor Endpoint</label>
+          <input class="input-field" readonly value="https://api.lakshman-rekha.dev/v1/interceptor/agent_9832479" style="font-family:monospace;background:var(--muted-bg)" />
+        </div>
+        <div style="margin-top:10px">
+          <label class="label">Agent Access Token</label>
+          <input class="input-field" readonly value="lr_live_sk_892374982374" style="font-family:monospace;background:var(--muted-bg)" />
+        </div>
+        
+        <div style="margin-top:14px">
+          <label class="label">Integration Code Snippet</label>
+          <div class="task-tabs" style="margin-bottom:8px">
+            <button type="button" class="task-tab active" id="codeTabPython" onclick="showDevCode('python')">Python (Claude / OpenAI)</button>
+            <button type="button" class="task-tab" id="codeTabJs" onclick="showDevCode('js')">Node.js / JS</button>
+            <button type="button" class="task-tab" id="codeTabCurl" onclick="showDevCode('curl')">cURL REST</button>
+          </div>
+          <pre id="devCodeBox" style="background:#0e1017;color:#80caff;padding:12px;border-radius:8px;font-family:monospace;font-size:11px;overflow-x:auto;line-height:1.5;max-height:160px"></pre>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeAgentDevModal()">Close</button>
+        <button class="btn btn-primary" onclick="copyCredentialsToConnectModal()">
+          📋 Use These Credentials in "Connect Agent"
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Freeze Confirm -->
+  <div class="modal-overlay" id="freezeModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="color:var(--danger);display:flex;align-items:center;gap:8px">
+          <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          Freeze all spending?
+        </h3>
+        <p>This immediately blocks every agent-initiated payment across the account. In-flight task returns are paused. You can un-freeze at any time.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeFreezeModal()">Cancel</button>
+        <button class="btn btn-danger" onclick="executeFreeze()">
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          Yes, freeze now
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LAKSHMAN REKHA FLASH OVERLAY -->
+  <div class="lakshman-overlay" id="lakshmanOverlay" onclick="dismissLakshmanFlash()">
+    <div class="lakshman-grid"></div>
+    <div class="lakshman-laser-line"></div>
+    <div class="lakshman-alert-box" onclick="event.stopPropagation()">
+      <div style="font-size:36px;margin-bottom:8px">⚡ 🛡️ ⚡</div>
+      <h2 class="lakshman-title">LAKSHMAN REKHA BREACH DETECTED</h2>
+      <p class="lakshman-subtitle">MALICIOUS AGENT TRANSACTION INTERCEPTED & ACCOUNT FROZEN</p>
+      
+      <div class="lakshman-details">
+        <div class="lakshman-detail-row">
+          <span class="lakshman-detail-label">Protection Boundary</span>
+          <span class="lakshman-detail-val" style="color:#ff2a5f">⚡ LAKSHMAN REKHA ENFORCED</span>
+        </div>
+        <div class="lakshman-detail-row">
+          <span class="lakshman-detail-label">Target Vendor / Counterparty</span>
+          <span class="lakshman-detail-val" id="flashVendor">Unknown Vendor</span>
+        </div>
+        <div class="lakshman-detail-row">
+          <span class="lakshman-detail-label">Intercepted Amount</span>
+          <span class="lakshman-detail-val danger" id="flashAmount">$450.00</span>
+        </div>
+        <div class="lakshman-detail-row">
+          <span class="lakshman-detail-label">Violation Reason</span>
+          <span class="lakshman-detail-val" id="flashReason" style="color:#ffb3c6">Exceeds spend limit</span>
+        </div>
+        <div class="lakshman-detail-row" style="margin-top:4px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)">
+          <span class="lakshman-detail-label">Current Account State</span>
+          <span class="lakshman-detail-val" style="color:#ff4d6d;font-weight:700">🔒 FROZEN UNTIL OPERATOR UNLOCKS</span>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-outline" style="flex:1;border-color:rgba(255,255,255,0.2);color:#fff" onclick="dismissLakshmanFlash()">
+          Keep Frozen & Dismiss
+        </button>
+        <button class="btn btn-primary" style="flex:1;background:var(--success);border-color:var(--success);color:#fff;font-weight:700" onclick="unfreezeFromFlash()">
+          ✓ Un-freeze Now
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supabase Config Modal -->
+  <div class="modal-overlay" id="supabaseModal">
+    <div class="modal-box" style="max-width:480px">
+      <div class="modal-header">
+        <h3 style="display:flex;align-items:center;gap:8px;color:var(--success)">
+          <span style="font-size:20px">⚡</span>
+          Supabase Cloud Database Settings
+        </h3>
+        <p>Connect your free Supabase project to enable cloud database sync & remote auth.</p>
+      </div>
+      <div class="modal-body">
+        <form class="auth-form" id="supabaseForm" onsubmit="saveSupabaseConfig(event)">
+          <div>
+            <label class="label" for="supabase-url">Supabase Project URL</label>
+            <input class="input-field" id="supabase-url" placeholder="https://xyzcompany.supabase.co" />
+          </div>
+          <div style="margin-top:12px">
+            <label class="label" for="supabase-key">Supabase Anon Key (API Key)</label>
+            <input class="input-field" id="supabase-key" type="password" placeholder="eyJhY... (anon key)" />
+          </div>
+          <div class="locked-notice" style="margin-top:14px;text-align:left;font-size:11px">
+            <strong>💡 Quick Supabase Setup (100% Free):</strong><br/>
+            1. Go to <a href="https://supabase.com" target="_blank" style="color:var(--primary)">supabase.com</a> & create a free project.<br/>
+            2. Copy your <strong>Project URL</strong> and <strong>anon key</strong> from <i>Project Settings → API</i>.<br/>
+            3. Paste them here to sync all users, transactions & breaches live to the cloud!
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeSupabaseModal()">Cancel</button>
+        <button class="btn btn-primary" style="background:var(--success);border-color:var(--success)" onclick="saveSupabaseConfig(event)">
+          Connect Supabase Cloud
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toastContainer"></div>`;
 
 // Extract scripts logic using dangerouslySetInnerHTML
 export default function ConsolePage() {
@@ -428,7 +708,6 @@ export default function ConsolePage() {
     // Inject scripts dynamically (avoids hydration mismatch from next/script in dangerouslySetInnerHTML tree)
     useEffect(() => {
         function loadScript(src: string, onload?: () => void) {
-            // Avoid double-loading
             if (document.querySelector(`script[src="${src}"]`)) {
                 if (onload) onload();
                 return;
@@ -439,9 +718,19 @@ export default function ConsolePage() {
             if (onload) s.onload = onload;
             document.body.appendChild(s);
         }
-        // Load supabase first, then bundle (order matters)
+        // Load supabase CDN first, then local JS files
         loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => {
-            loadScript('/js/bundle.js');
+            loadScript('/js/supabase.js', () => {
+                loadScript('/js/app.js', () => {
+                    loadScript('/js/auth.js', () => {
+                        loadScript('/js/agent.js', () => {
+                            if (typeof (window as any).initPlayground === 'function') {
+                                (window as any).initPlayground();
+                            }
+                        });
+                    });
+                });
+            });
         });
     }, []);
 
@@ -456,8 +745,6 @@ export default function ConsolePage() {
     }, [isPending, handleRevoke]);
 
     return (
-        <div id="app-body-wrapper" className="playground-mode">
-            <div dangerouslySetInnerHTML={{ __html: rawHtml }} />
-        </div>
+        <div dangerouslySetInnerHTML={{ __html: rawHtml }} />
     );
 }
