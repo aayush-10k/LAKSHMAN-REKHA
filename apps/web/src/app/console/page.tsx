@@ -5,6 +5,7 @@ import { useWriteContract, useAccount, useConnect, useDisconnect } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import type { DecisionTrace, RekhaEvent } from '../../types';
 import { CORE_URL, ensurePaired, renewLease, type Pairing } from '../../lib/pairing';
+import { AgentStatus } from '../../components/AgentStatus';
 
 const POLICY_MODULE_ADDRESS = (process.env['NEXT_PUBLIC_POLICY_MODULE_ADDRESS'] ?? '0x933bb10252ec2b133f28b7d5edf1d303c3384d87') as `0x${string}`;
 
@@ -225,6 +226,7 @@ export default function ConsolePage() {
         <div className="topbar-left">
           <div className={`core-dot ${coreUp ? 'up' : 'down'}`} title={coreUp ? 'Core online' : 'Core offline'} />
           <span className="topbar-brand">Lakshman Rekha</span>
+          <AgentStatus pairing={pairing} error={pairError} leaseTtlMs={leaseTtl} />
           {frozen && <span className="frozen-chip">FROZEN</span>}
         </div>
         <div className="topbar-center">

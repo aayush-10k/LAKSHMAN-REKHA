@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import type { RekhaEvent } from '../../types';
 import { CORE_URL, ensurePaired, type Pairing } from '../../lib/pairing';
+import { AgentStatus } from '../../components/AgentStatus';
 
 
 type BehaviourMode = 'normal' | 'hallucinating' | 'injected' | 'compromised' | 'overreach' | 'colluding';
@@ -148,6 +149,7 @@ export default function PlaygroundPage() {
           <div className={`core-dot ${coreUp ? 'up' : 'down'}`} />
           <a href="/console" className="topbar-brand">← Console</a>
           <span className="topbar-page">Agent Playground</span>
+          <AgentStatus pairing={pairing} error={pairError} leaseTtlMs={leaseTtl} />
         </div>
         <div className="topbar-right">
           <span className="mode-badge" style={{ color: MODE_INFO[mode].color }}>
