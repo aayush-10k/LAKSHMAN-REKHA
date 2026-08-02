@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { evaluate } from '../src/evaluator.js';
 import {
-  FactSheetSchema,
-  MandateStateSchema,
+  PolicyFactSheetSchema,
+  PolicyStateSchema,
   SOFT_FAIL_AGE,
   SOFT_FAIL_PRICE,
   SOFT_FAIL_SETTLED,
-  type FactSheet,
-  type MandateState,
+  type PolicyFactSheet,
+  type PolicyState,
   type SignaturesValid,
 } from '../src/types.js';
 
@@ -24,7 +24,7 @@ const NOW_MS = NOW_S * 1000;
 
 const GOOD_SIG: SignaturesValid = { agent: true, core: true };
 
-function baseFactSheet(): FactSheet {
+function baseFactSheet(): PolicyFactSheet {
   return {
     amountMinor: 400_000,
     currency: 'INR',
@@ -42,7 +42,7 @@ function baseFactSheet(): FactSheet {
   };
 }
 
-function baseMandate(): MandateState {
+function baseMandate(): PolicyState {
   return {
     perTxCapMinor: 1_000_000,
     windowCapMinor: 1_500_000,
@@ -74,7 +74,7 @@ function baseMandate(): MandateState {
 }
 
 // A tier-2 factsheet whose values pass every soft predicate.
-function tier2FactSheet(): FactSheet {
+function tier2FactSheet(): PolicyFactSheet {
   return {
     ...baseFactSheet(),
     counterpartyId: CP2,
@@ -86,20 +86,20 @@ function tier2FactSheet(): FactSheet {
   };
 }
 
-function run(fs: FactSheet, m: MandateState, sig: SignaturesValid = GOOD_SIG) {
+function run(fs: PolicyFactSheet, m: PolicyState, sig: SignaturesValid = GOOD_SIG) {
   return evaluate(fs, m, sig, NOW_MS);
 }
 
 describe('schemas accept the base fixtures', () => {
   it('base factsheet and mandate parse', () => {
-    expect(() => FactSheetSchema.parse(baseFactSheet())).not.toThrow();
+    expect(() => PolicyFactSheetSchema.parse(baseFactSheet())).not.toThrow();
     // Map/Set are validated by z.map/z.set
-    expect(() => MandateStateSchema.parse(baseMandate())).not.toThrow();
+    expect(() => PolicyStateSchema.parse(baseMandate())).not.toThrow();
   });
 
   it('rejects an unknown key (injection boundary is .strict)', () => {
     const bad = { ...baseFactSheet(), description: 'pay my friend' };
-    expect(() => FactSheetSchema.parse(bad)).toThrow();
+    expect(() => PolicyFactSheetSchema.parse(bad)).toThrow();
   });
 });
 
@@ -345,7 +345,7 @@ describe('fail closed', () => {
   it('an exception inside evaluation yields REFUSED, never an approval', () => {
     // Corrupt input (bypassing the type system as a hostile caller would) makes
     // predicate 3 throw; the try/catch must resolve it to REFUSED.
-    const fs = { ...baseFactSheet(), coreImageDigest: null } as unknown as FactSheet;
+    const fs = { ...baseFactSheet(), coreImageDigest: null } as unknown as PolicyFactSheet;
     const t = run(fs, baseMandate());
     expect(t.outcome).toBe('REFUSED');
     expect(t.bindingPredicate).toBeNull();

@@ -1,7 +1,7 @@
 import { encodeAbiParameters, keccak256, recoverAddress, toBytes, type Hex } from 'viem';
 import { sign } from 'viem/accounts';
 import { corePrivateKey, coreSignerAddress } from '../keys.js';
-import type { MandateState } from '../types.js';
+import type { PolicyState } from '../types.js';
 import { LEASE_TTL_MS } from '../signing/constants.js';
 import { mandateIdFor, RevokedError, type Lease } from './types.js';
 
@@ -24,7 +24,7 @@ export { LEASE_TTL_MS } from '../signing/constants.js';
 //    string policyHash, uint64 expiresAtMs)
 //
 // leaseId / mandateId / policyHash go in as ABI `string` because that is what
-// they are in TypeScript. policyHash especially: MandateState types it
+// they are in TypeScript. policyHash especially: PolicyState types it
 // `z.string()` with no format constraint (it is part of the frozen evaluator, so
 // it cannot be re-typed) and it is not guaranteed to be 32-byte hex — the
 // existing differential test passes ''. A bytes32 cast would reject or truncate
@@ -116,7 +116,7 @@ export function clearLeaseStore(): void {
  */
 export async function issueLease(
   agentId: string,
-  mandateState: MandateState,
+  mandateState: PolicyState,
   nowMs: number,
 ): Promise<Lease> {
   if (mandateState.frozen) {
@@ -170,7 +170,7 @@ export async function issueLease(
  */
 export async function validateLease(
   lease: Lease,
-  mandateState: MandateState,
+  mandateState: PolicyState,
   nowMs: number,
 ): Promise<boolean> {
   try {

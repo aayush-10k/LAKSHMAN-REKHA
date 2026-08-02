@@ -1,5 +1,5 @@
 import type { Hex } from 'viem';
-import type { FactSheet, MandateState } from '../src/types.js';
+import type { PolicyFactSheet, PolicyState } from '../src/types.js';
 
 /**
  * Shared fixtures for the A6/A7 tests.
@@ -21,7 +21,7 @@ export const DEPLOYED_IMAGE = ('0x01' + '00'.repeat(31)) as Hex;
 export const TIER1_COUNTERPARTY = '0x' + 'a1'.repeat(20);
 export const TIER2_COUNTERPARTY = '0x' + 'b2'.repeat(20);
 
-export function factSheet(over: Partial<FactSheet> = {}): FactSheet {
+export function factSheet(over: Partial<PolicyFactSheet> = {}): PolicyFactSheet {
   return {
     amountMinor: 940_000, // ₹9,400
     currency: 'INR',
@@ -40,7 +40,7 @@ export function factSheet(over: Partial<FactSheet> = {}): FactSheet {
   };
 }
 
-export function mandateState(over: Partial<MandateState> = {}): MandateState {
+export function mandateState(over: Partial<PolicyState> = {}): PolicyState {
   return {
     perTxCapMinor: 1_000_000,
     windowCapMinor: 10_000_000,

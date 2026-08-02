@@ -16,7 +16,17 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import type { FactSheet, DecisionTrace, MandateState, Predicate, PredicateName, Outcome } from '../types.js';
+import {
+  SOFT_FAIL_AGE,
+  SOFT_FAIL_PRICE,
+  SOFT_FAIL_SETTLED,
+  type FactSheet,
+  type DecisionTrace,
+  type MandateState,
+  type Predicate,
+  type PredicateName,
+  type Outcome,
+} from '../types.js';
 
 export const CORE_IMAGE_DIGEST = process.env['CORE_IMAGE_DIGEST'] ?? 'sha256:dev-mock-0000000000000000000000000000000000000000000000000000000000000000';
 const POLICY_HASH = process.env['POLICY_HASH'] ?? '0x0000000000000000000000000000000000000000000000000000000000000001';
@@ -60,6 +70,13 @@ export function evaluate(input: EvaluatorInput): DecisionTrace {
   const predicates: Predicate[] = [];
   let outcome: Outcome = 'APPROVED';
   let bindingPredicate: PredicateName | null = null;
+  let softFailBitmask = 0;
+
+  const SOFT_BIT: Partial<Record<PredicateName, number>> = {
+    counterpartyAge: SOFT_FAIL_AGE,
+    counterpartySettled: SOFT_FAIL_SETTLED,
+    priceBand: SOFT_FAIL_PRICE,
+  };
 
   const hard = (
     name: PredicateName,
@@ -84,9 +101,12 @@ export function evaluate(input: EvaluatorInput): DecisionTrace {
     passed: boolean,
   ): boolean => {
     predicates.push(p(name, inputs, expected, actual, passed, 'soft'));
-    if (!passed && outcome === 'APPROVED') {
-      outcome = 'HELD';
-      bindingPredicate = name;
+    if (!passed) {
+      softFailBitmask |= SOFT_BIT[name] ?? 0;
+      if (outcome === 'APPROVED') {
+        outcome = 'HELD';
+        bindingPredicate = name;
+      }
     }
     return passed;
   };
@@ -170,6 +190,7 @@ export function evaluate(input: EvaluatorInput): DecisionTrace {
     outcome,
     predicates,
     bindingPredicate,
+    softFailBitmask,
     amountMinor: fs.amountMinor,
     counterpartyId: fs.counterpartyId,
     policyHash: POLICY_HASH,

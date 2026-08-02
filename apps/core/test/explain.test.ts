@@ -3,8 +3,8 @@ import { evaluate } from '../src/evaluator.js';
 import { summarize, explain, money, reasonFor } from '../src/explain.js';
 import {
   PREDICATE_NAMES,
-  type FactSheet,
-  type MandateState,
+  type PolicyFactSheet,
+  type PolicyState,
   type Predicate,
   type PredicateName,
 } from '../src/types.js';
@@ -15,7 +15,7 @@ const IMAGE = '0x' + 'ab'.repeat(32);
 const NOW_S = 1_000_000;
 const NOW_MS = NOW_S * 1000;
 
-function baseFactSheet(): FactSheet {
+function baseFactSheet(): PolicyFactSheet {
   return {
     amountMinor: 400_000,
     currency: 'INR',
@@ -33,7 +33,7 @@ function baseFactSheet(): FactSheet {
   };
 }
 
-function baseMandate(): MandateState {
+function baseMandate(): PolicyState {
   return {
     perTxCapMinor: 1_000_000,
     windowCapMinor: 1_500_000,
