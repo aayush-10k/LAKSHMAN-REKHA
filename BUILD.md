@@ -2,7 +2,7 @@
 
 **InnovaHack Chapter 1 · Round 2 · FinTech PS2 (The Kill Switch)**
 
-Everything needed to build this end to end. Three builders, all working through Claude Code.
+Everything needed to build this end to end. Three builders working in parallel.
 
 ---
 
@@ -422,7 +422,7 @@ Deploy everything, verify contract source. Rehearse the demo ×3, record. Deck, 
 
 ---
 
-## PART 8 — CLAUDE CODE PROMPTS
+## PART 8 — MODULE PROMPTS
 
 Start every session with:
 
@@ -675,7 +675,7 @@ Everything driven by the SSE stream. No polling. No page reloads.
 
 ## PART 9 — HUMAN-ONLY TASKS
 
-Claude Code can't do these. Assign owners now.
+Manual steps required. Assign owners now.
 
 | Task | Owner |
 |---|---|
@@ -740,7 +740,7 @@ A single 1px chalk line drawn around the agent's activity zone in the playground
 
 That is the one animated idea in the product and it carries the name.
 
-**Motion budget:** the rekha, the lease TTL ring, the ceremony bar. That's it. Counters increment without bouncing. No page transitions, no scroll reveals. Restraint is what stops it reading as AI-generated.
+**Motion budget:** the rekha, the lease TTL ring, the ceremony bar. That's it. Counters increment without bouncing. No page transitions, no scroll reveals. Restraint is what stops it reading as bloated.
 
 **Copy rules**
 - Name things by what the person controls: "Cancel payment", not "Void transaction".

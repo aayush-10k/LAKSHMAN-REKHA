@@ -37,7 +37,7 @@ struct PolicyInit {
 ///      - Fail closed: every unexpected condition reverts. No code path falls
 ///        through to "allow".
 ///      - Fixed predicate order: {validate} evaluates predicates 1..14 in the exact
-///        order specified in CLAUDE.md so an off-chain TypeScript evaluator can
+///        order specified in docs/API.md so an off-chain TypeScript evaluator can
 ///        mirror it byte-for-byte. Do not reorder.
 contract PolicyModule is Ownable {
     // --------------------------------------------------------------------- //

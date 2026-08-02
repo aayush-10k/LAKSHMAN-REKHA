@@ -78,7 +78,7 @@ export const createVendorSim = () => createServer(async (request, response) => {
   return send(response, 404, { error: 'NOT_FOUND' });
 });
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1].endsWith('server.js')) {
   const port = Number(process.env.PORT ?? 4100);
   createVendorSim().listen(port, () => console.log(`vendorsim listening on http://localhost:${port}`));
 }

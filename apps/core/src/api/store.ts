@@ -7,7 +7,12 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import type { MandateState, DecisionTrace, CategoryCode } from '../types.js';
+import { sign } from 'viem/accounts';
+import type { Hex } from 'viem';
+import { CATEGORY_CODES, type MandateState, type DecisionTrace, type CategoryCode } from '../types.js';
+import type { PaymentRequestStruct } from '../signing/constants.js';
+import { hasCoreKey, corePrivateKey } from '../keys.js';
+import { leaseDigest } from '../lease/index.js';
 
 // ──────────────────────────────────────────────
 // Mandate
@@ -15,6 +20,100 @@ import type { MandateState, DecisionTrace, CategoryCode } from '../types.js';
 
 const mandates = new Map<string, MandateState>();
 const pairingCodes = new Map<string, string>(); // code → mandateId
+
+/**
+ * Fallback policy, used only when PolicyModule cannot be read at boot.
+ *
+ * The chain is the authority — seedPolicyFromChain() below replaces every one of
+ * these with the live value, because a mandate that disagrees with PolicyModule
+ * produces APPROVED traces for payments the chain then reverts, and the decision
+ * panel becomes a lie.
+ *
+ * These numbers are the values read from 0x933b… on 2026-08-02
+ * (apps/core/scripts/chain-state.mjs prints them), so an RPC outage degrades to
+ * "slightly stale" rather than to "invented". They will drift; the seed is what
+ * keeps the running core correct.
+ */
+export const DEPLOYED_POLICY = {
+  perTxCapMinor: 2_500_000,        // ₹25,000
+  windowCapMinor: 10_000_000,      // ₹1,00,000
+  windowSeconds: 86_400,
+  cumulativeCapMinor: 100_000_000, // ₹10,00,000
+  // permittedCategories 223 = 0b11011111: everything except SOFTWARE (bit 5).
+  permittedCategories: ['PACKAGING', 'ADVERTISING', 'CONTENT', 'COMPUTE', 'LOGISTICS', 'UTILITIES', 'OTHER'] as CategoryCode[],
+  tier2MinAgeDays: 30,
+  tier2MinSettledTxns: 5,
+  tier2MaxPriceBandZ: 2,
+  tier2CapMinor: 500_000,          // ₹5,000
+  deadmanSeconds: 604_800,
+  policyHash: '0x8960a494209993e857a6573ef8ee53e56371acd8e67309a06bccf0fed65204c6',
+  revocationEpoch: 0,
+} as const;
+
+/** Bitmap -> category list, the inverse of policy-state.ts categoryBitmap(). */
+function categoriesFromBitmap(bits: bigint): CategoryCode[] {
+  return CATEGORY_CODES.filter((_, i) => ((bits >> BigInt(i)) & 1n) === 1n) as CategoryCode[];
+}
+
+/**
+ * Overwrites every mandate with the live PolicyModule state.
+ *
+ * Called at boot and after each settlement. The counters matter as much as the
+ * caps: settling advances windowSpentMinor and cumulativeSpentMinor on chain, so
+ * an off-chain copy that stays at zero makes predicates 13 and 14 LOOSER than
+ * the contract's — the one direction that yields an approval the chain refuses.
+ *
+ * Returns false and changes nothing if the read failed. Refusing a partial
+ * update is the point: mixing live caps with stale counters would be undetectable.
+ */
+export function seedPolicy(snapshot: {
+  perTxCapMinor: number;
+  windowCapMinor: number;
+  windowSeconds: number;
+  cumulativeCapMinor: number;
+  permittedCategories: bigint;
+  tier2MinAgeDays: number;
+  tier2MinSettledTxns: number;
+  tier2MaxPriceBandZ: number;
+  tier2CapMinor: number;
+  windowStartS: number;
+  windowSpentMinor: number;
+  cumulativeSpentMinor: number;
+  revocationEpoch: number;
+  policyHash: string;
+  deadmanSeconds: number;
+  frozen: boolean;
+} | null): boolean {
+  if (snapshot === null) return false;
+  for (const [id, mandate] of mandates.entries()) {
+    mandates.set(id, {
+      ...mandate,
+      perTxCapMinor: snapshot.perTxCapMinor,
+      windowCapMinor: snapshot.windowCapMinor,
+      windowSeconds: snapshot.windowSeconds,
+      cumulativeCapMinor: snapshot.cumulativeCapMinor,
+      permittedCategories: categoriesFromBitmap(snapshot.permittedCategories),
+      tier2MinAgeDays: snapshot.tier2MinAgeDays,
+      tier2MinSettledTxns: snapshot.tier2MinSettledTxns,
+      tier2MaxPriceBandZ: snapshot.tier2MaxPriceBandZ,
+      tier2CapMinor: snapshot.tier2CapMinor,
+      // windowStart 0 on chain means "no window open"; keep it 0 so
+      // effectiveWindowSpent() rolls, rather than inventing a start time.
+      windowStartMs: snapshot.windowStartS === 0 ? 0 : snapshot.windowStartS * 1000,
+      windowSpentMinor: snapshot.windowSpentMinor,
+      cumulativeSpentMinor: snapshot.cumulativeSpentMinor,
+      revocationEpoch: snapshot.revocationEpoch,
+      policyHash: snapshot.policyHash,
+      deadmanSeconds: snapshot.deadmanSeconds,
+      // A chain freeze can only ADD. An off-chain revoke (POST /v1/revoke, or
+      // the dead-man switch) must never be cleared by a later chain read that
+      // happens to say frozen: false — this runs after every settlement, so a
+      // plain assignment would quietly un-revoke a revoked mandate.
+      frozen: mandate.frozen || snapshot.frozen,
+    });
+  }
+  return true;
+}
 
 export function createMandate(ownerAddress = '0x' + '0'.repeat(40)): { mandateId: string; pairingCode: string } {
   const mandateId = `mnd_${randomBytes(4).toString('hex')}`;
@@ -27,22 +126,22 @@ export function createMandate(ownerAddress = '0x' + '0'.repeat(40)): { mandateId
     guardianAddress: null,
     agentSignerAddress: '0x' + '0'.repeat(40),
     coreSignerAddress: '0x' + '0'.repeat(40),
-    revocationEpoch: 0,
-    policyHash: '0x' + '0'.repeat(64),
-    perTxCapMinor: 2_500_000,    // ₹25,000
-    windowCapMinor: 5_000_000,   // ₹50,000
-    windowSeconds: 3600,
-    cumulativeCapMinor: 50_000_000, // ₹5,00,000
+    revocationEpoch: DEPLOYED_POLICY.revocationEpoch,
+    policyHash: DEPLOYED_POLICY.policyHash,
+    perTxCapMinor: DEPLOYED_POLICY.perTxCapMinor,
+    windowCapMinor: DEPLOYED_POLICY.windowCapMinor,
+    windowSeconds: DEPLOYED_POLICY.windowSeconds,
+    cumulativeCapMinor: DEPLOYED_POLICY.cumulativeCapMinor,
     windowStartMs: now,
     windowSpentMinor: 0,
     cumulativeSpentMinor: 0,
-    permittedCategories: ['PACKAGING', 'ADVERTISING', 'CONTENT', 'COMPUTE', 'LOGISTICS', 'SOFTWARE', 'UTILITIES', 'OTHER'] as CategoryCode[],
-    tier2MinAgeDays: 30,
-    tier2MinSettledTxns: 10,
-    tier2MaxPriceBandZ: 20,
-    tier2CapMinor: 1_000_000,    // ₹10,000 for tier-2
+    permittedCategories: [...DEPLOYED_POLICY.permittedCategories],
+    tier2MinAgeDays: DEPLOYED_POLICY.tier2MinAgeDays,
+    tier2MinSettledTxns: DEPLOYED_POLICY.tier2MinSettledTxns,
+    tier2MaxPriceBandZ: DEPLOYED_POLICY.tier2MaxPriceBandZ,
+    tier2CapMinor: DEPLOYED_POLICY.tier2CapMinor,
     lastHeartbeatMs: now,
-    deadmanSeconds: 3600,
+    deadmanSeconds: DEPLOYED_POLICY.deadmanSeconds,
     frozen: false,
   };
 
@@ -110,29 +209,96 @@ export interface LeaseRecord {
   expiresAtMs: number;
   revocationEpoch: number;
   policyHash: string;
-  signature: string;
+  /** 65-byte core-key ECDSA signature over leaseDigest(). Never a placeholder. */
+  signature: Hex;
 }
 
 const leases = new Map<string, LeaseRecord>();
 
-export function issueLease(agentId: string): LeaseRecord | null {
-  const agent = agents.get(agentId);
-  if (!agent) return null;
-  const mandate = mandates.get(agent.mandateId);
-  if (!mandate || mandate.frozen) return null;
+/**
+ * Why a lease could not be issued. The route turns this into the 503/409 body so
+ * the failure is never invisible again (FIX2.md BUG 1: a bare "Could not issue
+ * lease" cost an afternoon of guessing that the core simply had no key).
+ */
+export type LeaseFailureCode =
+  | 'AGENT_NOT_FOUND'
+  | 'MANDATE_NOT_FOUND'
+  | 'MANDATE_FROZEN'
+  | 'NO_CORE_KEY'
+  | 'SIGNING_FAILED';
 
-  const leaseId = `lse_${randomBytes(4).toString('hex')}`;
-  const record: LeaseRecord = {
-    leaseId,
+export type IssueLeaseResult =
+  | { ok: true; lease: LeaseRecord }
+  | { ok: false; code: LeaseFailureCode; reason: string };
+
+/** The current lease TTL, so clients can size their own timers off the truth. */
+export function leaseTtlMs(): number {
+  return Number(process.env['LEASE_TTL_MS']) || 5_000;
+}
+
+/**
+ * Issues a lease carrying a real core signature.
+ *
+ * It used to ship `0x00…00` with a "real sig from A's signing service" note.
+ * That is no longer viable: settlement runs through coreSign(), whose first act
+ * is validateLease(), which recovers this signature and compares it to the core
+ * signer. A placeholder recovers to some unrelated address, so every payment
+ * would fail lease validation and nothing could ever settle.
+ *
+ * Async because signing is. Every failure path returns `ok: false` with the
+ * reason — never an unsigned lease. A missing key still fails closed; it just
+ * says so now.
+ */
+export async function issueLease(agentId: string): Promise<IssueLeaseResult> {
+  const agent = agents.get(agentId);
+  if (!agent) {
+    return { ok: false, code: 'AGENT_NOT_FOUND', reason: `No agent ${agentId} is registered with this core.` };
+  }
+  const mandate = mandates.get(agent.mandateId);
+  if (!mandate) {
+    return { ok: false, code: 'MANDATE_NOT_FOUND', reason: `Mandate ${agent.mandateId} is not in this core's store.` };
+  }
+  if (mandate.frozen) {
+    return { ok: false, code: 'MANDATE_FROZEN', reason: `Mandate ${agent.mandateId} is frozen; no leases will be issued.` };
+  }
+  // Checked rather than caught: corePrivateKey() throws when unconfigured, and a
+  // lease with no signature is not a lease.
+  if (!hasCoreKey()) {
+    return {
+      ok: false,
+      code: 'NO_CORE_KEY',
+      reason: 'No core signing key is configured (set CORE_SIGNER_PRIVATE_KEY, e.g. in .env).',
+    };
+  }
+
+  const unsigned = {
+    leaseId: `lse_${randomBytes(4).toString('hex')}`,
     agentId,
     mandateId: agent.mandateId,
-    expiresAtMs: Date.now() + (Number(process.env['LEASE_TTL_MS']) || 5_000),
+    expiresAtMs: Date.now() + leaseTtlMs(),
     revocationEpoch: mandate.revocationEpoch,
     policyHash: mandate.policyHash,
-    signature: `0x${'00'.repeat(32)}`, // real sig from A's signing service
   };
-  leases.set(leaseId, record);
-  return record;
+
+  let signature: Hex;
+  try {
+    // Raw digest signing, matching src/lease/index.ts. NEVER signMessage.
+    signature = await sign({
+      hash: leaseDigest(unsigned),
+      privateKey: corePrivateKey(),
+      to: 'hex',
+    });
+  } catch (e) {
+    // The exception this swallowed is exactly what BUG 1 needed to see. Log it
+    // and hand the message up; still no lease, so it is as fail-closed as before.
+    const reason = e instanceof Error ? e.message : String(e);
+    console.error('[lease] signing failed:', reason);
+    return { ok: false, code: 'SIGNING_FAILED', reason };
+  }
+
+  const record: LeaseRecord = { ...unsigned, signature };
+  leases.set(record.leaseId, record);
+  return { ok: true, lease: record };
 }
 
 export function getLease(leaseId: string): LeaseRecord | undefined {
@@ -166,12 +332,55 @@ export function linkDecisionToMandate(decisionId: string, mandateId: string): vo
   decisionToMandate.set(decisionId, mandateId);
 }
 
-export function settleDecision(decisionId: string): { txHash: string; blockNumber: number; balanceAfterMinor: number } {
+// ──────────────────────────────────────────────
+// Settlement context
+// ──────────────────────────────────────────────
+
+/**
+ * The exact request the core signed, held between /request and /settle.
+ *
+ * Settlement must broadcast *this* struct and not rebuild one: the core
+ * signature commits to keccak256(abi.encode(chainId, policy, req)), so a
+ * request reassembled at settle time from a lease that has since ticked over
+ * produces a different digest and reverts with InvalidCoreSignature. Storing it
+ * also means there is exactly one construction path, which is the point of
+ * FIX.md TASK 2.
+ */
+export type SettlementContext = {
+  request: PaymentRequestStruct;
+  coreSig: Hex;
+};
+
+const settlementContexts = new Map<string, SettlementContext>();
+
+export function putSettlementContext(decisionId: string, ctx: SettlementContext): void {
+  settlementContexts.set(decisionId, ctx);
+}
+
+export function getSettlementContext(decisionId: string): SettlementContext | undefined {
+  return settlementContexts.get(decisionId);
+}
+
+/**
+ * Records a settlement that has ALREADY happened on chain.
+ *
+ * `txHash` and `blockNumber` are parameters, not products. This function used to
+ * mint them with randomBytes(32) and Math.random(), which made every "verifiable
+ * on Base Sepolia" claim in the product false — the hashes resolved to nothing.
+ * The only caller is POST /v1/payment/settle, which passes values it took off a
+ * mined receipt, so a hash can no longer exist for a payment that did not happen.
+ *
+ * Balance and window accounting are unchanged; this is bookkeeping after the
+ * fact, and it must not be reached unless the transaction succeeded.
+ */
+export function settleDecision(
+  decisionId: string,
+  txHash: string,
+  blockNumber: number,
+): { txHash: string; blockNumber: number; balanceAfterMinor: number } {
   const trace = decisions.get(decisionId);
   if (!trace || trace.outcome !== 'APPROVED') throw new Error('DECISION_NOT_APPROVED');
 
-  const txHash = `0x${randomBytes(32).toString('hex')}`;
-  const blockNumber = Math.floor(Math.random() * 1_000_000) + 15_000_000;
   walletBalanceMinor -= trace.amountMinor;
   if (walletBalanceMinor < 0) walletBalanceMinor = 0;
 

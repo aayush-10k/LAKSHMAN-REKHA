@@ -170,7 +170,16 @@ export type RekhaEvent =
   | { t: 'decision.made'; atMs: number; trace: DecisionTrace }
   | { t: 'ceremony.round'; atMs: number; decisionId: string; round: number; of: number }
   | { t: 'ceremony.aborted'; atMs: number; decisionId: string; atRound: number; reason: 'revoked' | 'timeout' }
-  | { t: 'payment.settled'; atMs: number; decisionId: string; txHash: string; balanceAfterMinor: number }
+  /**
+   * A payment that is on chain. `txHash` always came off a mined receipt.
+   *
+   * `balanceAfterMinor` is RekhaAccount's INRx balance read AT `blockNumber`,
+   * and is null when that read could not be completed — the money still moved,
+   * we just cannot state the resulting balance. Consumers must render null as
+   * "unavailable"; substituting a local figure is how the console ended up
+   * showing a pre-payment balance next to a real settlement.
+   */
+  | { t: 'payment.settled'; atMs: number; decisionId: string; txHash: string; blockNumber: number; amountMinor: number; balanceAfterMinor: number | null; balanceSource: 'chain' | 'unavailable' }
   | { t: 'payment.held'; atMs: number; decisionId: string; expiresAtMs: number; amountMinor: number }
   | { t: 'hold.released'; atMs: number; decisionId: string; amountMinor: number }
   | { t: 'revocation'; atMs: number; epoch: number; source: 'owner' | 'guardian' | 'deadman'; latencyMs: number }

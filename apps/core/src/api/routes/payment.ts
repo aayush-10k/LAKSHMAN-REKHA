@@ -1,56 +1,63 @@
 /**
  * B9 — POST /v1/payment/request  +  POST /v1/payment/settle
  *
- * /request: validates FactSheet, runs evaluator, emits decision events.
- *           FROST ceremony simulation: emits ceremony.round SSE events for M3.
- * /settle:  completes an APPROVED decision; produces a txHash.
+ * /request: validates the FactSheet, runs the evaluator and produces the core's
+ *           half of the 2-of-2. Emits decision events; simulates the FROST
+ *           ceremony rounds for M3.
+ * /settle:  broadcasts RekhaAccount.execute and returns the MINED transaction.
+ *
+ * FIX.md TASK 2 + TASK 3. Two things changed in here and both are load-bearing:
+ *
+ *  1. There is now exactly one place a PaymentRequest is built — coreSign() in
+ *     src/signing/, via buildPaymentRequest(). The inline tuple and the local
+ *     hashRequest ABI that used to live in this file are gone. A second
+ *     construction path is a second chance to disagree with the Solidity struct,
+ *     and a struct that disagrees by one field reverts with InvalidCoreSignature.
+ *
+ *  2. Settlement is real. No branch of this file can produce a transaction hash
+ *     that did not come off a mined receipt. A missing key is 503, a contract
+ *     refusal is 422 naming the custom error, and neither returns a hash.
  */
 
-import { createPublicClient, http, bytesToHex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { baseSepolia } from 'viem/chains';
 import type { FastifyInstance } from 'fastify';
+import type { Hex } from 'viem';
 import { validateFactSheet } from '../validate-factsheet.js';
-import { evaluate } from '../mock-evaluator.js';
 import * as store from '../store.js';
 import { emit } from '../../events/bus.js';
+import { hasCoreKey } from '../../keys.js';
+import { LeaseInvalidError, type Lease } from '../../lease/index.js';
+import { coreSign } from '../../signing/sign.js';
+import { toPolicyFactSheet, toPolicyState, type RegistryTier } from '../policy-state.js';
+import {
+  broadcastExecute,
+  counterpartyTierOnChain,
+  inrxBalanceAtBlock,
+  nonceUsedOnChain,
+  readDeployedPolicy,
+  rekhaAccountAddress,
+  settlementConfig,
+  SettlementRevertedError,
+} from '../chain.js';
 
-const rpcUrl = process.env['BASE_SEPOLIA_RPC'] || 'https://sepolia.base.org';
-const publicClient = createPublicClient({ chain: baseSepolia, transport: http(rpcUrl) });
-const coreSignerKey = process.env['CORE_SIGNER_PRIVATE_KEY'];
-const account = coreSignerKey ? privateKeyToAccount(coreSignerKey as `0x${string}`) : null;
-const policyModuleAddress = (process.env['POLICY_MODULE_ADDRESS'] || '0x0000000000000000000000000000000000000000') as `0x${string}`;
-const imageDigestStr = process.env['CORE_IMAGE_DIGEST'] || '0x0100000000000000000000000000000000000000000000000000000000000000';
-const coreImageDigest = (imageDigestStr.startsWith('0x') ? imageDigestStr : `0x${Buffer.from(imageDigestStr).toString('hex').padEnd(64, '0')}`) as `0x${string}`;
+/** 65-byte ECDSA signature, as the agent must supply it. */
+const SIGNATURE_RE = /^0x[0-9a-fA-F]{130}$/;
 
-const CATEGORY_MAP: Record<string, number> = {
-  'PACKAGING': 0, 'ADVERTISING': 1, 'CONTENT': 2, 'COMPUTE': 3, 'LOGISTICS': 4, 'SOFTWARE': 5, 'UTILITIES': 6, 'OTHER': 7
-};
-
-const hashRequestAbi = [{
-  type: 'function',
-  name: 'hashRequest',
-  stateMutability: 'view',
-  inputs: [{
-    type: 'tuple',
-    name: 'req',
-    components: [
-      { name: 'amountMinor', type: 'uint256' },
-      { name: 'counterparty', type: 'address' },
-      { name: 'counterpartyTier', type: 'uint8' },
-      { name: 'counterpartyAgeDays', type: 'uint16' },
-      { name: 'counterpartySettledTxns', type: 'uint32' },
-      { name: 'priceBandZ', type: 'int8' },
-      { name: 'categoryCode', type: 'uint8' },
-      { name: 'leaseId', type: 'bytes32' },
-      { name: 'nonce', type: 'uint64' },
-      { name: 'revocationEpoch', type: 'uint64' },
-      { name: 'leaseExpiry', type: 'uint64' },
-      { name: 'coreImageDigest', type: 'bytes32' }
-    ]
-  }],
-  outputs: [{ type: 'bytes32', name: '' }]
-}] as const;
+/**
+ * B's stored lease record -> A's Lease.
+ *
+ * Same five fields plus agentId; the record is now really signed by the core key
+ * (see store.issueLease), so validateLease inside coreSign can recover it.
+ */
+function toLease(record: store.LeaseRecord): Lease {
+  return {
+    leaseId: record.leaseId,
+    agentId: record.agentId,
+    expiresAtMs: record.expiresAtMs,
+    revocationEpoch: record.revocationEpoch,
+    policyHash: record.policyHash,
+    signature: record.signature,
+  };
+}
 
 export async function registerPaymentRoutes(app: FastifyInstance): Promise<void> {
   // ── POST /v1/payment/request ───────────────────────────────────────
@@ -65,7 +72,15 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
 
     const { factSheet: fs } = validation;
 
-    // Enforce Registry Rule
+    if (!hasCoreKey()) {
+      return reply.code(503).send({
+        error: { code: 'CORE_UNAVAILABLE', message: 'No core signing key configured.' },
+      });
+    }
+
+    // Enforce Registry Rule: age and settled-count come from the vendor
+    // registry, never from the caller. An unreachable registry means zeroes,
+    // which the soft predicates treat as unproven.
     try {
       const catalogRes = await fetch('http://localhost:4100/catalog');
       if (catalogRes.ok) {
@@ -107,16 +122,38 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
     // Emit: payment requested
     emit({ t: 'payment.requested', lineItemId: fs.lineItemId, factSheet: fs });
 
-    // Run the deterministic evaluator (no LLM, no I/O)
-    const trace = evaluate({
-      factSheet: fs,
-      mandate,
-      leaseExpiresAtMs: lease.expiresAtMs,
-      agentSigValid: true, // agent already authenticated via agentId; real sig check is in A's signing service
-      coreSigValid: true,  // we are the core — always valid here
-    });
+    // Predicates 6 and 8 are answered by PolicyModule storage, not by anything
+    // in this process — read them so an APPROVED trace means the chain will
+    // actually accept the payment. Both fail closed if the RPC is unreachable.
+    const [onChainTier, nonceBurned] = await Promise.all([
+      counterpartyTierOnChain(fs.counterpartyId),
+      nonceUsedOnChain(fs.nonce),
+    ]);
+    const registry = new Map<string, RegistryTier>([
+      [fs.counterpartyId.toLowerCase(), onChainTier as RegistryTier],
+    ]);
+    const usedNonces = new Set<number>(nonceBurned ? [fs.nonce] : []);
 
-    store.storeDecision(trace);
+    const policyState = toPolicyState(mandate, lease, registry, usedNonces);
+
+    // One call does the deciding AND the signing: coreSign validates the lease,
+    // runs the frozen evaluator, and signs only an APPROVED outcome. There is no
+    // path through it that returns a signature for a refused payment.
+    let signed;
+    try {
+      signed = await coreSign(toPolicyFactSheet(fs), policyState, toLease(lease), Date.now());
+    } catch (e) {
+      if (e instanceof LeaseInvalidError) {
+        return reply.code(403).send({ error: { code: 'LEASE_EXPIRED', message: e.message } });
+      }
+      throw e;
+    }
+
+    const trace = signed.trace;
+    if (signed.partialSig !== null) trace.signature = signed.partialSig;
+
+    store.storeDecision(trace, lease.mandateId);
+    store.linkDecisionToMandate(trace.decisionId, lease.mandateId);
 
     // Emit: decision made
     emit({ t: 'decision.made', trace });
@@ -135,6 +172,16 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
           return reply.code(403).send({ error: { code: 'REVOKED', message: 'Revoked mid-ceremony.' } });
         }
       }
+
+      // Only now is the request settle-able. Storing the exact struct that was
+      // signed is what lets /settle broadcast without rebuilding (and therefore
+      // without risking a different digest).
+      if (signed.request !== null && signed.partialSig !== null) {
+        store.putSettlementContext(trace.decisionId, {
+          request: signed.request,
+          coreSig: signed.partialSig,
+        });
+      }
     }
 
     if (trace.outcome === 'HELD') {
@@ -142,65 +189,14 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
       emit({ t: 'payment.held', decisionId: trace.decisionId, expiresAtMs: hold.expiresAtMs, amountMinor: trace.amountMinor });
     }
 
-    if (trace.outcome === 'REFUSED') {
-      const error422 = {
-        error: {
-          code: 'POLICY_REFUSED',
-          message: trace.summary,
-          predicate: trace.bindingPredicate ?? undefined,
-          decisionId: trace.decisionId,
-        },
-      };
-      // Still return 200 with the trace so the frontend can render the decision panel
-      return reply.code(200).send({
-        decisionId: trace.decisionId,
-        outcome: trace.outcome,
-        trace,
-        partialSig: null,
-        holdExpiresAtMs: null,
-      });
-    }
-
-    let partialSig: string | null = null;
-    if (trace.outcome === 'APPROVED' && account && policyModuleAddress !== '0x0000000000000000000000000000000000000000') {
-      try {
-        const reqTuple = {
-          amountMinor: BigInt(fs.amountMinor),
-          counterparty: fs.counterpartyId as `0x${string}`,
-          counterpartyTier: fs.counterpartyTier,
-          counterpartyAgeDays: fs.counterpartyAgeDays,
-          counterpartySettledTxns: fs.counterpartySettledTxns,
-          priceBandZ: fs.priceBandZ,
-          categoryCode: CATEGORY_MAP[fs.categoryCode] ?? 7,
-          leaseId: bytesToHex(Buffer.from(fs.leaseId).subarray(0, 32), { size: 32 }) as `0x${string}`,
-          nonce: BigInt(fs.nonce),
-          revocationEpoch: BigInt(mandate.revocationEpoch),
-          leaseExpiry: BigInt(Math.floor(lease.expiresAtMs / 1000)),
-          coreImageDigest
-        };
-        
-        const digest = await publicClient.readContract({
-          address: policyModuleAddress,
-          abi: hashRequestAbi,
-          functionName: 'hashRequest',
-          args: [reqTuple]
-        });
-        
-        const sig = await account.sign({ hash: digest });
-        partialSig = sig;
-        trace.signature = sig;
-      } catch (e) {
-        console.error('Failed to generate core signature', e);
-      }
-    } else if (trace.outcome === 'APPROVED') {
-      partialSig = `0x${'ab'.repeat(32)}`;
-    }
-
+    // A REFUSED decision still returns 200 with its trace: the decision panel is
+    // the product, and the caller needs the predicate that bound to render it.
+    // There is no signature attached, so nothing can be settled from it.
     return reply.code(200).send({
       decisionId: trace.decisionId,
       outcome: trace.outcome,
       trace,
-      partialSig,
+      partialSig: signed.partialSig,
       holdExpiresAtMs: trace.outcome === 'HELD' ? Date.now() + 90_000 : null,
     });
   });
@@ -213,6 +209,12 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
       return reply.code(400).send({ error: { code: 'INVALID_REQUEST', message: 'decisionId and agentSig are required.' } });
     }
 
+    if (!SIGNATURE_RE.test(agentSig)) {
+      return reply.code(400).send({
+        error: { code: 'INVALID_REQUEST', message: 'agentSig must be a 65-byte 0x-prefixed hex signature.' },
+      });
+    }
+
     const trace = store.getDecision(decisionId);
     if (!trace) {
       return reply.code(404).send({ error: { code: 'DECISION_NOT_FOUND', message: 'Decision not found.' } });
@@ -222,24 +224,93 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
       return reply.code(409).send({ error: { code: 'DECISION_NOT_APPROVED', message: `Cannot settle a ${trace.outcome} decision.` } });
     }
 
-    let result: { txHash: string; blockNumber: number; balanceAfterMinor: number };
-    try {
-      result = store.settleDecision(decisionId);
-    } catch {
-      return reply.code(409).send({ error: { code: 'DECISION_NOT_APPROVED', message: 'Settlement failed.' } });
+    // FIX.md: no core key or no account address means we cannot broadcast, and
+    // there is no fallback that invents a hash instead.
+    const config = settlementConfig();
+    if (config === null) {
+      return reply.code(503).send({
+        error: {
+          code: 'CORE_UNAVAILABLE',
+          message: 'Settlement is unavailable: CORE_SIGNER_PRIVATE_KEY or REKHA_ACCOUNT_ADDRESS is not configured.',
+        },
+      });
     }
+
+    const ctx = store.getSettlementContext(decisionId);
+    if (!ctx) {
+      return reply.code(503).send({
+        error: { code: 'CORE_UNAVAILABLE', message: 'No signed request is held for this decision.' },
+      });
+    }
+
+    // The chain is the judge from here. A revert is the enforcement working, so
+    // it is reported as 422 with the contract's own error name — never a 500 and
+    // never swallowed.
+    let receipt;
+    try {
+      receipt = await broadcastExecute(config, ctx.request, agentSig as Hex, ctx.coreSig);
+    } catch (e) {
+      if (e instanceof SettlementRevertedError) {
+        return reply.code(422).send({
+          error: { code: e.errorName, message: `Settlement refused on chain: ${e.errorName}.`, decisionId },
+        });
+      }
+      // RPC unreachable, key rejected, out of gas money: nothing settled, so say
+      // so with a 503 rather than letting the generic 500 handler imply a
+      // maybe-it-happened.
+      request.log.error(e);
+      return reply.code(503).send({
+        error: { code: 'CORE_UNAVAILABLE', message: 'Could not broadcast the settlement transaction.' },
+      });
+    }
+
+    // Reached only for a receipt with status 'success'.
+    const result = store.settleDecision(decisionId, receipt.txHash, receipt.blockNumber);
+
+    // The money moved on chain, so the chain is what the console must show. The
+    // local counter in settleDecision is bookkeeping for the audit export; the
+    // balance the judge reads has to be RekhaAccount's actual INRx balance, or
+    // "the wallet balance matches on-chain state" is not a claim we can make.
+    // Pinned to the receipt's block, not 'latest': the public RPC is a load
+    // balancer and the node that answers may be a block or two behind, which
+    // once produced a real settlement reported with the PRE-payment balance.
+    const account = rekhaAccountAddress();
+    let balanceAfterMinor: number | null = null;
+    if (account !== null) {
+      try {
+        balanceAfterMinor = Number(await inrxBalanceAtBlock(account, receipt.blockNumber));
+      } catch (e) {
+        // The payment DID happen; only the follow-up read failed. Report the
+        // balance as unknown rather than passing a local figure off as on-chain.
+        request.log.warn(e, 'settled, but the post-settlement balance read failed');
+      }
+    }
+    const balanceSource = balanceAfterMinor === null ? ('unavailable' as const) : ('chain' as const);
+
+    // Settling advanced windowSpentMinor and cumulativeSpentMinor in PolicyModule.
+    // Pull them back so the next decision is evaluated against the counters the
+    // chain now holds instead of a copy that stopped tracking at boot.
+    store.seedPolicy(await readDeployedPolicy());
 
     emit({
       t: 'payment.settled',
       decisionId,
       txHash: result.txHash,
-      balanceAfterMinor: result.balanceAfterMinor,
+      // null when the post-settlement read failed. The UI shows "unavailable"
+      // for that; it must not fall back to a number that was never verified.
+      balanceAfterMinor,
+      balanceSource,
+      blockNumber: result.blockNumber,
+      amountMinor: trace.amountMinor,
     });
 
     return reply.code(200).send({
       txHash: result.txHash,
-      balanceAfterMinor: result.balanceAfterMinor,
+      balanceAfterMinor,
+      balanceSource,
       blockNumber: result.blockNumber,
+      amountMinor: trace.amountMinor,
+      explorerUrl: `https://sepolia.basescan.org/tx/${result.txHash}`,
     });
   });
 }

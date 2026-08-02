@@ -1,6 +1,4 @@
-// ═══════════════════════════════════════════════════
 // SUPABASE DATABASE & AUTH INTEGRATION
-// ═══════════════════════════════════════════════════
 const DEFAULT_SUPABASE_URL = 'https://mddtbwbrfotglqzhprzq.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1kZHRid2JyZm90Z2xxemhwcnpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU2MDU5OTcsImV4cCI6MjEwMTE4MTk5N30.t34Kwl4aEp0UP1Pfvu4zv_5mVfxSQhtNO1D92qUeEqU';
 let supabaseClient = null;
@@ -81,9 +79,7 @@ async function syncTxToSupabase(tx) {
   } catch(e) {}
 }
 
-// ═══════════════════════════════════════════════════
 // INITIAL DEMO DATA CONSTANTS & STATE
-// ═══════════════════════════════════════════════════
 const NOW = Date.now();
 const DEMO_BALANCE_FEED = [
   { id: 'bf1', amount: 50000, source: 'manual', label: 'Initial funding', at: NOW - 3600000 },
@@ -161,9 +157,7 @@ const ATTACK_MODES = [
   { value: 'lease_griefing', label: '13. Lease Renewal Griefing (Class 12)', hint: 'Exhausts unsettled hold lease capacity to lockout operations.', danger: true, classNum: 12 }
 ];
 
-// ═══════════════════════════════════════════════════
 // HELPERS
-// ═══════════════════════════════════════════════════
 let idCounter = 0;
 function uid() { return 'id_' + (++idCounter) + '_' + Date.now().toString(36); }
 function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -187,9 +181,7 @@ function showToast(msg, type = 'success') {
   setTimeout(() => el.remove(), 3000);
 }
 
-// ═══════════════════════════════════════════════════
 // VIEW TOGGLE
-// ═══════════════════════════════════════════════════
 function toggleView() {
   const isPlayground = state.view === 'killswitch';
   state.view = isPlayground ? 'playground' : 'killswitch';
@@ -220,9 +212,7 @@ function toggleView() {
   }
 }
 
-// ═══════════════════════════════════════════════════
 // DASHBOARD RENDERS
-// ═══════════════════════════════════════════════════
 function renderDashboard() {
   renderBalance();
   renderBalanceFeed();
@@ -479,9 +469,7 @@ function renderFreezeState() {
   }
 }
 
-// ═══════════════════════════════════════════════════
 // DASHBOARD ACTIONS
-// ═══════════════════════════════════════════════════
 function openAddFunds() { document.getElementById('addFundsModal').classList.add('open'); document.getElementById('add-amount').focus(); }
 function closeAddFunds() { document.getElementById('addFundsModal').classList.remove('open'); }
 function depositFunds() {
@@ -763,9 +751,7 @@ function setFrozen(v) {
   showToast(v ? 'All agent spending has been frozen' : 'Spending resumed — agent can transact again', v ? 'error' : 'success');
 }
 
-// ═══════════════════════════════════════════════════
 // REAL AGENT SDK API RECEIVER (https://api.lakshman-rekha.dev)
-// ═══════════════════════════════════════════════════
 window.LakshmanRekhaAPI = {
   processTransaction: function(vendor, amount, token) {
     if (!state.agent || !state.agent.connected) {
@@ -783,17 +769,19 @@ window.LakshmanRekhaAPI = {
   }
 };
 
-// ═══════════════════════════════════════════════════
 // INIT TRIGGER ON DOM READY
-// ═══════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
-  initSupabase();
-  initPlayground();
-});
+function runInitializersBundle() {
+  if (typeof initSupabase === 'function') initSupabase();
+  if (typeof initPlayground === 'function') initPlayground();
+}
 
-// ═══════════════════════════════════════════════════
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', runInitializersBundle);
+} else {
+  runInitializersBundle();
+}
+
 // REAL AUTHENTICATION & USER MANAGEMENT
-// ═══════════════════════════════════════════════════
 const DEFAULT_USERS = [
   { username: 'demo', email: 'demo@example.com', name: 'Demo Operator', password: '123' },
   { username: 'ada', email: 'ada@example.com', name: 'Ada Lovelace', password: '123' }
@@ -1016,9 +1004,7 @@ function handleLogout() {
   showToast('Logged out');
 }
 
-// ═══════════════════════════════════════════════════
 // REAL AGENT CREDENTIALS & DEV MODAL JS
-// ═══════════════════════════════════════════════════
 const CODE_SNIPPETS = {
   python: `# Python Integration (Claude / OpenAI Agent)
 import anthropic
@@ -1247,9 +1233,7 @@ function unfreezeFromFlash() {
   setFrozen(false);
 }
 
-// ═══════════════════════════════════════════════════
 // PLAYGROUND LOGIC
-// ═══════════════════════════════════════════════════
 function initPlayground() {
   // Render mode list
   const list = document.getElementById('modeList');
@@ -1319,10 +1303,8 @@ function selectTemplate(id) {
 }
 
 function isPlaygroundAgentConnected() {
-  if (!state.session || !state.agent || !state.agent.connected) return false;
-  const label = (state.agent.label || '').toLowerCase();
-  const endpoint = (state.agent.endpoint || '').toLowerCase();
-  return label.includes('playground') || endpoint.includes('playground');
+  if (state.agent && state.agent.connected === false) return false;
+  return true;
 }
 
 function generateAttackPayload(task) {
@@ -1685,9 +1667,7 @@ function renderLastTask() {
   el.innerHTML = `Last dispatched: <strong style="color:var(--accent)">[${t.level}]</strong> <span>${t.label}</span> · <span class="${t.inflated ? 'inflated-qty' : ''}">&#x20b9;${Math.round(t.estimatedCost).toLocaleString('en-IN')}</span>`;
 }
 
-// ═══════════════════════════════════════════════════
 // AUTO MODE (Autopilot — 1 Task every 15s)
-// ═══════════════════════════════════════════════════
 let autoModeActive = false;
 let autoTimer = null;
 let autoTaskCount = 0;

@@ -4,6 +4,7 @@
   "scripts": {
     "dev:web": "pnpm --filter web dev",
     "dev:core": "pnpm --filter core dev",
+    "dev:agent": "pnpm --filter core agent",
     "dev:vendorsim": "pnpm --filter vendorsim dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",

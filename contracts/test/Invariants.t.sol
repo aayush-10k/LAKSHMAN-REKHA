@@ -154,7 +154,7 @@ contract InvariantHandler is Test {
     }
 }
 
-/// @notice INV1..INV5 from CLAUDE.md.
+/// @notice INV1..INV5 policy invariant checks.
 contract InvariantsTest is Test {
     INRx internal token;
     PolicyModule internal policy;

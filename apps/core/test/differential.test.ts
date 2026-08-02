@@ -515,5 +515,7 @@ describe('differential: TypeScript evaluator vs Solidity PolicyModule.validate',
       throw new Error(`${N - agree}/${N} mismatches. First ${failures.length}:\n\n${failures.join('\n\n')}`);
     }
     expect(agree).toBe(N);
-  });
+    // N cases x (revert + snapshot + validate) RPC round-trips. Nowhere near
+    // vitest's 5s default, which is the only reason this used to fail.
+  }, 1_800_000);
 });

@@ -6,15 +6,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 input, textarea { font-family: inherit; }
 ul, ol { list-style: none; }
 
-/* ─── CSS Variables: Dashboard (Original Project 2 Theme) ─── */
+/* ─── CSS Variables: Dashboard (Light / Warm) ─── */
 :root {
-  --ink: #2a2040;
-  --slate: #7c6f8a;
-  --chalk: #ffffff;
-  --lien: #5b4fcf;
-  --clear: #2da56c;
-  --breach: #d4435c;
-
   --bg: #f8f1f3;
   --bg-gradient: linear-gradient(135deg, rgba(240,200,200,0.55) 0%, rgba(240,220,235,0.4) 40%, rgba(200,210,240,0.55) 100%);
   --fg: #2a2040;
@@ -42,28 +35,6 @@ ul, ol { list-style: none; }
   --switch-bg: #e2dce6;
   --switch-active: #d4435c;
   --topbar-bg: rgba(248,241,243,0.82);
-}
-
-/* Lakshman Rekha Chalk Line Motif */
-.rekha-line {
-  height: 2px;
-  width: 100%;
-  background: linear-gradient(90deg, transparent 0%, var(--lien) 50%, transparent 100%);
-  transition: background 0.3s ease, height 0.3s ease;
-}
-.rekha-line.breached {
-  height: 3px;
-  background: linear-gradient(90deg, transparent 0%, var(--breach) 50%, transparent 100%);
-  box-shadow: 0 0 12px var(--breach);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
 }
 
 /* ─── CSS Variables: Playground (Dark / Indigo) ─── */
@@ -416,7 +387,7 @@ body.modal-is-open .view-switch-wrapper {
   background: var(--muted-bg);
 }
 .input-dollar { position: relative; }
-.input-dollar::before { content: '₹'; position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 13px; }
+.input-dollar::before { content: '$'; position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 13px; }
 .input-dollar .input-field { padding-left: 24px; }
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }

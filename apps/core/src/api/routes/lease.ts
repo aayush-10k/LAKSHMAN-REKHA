@@ -34,11 +34,20 @@ export async function registerLeaseRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(409).send({ error: { code: 'REVOKED', message: 'Mandate is revoked. No leases will be issued.' } });
     }
 
-    const lease = store.issueLease(agentId);
-    if (!lease) {
-      return reply.code(503).send({ error: { code: 'CORE_UNAVAILABLE', message: 'Could not issue lease.' } });
+    // Every failure here must stop spending rather than yield an unsigned lease.
+    // FIX2.md BUG 1: the body now carries the underlying reason, so "503
+    // CORE_UNAVAILABLE" can never again mean "some unnamed thing went wrong".
+    const issued = await store.issueLease(agentId);
+    if (!issued.ok) {
+      const status = issued.code === 'MANDATE_FROZEN' ? 409 : 503;
+      const code = issued.code === 'MANDATE_FROZEN' ? 'REVOKED' : 'CORE_UNAVAILABLE';
+      request.log.warn({ agentId, code: issued.code, reason: issued.reason }, 'lease refused');
+      return reply.code(status).send({
+        error: { code, message: `Could not issue lease: ${issued.reason}`, cause: issued.code },
+      });
     }
 
+    const { lease } = issued;
     const ttlMs = lease.expiresAtMs - Date.now();
 
     // SSE: update the frontend TTL ring
@@ -47,6 +56,9 @@ export async function registerLeaseRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send({
       leaseId: lease.leaseId,
       expiresAtMs: lease.expiresAtMs,
+      // The configured TTL, so the UI ring and the agent's retry timer size
+      // themselves off the server's value instead of a hardcoded 5000.
+      ttlMs: store.leaseTtlMs(),
       revocationEpoch: lease.revocationEpoch,
       policyHash: lease.policyHash,
       signature: lease.signature,

@@ -22,7 +22,7 @@ Open `http://localhost:3000/console` to start.
 
 ## Demo credentials
 
-For the mock UI (if any part still uses it):
+For the mock UI:
 **Username:** `demo`
 **Password:** `123`
 

@@ -1,6 +1,4 @@
-// ═══════════════════════════════════════════════════
 // SUPABASE DATABASE & AUTH INTEGRATION
-// ═══════════════════════════════════════════════════
 const DEFAULT_SUPABASE_URL = 'https://mddtbwbrfotglqzhprzq.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1kZHRid2JyZm90Z2xxemhwcnpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU2MDU5OTcsImV4cCI6MjEwMTE4MTk5N30.t34Kwl4aEp0UP1Pfvu4zv_5mVfxSQhtNO1D92qUeEqU';
 let supabaseClient = null;

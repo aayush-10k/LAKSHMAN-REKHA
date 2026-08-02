@@ -336,9 +336,9 @@ This is what actually prevents conflicts. Git conflicts happen when two people e
 
 **`docs/API.md` is the exception that bites.** All three of you will want to edit it. Rule: announce in chat before you touch it, make the edit small, push it immediately, tell the others to pull. Never sit on an uncommitted API.md change.
 
-### ⚠️ Claude Code specifically
+### ⚠️ Multi-developer Workflow
 
-Claude Code will happily edit files across the whole repo. That's how you get a conflict in someone else's folder without noticing.
+Be mindful of files across the whole repo so you don't introduce conflicts in someone else's folder without noticing.
 
 Start every session with:
 
@@ -518,7 +518,7 @@ Prefixes: `feat` new thing · `fix` bug · `test` tests · `chore` setup/config 
 
 ## IF YOU GET STUCK
 
-`git status` first, always. Then paste its output into Claude Code and say what you were trying to do.
+`git status` first, always. Inspect the output to verify what you were trying to do.
 
 **Don't run commands you found online without understanding them.** `git reset --hard`, `git push --force`, and `git rebase` can permanently delete work. If a Stack Overflow answer contains one of those, ask the group before running it.
 
