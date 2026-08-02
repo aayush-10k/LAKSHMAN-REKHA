@@ -4,8 +4,8 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useWriteContract, useAccount, useConnect, useDisconnect } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import type { DecisionTrace, RekhaEvent } from '../../types';
+import { CORE_URL, ensurePaired, renewLease, type Pairing } from '../../lib/pairing';
 
-const CORE_URL = process.env['NEXT_PUBLIC_CORE_URL'] ?? 'http://localhost:4000';
 const POLICY_MODULE_ADDRESS = (process.env['NEXT_PUBLIC_POLICY_MODULE_ADDRESS'] ?? '0x933bb10252ec2b133f28b7d5edf1d303c3384d87') as `0x${string}`;
 
 const revokeAbi = [{ type: 'function', name: 'revoke', stateMutability: 'nonpayable', inputs: [], outputs: [] }] as const;
@@ -42,10 +42,13 @@ export default function ConsolePage() {
   const [balance, setBalance] = useState(5_000_000);
   const [frozen, setFrozen] = useState(false);
   const [mandateId, setMandateId] = useState<string | null>(null);
-  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [pairing, setPairing] = useState<Pairing | null>(null);
+  const [pairError, setPairError] = useState<string | null>(null);
   const [holds, setHolds] = useState<HoldItem[]>([]);
   const [coreUp, setCoreUp] = useState(false);
   const [leaseTtl, setLeaseTtl] = useState(5000);
+  /** Configured lease TTL, read from the core. The ring denominator, not a guess. */
+  const [leaseTtlMax, setLeaseTtlMax] = useState(5000);
   const [imageDigest, setImageDigest] = useState('loading…');
   const feedRef = useRef<HTMLDivElement>(null);
   const { writeContract, isPending: revokePending } = useWriteContract();
@@ -53,19 +56,23 @@ export default function ConsolePage() {
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
 
-  // Boot: get mandate + pairing code from core
+  // Boot: pair with the core, then load balance and holds.
+  // FIX2.md BUG 2 — this used to POST a literal '------' pairing code and drop
+  // the 404 on the floor, so the console was never actually paired.
   useEffect(() => {
-    fetch(`${CORE_URL}/v1/agent/pair`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pairingCode: '------' }), // will fail, we need init endpoint
-    }).catch(() => {});
-
-    // Actually just hit the health endpoint to check core status
     fetch(`${CORE_URL}/health`)
       .then(r => r.json())
-      .then(() => setCoreUp(true))
+      .then(h => { setCoreUp(true); if (h.leaseTtlMs) setLeaseTtlMax(h.leaseTtlMs); })
       .catch(() => setCoreUp(false));
+
+    ensurePaired()
+      .then(p => {
+        setPairing(p);
+        setMandateId(p.mandateId);
+        setLeaseTtlMax(p.leaseTtlMs);
+        setPairError(null);
+      })
+      .catch((e: Error) => setPairError(e.message));
 
     fetch(`${CORE_URL}/v1/wallet/balance`)
       .then(r => r.json())
@@ -77,6 +84,34 @@ export default function ConsolePage() {
       .then(d => { if (Array.isArray(d.holds)) setHolds(d.holds); })
       .catch(() => {});
   }, []);
+
+  // Keep the lease alive so the TTL ring shows a real lease rather than a
+  // decorative one. renewLease re-pairs by itself if the core has restarted and
+  // forgotten this agentId — the failure mode BUG 2 is about.
+  useEffect(() => {
+    if (!pairing) return;
+    let current = pairing.agentId;
+    let stopped = false;
+
+    const tick = async () => {
+      try {
+        const lease = await renewLease(current);
+        if (stopped) return;
+        if (lease.agentId !== current) {
+          current = lease.agentId;
+          setPairing(p => (p ? { ...p, agentId: lease.agentId } : p));
+        }
+        setLeaseTtlMax(lease.ttlMs);
+        setPairError(null);
+      } catch (e) {
+        if (!stopped) setPairError((e as Error).message);
+      }
+    };
+
+    void tick();
+    const timer = setInterval(tick, Math.max(1000, pairing.leaseTtlMs * 0.6));
+    return () => { stopped = true; clearInterval(timer); };
+  }, [pairing?.agentId, pairing?.leaseTtlMs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // SSE subscription
   useEffect(() => {
@@ -181,7 +216,7 @@ export default function ConsolePage() {
     setHolds(h => h.filter(x => x.decisionId !== decisionId));
   };
 
-  const leasePercent = Math.max(0, Math.min(100, (leaseTtl / 5000) * 100));
+  const leasePercent = Math.max(0, Math.min(100, (leaseTtl / leaseTtlMax) * 100));
 
   return (
     <div className="console-layout">

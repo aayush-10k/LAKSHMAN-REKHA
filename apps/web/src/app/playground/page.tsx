@@ -2,8 +2,8 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import type { RekhaEvent } from '../../types';
+import { CORE_URL, ensurePaired, type Pairing } from '../../lib/pairing';
 
-const CORE_URL = process.env['NEXT_PUBLIC_CORE_URL'] ?? 'http://localhost:4000';
 
 type BehaviourMode = 'normal' | 'hallucinating' | 'injected' | 'compromised' | 'overreach' | 'colluding';
 type AttackLog = { id: number; technique: string; revertReason: string; blocked: boolean; novel: boolean; ts: number };
@@ -32,10 +32,22 @@ export default function PlaygroundPage() {
   const [rogueStats, setRogueStats] = useState({ attempts: 0, blocked: 0, novel: 0, fundsLost: 0 });
   const [ceremony, setCeremony] = useState<CeremonyState | null>(null);
   const [leaseTtl, setLeaseTtl] = useState(5000);
+  const [leaseTtlMax, setLeaseTtlMax] = useState(5000);
   const [coreUp, setCoreUp] = useState(true);
   const [speed, setSpeed] = useState(1);
+  const [pairing, setPairing] = useState<Pairing | null>(null);
+  const [pairError, setPairError] = useState<string | null>(null);
   const attackIdRef = useRef(0);
   const thoughtsRef = useRef<HTMLDivElement>(null);
+
+  // Pair on load against the core's CURRENT code (FIX2.md BUG 2). The agentId is
+  // what Dispatch hands the agent runner, so this has to succeed before a task
+  // can spend anything.
+  useEffect(() => {
+    ensurePaired()
+      .then(p => { setPairing(p); setLeaseTtlMax(p.leaseTtlMs); setPairError(null); })
+      .catch((e: Error) => setPairError(e.message));
+  }, []);
 
   // SSE
   useEffect(() => {
@@ -126,7 +138,7 @@ export default function PlaygroundPage() {
     await fetch(`${CORE_URL}/v1/admin/kill`, { method: 'POST' }).catch(() => {});
   };
 
-  const leasePercent = Math.max(0, Math.min(100, (leaseTtl / 5000) * 100));
+  const leasePercent = Math.max(0, Math.min(100, (leaseTtl / leaseTtlMax) * 100));
 
   return (
     <div className="playground-layout">
