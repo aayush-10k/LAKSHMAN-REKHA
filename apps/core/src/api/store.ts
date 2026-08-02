@@ -144,20 +144,26 @@ export function getLease(leaseId: string): LeaseRecord | undefined {
 // ──────────────────────────────────────────────
 
 const decisions = new Map<string, DecisionTrace>();
-const holds = new Map<string, { expiresAtMs: number; released: boolean }>();
+const holds = new Map<string, { expiresAtMs: number; released: boolean; amountMinor: number; mandateId: string }>();
 const settlements = new Map<string, { txHash: string; blockNumber: number; atMs: number }>();
 const revocationLog: Array<{ epoch: number; source: string; atMs: number }> = [];
 let walletBalanceMinor = 5_000_000; // ₹50,000 demo balance
 
-export function storeDecision(trace: DecisionTrace): void {
+export function storeDecision(trace: DecisionTrace, mandateId?: string): void {
   decisions.set(trace.decisionId, trace);
   if (trace.outcome === 'HELD') {
-    holds.set(trace.decisionId, { expiresAtMs: Date.now() + 90_000, released: false });
+    holds.set(trace.decisionId, { expiresAtMs: Date.now() + 90_000, released: false, amountMinor: trace.amountMinor, mandateId: mandateId ?? '' });
   }
 }
 
 export function getDecision(decisionId: string): DecisionTrace | undefined {
   return decisions.get(decisionId);
+}
+
+const decisionToMandate = new Map<string, string>(); // decisionId → mandateId
+
+export function linkDecisionToMandate(decisionId: string, mandateId: string): void {
+  decisionToMandate.set(decisionId, mandateId);
 }
 
 export function settleDecision(decisionId: string): { txHash: string; blockNumber: number; balanceAfterMinor: number } {
@@ -171,13 +177,16 @@ export function settleDecision(decisionId: string): { txHash: string; blockNumbe
 
   settlements.set(decisionId, { txHash, blockNumber, atMs: Date.now() });
 
-  // Update window spending on mandate
-  const mandate = mandates.get(trace.decisionId.slice(0, -8));
-  if (mandate) {
-    updateMandate(mandate.mandateId, {
-      windowSpentMinor: mandate.windowSpentMinor + trace.amountMinor,
-      cumulativeSpentMinor: mandate.cumulativeSpentMinor + trace.amountMinor,
-    });
+  // Update window spending on mandate (using the linked mandateId)
+  const mandateId = decisionToMandate.get(decisionId);
+  if (mandateId) {
+    const mandate = mandates.get(mandateId);
+    if (mandate) {
+      updateMandate(mandateId, {
+        windowSpentMinor: mandate.windowSpentMinor + trace.amountMinor,
+        cumulativeSpentMinor: mandate.cumulativeSpentMinor + trace.amountMinor,
+      });
+    }
   }
 
   return { txHash, blockNumber, balanceAfterMinor: walletBalanceMinor };
@@ -186,9 +195,18 @@ export function settleDecision(decisionId: string): { txHash: string; blockNumbe
 export function releaseHold(decisionId: string): { released: true; amountMinor: number } {
   const hold = holds.get(decisionId);
   if (!hold || hold.released) throw new Error('HOLD_NOT_FOUND');
-  const trace = decisions.get(decisionId);
   hold.released = true;
-  return { released: true, amountMinor: trace?.amountMinor ?? 0 };
+  return { released: true, amountMinor: hold.amountMinor };
+}
+
+export function getActiveHolds(): Array<{ decisionId: string; expiresAtMs: number; amountMinor: number }> {
+  const active: Array<{ decisionId: string; expiresAtMs: number; amountMinor: number }> = [];
+  for (const [decisionId, hold] of holds.entries()) {
+    if (!hold.released && hold.expiresAtMs > Date.now()) {
+      active.push({ decisionId, expiresAtMs: hold.expiresAtMs, amountMinor: hold.amountMinor });
+    }
+  }
+  return active;
 }
 
 export function logRevocation(epoch: number, source: string): void {
@@ -217,4 +235,20 @@ export function buildAuditExport(mandateId: string) {
 
 export function getBalance(): number {
   return walletBalanceMinor;
+}
+
+// ──────────────────────────────────────────────
+// Dead-man switch
+// ──────────────────────────────────────────────
+
+export function checkDeadman(onFreeze: (mandateId: string, epoch: number) => void): void {
+  const now = Date.now();
+  for (const [id, mandate] of mandates.entries()) {
+    if (mandate.frozen) continue;
+    const elapsed = now - mandate.lastHeartbeatMs;
+    if (elapsed > mandate.deadmanSeconds * 1000) {
+      mandates.set(id, { ...mandate, frozen: true, revocationEpoch: mandate.revocationEpoch + 1 });
+      onFreeze(id, mandate.revocationEpoch + 1);
+    }
+  }
 }

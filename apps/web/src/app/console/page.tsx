@@ -1,125 +1,423 @@
 'use client';
-import React, { useEffect, useState } from 'react';
-import { useAccount, useConnect, useDisconnect, useWriteContract } from 'wagmi';
-import { injected } from 'wagmi/connectors';
 
-const POLICY_MODULE_ADDRESS = '0x933bb10252ec2b133f28b7d5edf1d303c3384d87';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useWriteContract, useAccount, useConnect, useDisconnect } from 'wagmi';
+import { injected } from 'wagmi/connectors';
+import type { DecisionTrace, RekhaEvent } from '../../types';
+
+const CORE_URL = process.env['NEXT_PUBLIC_CORE_URL'] ?? 'http://localhost:4000';
+const POLICY_MODULE_ADDRESS = (process.env['NEXT_PUBLIC_POLICY_MODULE_ADDRESS'] ?? '0x933bb10252ec2b133f28b7d5edf1d303c3384d87') as `0x${string}`;
+
 const revokeAbi = [{ type: 'function', name: 'revoke', stateMutability: 'nonpayable', inputs: [], outputs: [] }] as const;
 
+type FeedItem = {
+  id: string;
+  type: string;
+  text: string;
+  outcome?: string;
+  trace?: DecisionTrace;
+  ts: number;
+  txHash?: string;
+  amountMinor?: number;
+  expiresAtMs?: number;
+};
+
+type HoldItem = { decisionId: string; expiresAtMs: number; amountMinor: number };
+
+function fmtInr(minor: number) {
+  return '₹' + (minor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+}
+
+function timeAgo(ts: number) {
+  const d = Date.now() - ts;
+  if (d < 5000) return 'just now';
+  if (d < 60000) return `${Math.floor(d / 1000)}s ago`;
+  if (d < 3600000) return `${Math.floor(d / 60000)}m ago`;
+  return `${Math.floor(d / 3600000)}h ago`;
+}
+
 export default function ConsolePage() {
+  const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [selected, setSelected] = useState<DecisionTrace | null>(null);
+  const [balance, setBalance] = useState(5_000_000);
+  const [frozen, setFrozen] = useState(false);
+  const [mandateId, setMandateId] = useState<string | null>(null);
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [holds, setHolds] = useState<HoldItem[]>([]);
+  const [coreUp, setCoreUp] = useState(false);
+  const [leaseTtl, setLeaseTtl] = useState(5000);
+  const [imageDigest, setImageDigest] = useState('loading…');
+  const feedRef = useRef<HTMLDivElement>(null);
+  const { writeContract, isPending: revokePending } = useWriteContract();
   const { address, isConnected } = useAccount();
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
-  const { writeContract, isPending, error, isSuccess, data: txHash } = useWriteContract();
-  const [events, setEvents] = useState<any[]>([]);
 
+  // Boot: get mandate + pairing code from core
   useEffect(() => {
-    // Setting up the SSE for RekhaEvent stream
-    const eventSource = new EventSource('http://localhost:4000/v1/events');
-    eventSource.onmessage = (e) => {
-      try {
-        const ev = JSON.parse(e.data);
-        setEvents((prev) => [ev, ...prev].slice(0, 50));
-      } catch (err) {
-        console.error('SSE Parse error', err);
-      }
-    };
-    return () => eventSource.close();
+    fetch(`${CORE_URL}/v1/agent/pair`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pairingCode: '------' }), // will fail, we need init endpoint
+    }).catch(() => {});
+
+    // Actually just hit the health endpoint to check core status
+    fetch(`${CORE_URL}/health`)
+      .then(r => r.json())
+      .then(() => setCoreUp(true))
+      .catch(() => setCoreUp(false));
+
+    fetch(`${CORE_URL}/v1/wallet/balance`)
+      .then(r => r.json())
+      .then(d => { if (d.balanceMinor !== undefined) setBalance(d.balanceMinor); })
+      .catch(() => {});
+
+    fetch(`${CORE_URL}/v1/holds`)
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d.holds)) setHolds(d.holds); })
+      .catch(() => {});
   }, []);
 
-  const handleRevoke = () => {
-    writeContract({
-      address: POLICY_MODULE_ADDRESS,
-      abi: revokeAbi,
-      functionName: 'revoke',
+  // SSE subscription
+  useEffect(() => {
+    const evtSource = new EventSource(`${CORE_URL}/v1/events`);
+
+    evtSource.onmessage = (e) => {
+      const event: RekhaEvent = JSON.parse(e.data);
+      processEvent(event);
+    };
+
+    evtSource.onerror = () => {
+      setCoreUp(false);
+    };
+
+    return () => evtSource.close();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const processEvent = useCallback((event: RekhaEvent) => {
+    const ts = Date.now();
+
+    if (event.t === 'core.status') {
+      setCoreUp(event.up);
+      setImageDigest(event.imageDigest);
+      return;
+    }
+
+    if (event.t === 'lease.tick') {
+      setLeaseTtl(event.ttlMs);
+      return;
+    }
+
+    if (event.t === 'revocation') {
+      setFrozen(true);
+      addFeedItem({ id: `rev-${ts}`, type: 'revocation', text: `⛔ Mandate revoked by ${event.source}. All spending stopped. Epoch: ${event.epoch}`, ts, outcome: 'REFUSED' });
+      return;
+    }
+
+    if (event.t === 'payment.requested') {
+      addFeedItem({ id: `req-${event.lineItemId}`, type: 'requested', text: `→ Payment requested: ${event.lineItemId}`, ts, amountMinor: event.factSheet.amountMinor });
+    }
+
+    if (event.t === 'decision.made') {
+      const { trace } = event;
+      const outcomeIcon = trace.outcome === 'APPROVED' ? '✓' : trace.outcome === 'HELD' ? '⏸' : '✗';
+      addFeedItem({
+        id: `dec-${trace.decisionId}`,
+        type: 'decision',
+        text: `${outcomeIcon} ${trace.outcome}: ${trace.summary}`,
+        ts,
+        outcome: trace.outcome,
+        trace,
+        amountMinor: trace.amountMinor,
+      });
+    }
+
+    if (event.t === 'payment.settled') {
+      setBalance(event.balanceAfterMinor);
+      addFeedItem({ id: `set-${event.decisionId}`, type: 'settled', text: `✓ Settled — tx: ${event.txHash.slice(0, 10)}…`, ts, outcome: 'APPROVED', txHash: event.txHash });
+    }
+
+    if (event.t === 'payment.held') {
+      setHolds(h => [...h, { decisionId: event.decisionId, expiresAtMs: event.expiresAtMs, amountMinor: event.amountMinor }]);
+      addFeedItem({ id: `held-${event.decisionId}`, type: 'held', text: `⏸ Payment held — expires ${new Date(event.expiresAtMs).toLocaleTimeString()}`, ts, outcome: 'HELD', expiresAtMs: event.expiresAtMs });
+    }
+
+    if (event.t === 'hold.released') {
+      setHolds(h => h.filter(x => x.decisionId !== event.decisionId));
+    }
+
+    if (event.t === 'attack.attempt') {
+      addFeedItem({ id: `atk-${ts}`, type: 'attack', text: `${event.blocked ? '🛡 Blocked' : '⚠ Passed'}: ${event.technique} — ${event.revertReason}`, ts, outcome: event.blocked ? 'REFUSED' : 'APPROVED' });
+    }
+  }, []);
+
+  const addFeedItem = useCallback((item: FeedItem) => {
+    setFeed(prev => [item, ...prev].slice(0, 100));
+    setTimeout(() => {
+      feedRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 50);
+  }, []);
+
+  const handleSoftRevoke = async () => {
+    if (!mandateId) return alert('No mandate connected. Start the core server first.');
+    await fetch(`${CORE_URL}/v1/revoke`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mandateId, source: 'owner' }),
     });
   };
 
+  const handleOnChainRevoke = () => {
+    writeContract({ address: POLICY_MODULE_ADDRESS, abi: revokeAbi, functionName: 'revoke' });
+  };
+
+  const handleCancelHold = async (decisionId: string) => {
+    await fetch(`${CORE_URL}/v1/hold/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decisionId }),
+    });
+    setHolds(h => h.filter(x => x.decisionId !== decisionId));
+  };
+
+  const leasePercent = Math.max(0, Math.min(100, (leaseTtl / 5000) * 100));
+
   return (
-    <main className="p-8 min-h-screen font-sans" style={{ backgroundColor: '#0B0D14', color: '#EDEAE3' }}>
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">Lakshman Rekha Console</h1>
-        <div>
+    <div className="console-layout">
+      {/* ── Top Bar ── */}
+      <header className="topbar">
+        <div className="topbar-left">
+          <div className={`core-dot ${coreUp ? 'up' : 'down'}`} title={coreUp ? 'Core online' : 'Core offline'} />
+          <span className="topbar-brand">Lakshman Rekha</span>
+          {frozen && <span className="frozen-chip">FROZEN</span>}
+        </div>
+        <div className="topbar-center">
+          <div className="balance-block">
+            <span className="balance-label">Available</span>
+            <span className="balance-amount">{fmtInr(balance)}</span>
+          </div>
+        </div>
+        <div className="topbar-right">
+          <div className="lease-ring-wrap" title={`Lease TTL: ${leaseTtl}ms`}>
+            <svg width="36" height="36" viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="14" fill="none" stroke="var(--slate)" strokeWidth="3" />
+              <circle
+                cx="18" cy="18" r="14" fill="none"
+                stroke={leaseTtl < 1500 ? 'var(--breach)' : 'var(--clear)'}
+                strokeWidth="3"
+                strokeDasharray={`${2 * Math.PI * 14}`}
+                strokeDashoffset={`${2 * Math.PI * 14 * (1 - leasePercent / 100)}`}
+                strokeLinecap="round"
+                transform="rotate(-90 18 18)"
+                style={{ transition: 'stroke-dashoffset 0.5s linear, stroke 0.3s' }}
+              />
+            </svg>
+            <span className="lease-ttl-label">{(leaseTtl / 1000).toFixed(1)}s</span>
+          </div>
           {isConnected ? (
-            <div className="flex gap-4 items-center">
-              <span className="font-mono text-sm text-gray-400">{address}</span>
-              <button onClick={() => disconnect()} className="px-4 py-2 rounded bg-gray-800 text-sm text-white">Disconnect</button>
-              <button 
-                onClick={handleRevoke} 
-                disabled={isPending}
-                className="px-4 py-2 rounded bg-red-600 hover:bg-red-700 font-bold text-white disabled:opacity-50"
-              >
-                {isPending ? 'Revoking...' : 'REVOKE ALL'}
-              </button>
-            </div>
+            <button className="btn-ghost-sm" onClick={() => disconnect()}>
+              {address?.slice(0, 6)}…{address?.slice(-4)} ✕
+            </button>
           ) : (
-            <button 
-              onClick={() => connect({ connector: injected() })}
-              className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 font-bold text-white"
-            >
+            <button className="btn-ghost-sm" onClick={() => connect({ connector: injected() })}>
               Connect Wallet
             </button>
           )}
         </div>
-      </div>
-      
-      {isSuccess && txHash && (
-        <div className="mb-8 p-4 bg-green-900/50 border border-green-500 rounded text-green-200">
-          Revocation successful! View on Explorer: <a href={`https://sepolia.basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer" className="underline">{txHash}</a>
-        </div>
-      )}
-      
-      {error && (
-        <div className="mb-8 p-4 bg-red-900/50 border border-red-500 rounded text-red-200 font-mono text-sm whitespace-pre-wrap">
-          {error.message}
-        </div>
-      )}
-      
-      <div className="mb-8 p-6 rounded-lg shadow border" style={{ backgroundColor: '#161A26', borderColor: '#333' }}>
-        <h2 className="text-xl font-semibold mb-4" style={{ color: '#3DD68C' }}>Wallet Balance</h2>
-        <p className="text-4xl font-mono">₹50,000.00</p>
-      </div>
+      </header>
 
-      <div className="p-6 rounded-lg shadow border" style={{ backgroundColor: '#161A26', borderColor: '#333' }}>
-        <h2 className="text-xl font-semibold mb-4">Live Transaction Feed</h2>
-        <div className="flex flex-col gap-4">
-          {events.length === 0 ? (
-            <p className="italic opacity-50">No payments yet. Give your agent a task in the Playground.</p>
-          ) : (
-            events.map((ev, idx) => (
-              <div key={idx} className="p-4 border border-gray-700 rounded bg-gray-800/50 text-sm">
-                <span className="text-xs font-mono text-gray-500 block mb-1">{new Date(ev.atMs).toLocaleTimeString()} - {ev.t}</span>
-                {ev.t === 'payment.held' && (
-                  <div className="text-yellow-400">
-                    Payment Held! (Decision: {ev.decisionId})<br />
-                    Amount: ₹{(ev.amountMinor / 100).toFixed(2)}
-                  </div>
-                )}
-                {ev.t === 'payment.settled' && (
-                  <div className="text-green-400">
-                    Payment Settled! <br />
-                    <a href={`https://sepolia.basescan.org/tx/${ev.txHash}`} target="_blank" rel="noreferrer" className="underline text-blue-400">View on Basescan: {ev.txHash}</a>
-                  </div>
-                )}
-                {ev.t === 'decision.made' && ev.trace?.outcome === 'REFUSED' && (
-                  <div className="text-red-400">
-                    Payment Refused: {ev.trace.summary} <br />
-                    <span className="font-mono text-xs mt-1 block opacity-75">{ev.trace.bindingPredicate && `Predicate: ${ev.trace.bindingPredicate}`}</span>
-                  </div>
-                )}
-                {ev.t === 'attack.attempt' && ev.blocked && (
-                  <div className="text-red-400 font-mono">
-                    Attack Blocked: {ev.revertReason}
-                  </div>
-                )}
-                {ev.t !== 'payment.held' && ev.t !== 'payment.settled' && ev.t !== 'decision.made' && ev.t !== 'attack.attempt' && (
-                  <pre className="text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap">{JSON.stringify(ev, null, 2)}</pre>
-                )}
-              </div>
-            ))
+      {/* ── Main Layout ── */}
+      <div className="console-body">
+        {/* Left: Feed */}
+        <div className="feed-panel">
+          <div className="panel-header">
+            <h2>Live Transaction Feed</h2>
+            <a href="/playground" className="btn-primary-sm">Playground →</a>
+          </div>
+
+          {/* Holds Inbox */}
+          {holds.length > 0 && (
+            <div className="holds-section">
+              <h3 className="holds-title">Holds Inbox ({holds.length})</h3>
+              {holds.map(hold => (
+                <HoldCard key={hold.decisionId} hold={hold} onCancel={handleCancelHold} />
+              ))}
+            </div>
           )}
+
+          <div className="feed-list" ref={feedRef}>
+            {feed.length === 0 ? (
+              <div className="feed-empty">No payments yet. Give your agent a task in the Playground.</div>
+            ) : (
+              feed.map(item => (
+                <div
+                  key={item.id}
+                  className={`feed-item feed-${item.outcome?.toLowerCase() ?? 'info'} ${item.trace && selected?.decisionId === item.trace.decisionId ? 'selected' : ''}`}
+                  onClick={() => item.trace && setSelected(item.trace)}
+                  style={{ cursor: item.trace ? 'pointer' : 'default' }}
+                >
+                  <span className="feed-text">{item.text}</span>
+                  <div className="feed-meta">
+                    {item.amountMinor !== undefined && <span className="feed-amount">{fmtInr(item.amountMinor)}</span>}
+                    {item.txHash && (
+                      <a
+                        href={`https://sepolia.basescan.org/tx/${item.txHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="feed-link"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        Basescan ↗
+                      </a>
+                    )}
+                    <span className="feed-time">{timeAgo(item.ts)}</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
+
+        {/* Right: Decision Panel + Controls */}
+        <aside className="side-panel">
+          {/* Revoke Controls */}
+          <div className="revoke-card">
+            <h3>Revoke Controls</h3>
+            <p className="revoke-desc">Instantly stop all agent spending. Irreversible.</p>
+            <button
+              className="btn-revoke"
+              onClick={handleSoftRevoke}
+              disabled={frozen}
+            >
+              {frozen ? 'Already Revoked' : '⛔ Revoke Mandate (Core)'}
+            </button>
+            <button
+              className="btn-revoke-onchain"
+              onClick={handleOnChainRevoke}
+              disabled={!isConnected || revokePending}
+            >
+              {revokePending ? 'Revoking on chain…' : '⛓ Revoke On-Chain (Wallet)'}
+            </button>
+            {!isConnected && (
+              <p className="revoke-note">Connect wallet to revoke on-chain (works even if core is down)</p>
+            )}
+          </div>
+
+          {/* Decision Panel */}
+          <div className="decision-panel">
+            <h3>Decision Panel</h3>
+            {!selected ? (
+              <p className="decision-empty">Click any decision in the feed to inspect the predicate trace.</p>
+            ) : (
+              <DecisionPanel trace={selected} />
+            )}
+          </div>
+
+          {/* Enforcement Stack */}
+          <div className="enforcement-card">
+            <h3>Enforcement Stack</h3>
+            <div className="enforcement-row">
+              <span className="enforcement-label">Core</span>
+              <span className={`enforcement-val ${coreUp ? 'ok' : 'err'}`}>{coreUp ? 'Online' : 'Offline'}</span>
+            </div>
+            <div className="enforcement-row">
+              <span className="enforcement-label">Image Digest</span>
+              <span className="enforcement-mono" title={imageDigest}>{imageDigest.slice(0, 20)}…</span>
+            </div>
+            <div className="enforcement-row">
+              <span className="enforcement-label">PolicyModule</span>
+              <a
+                href={`https://sepolia.basescan.org/address/${POLICY_MODULE_ADDRESS}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="enforcement-link"
+              >
+                {POLICY_MODULE_ADDRESS.slice(0, 8)}… ↗
+              </a>
+            </div>
+            <div className="enforcement-row">
+              <span className="enforcement-label">Mandate</span>
+              <span className={`enforcement-val ${frozen ? 'err' : 'ok'}`}>{frozen ? 'FROZEN' : 'Active'}</span>
+            </div>
+          </div>
+        </aside>
       </div>
-    </main>
+    </div>
+  );
+}
+
+// ── Hold Card ──────────────────────────────────
+function HoldCard({ hold, onCancel }: { hold: HoldItem; onCancel: (id: string) => void }) {
+  const [remaining, setRemaining] = useState(hold.expiresAtMs - Date.now());
+
+  useEffect(() => {
+    const t = setInterval(() => setRemaining(hold.expiresAtMs - Date.now()), 500);
+    return () => clearInterval(t);
+  }, [hold.expiresAtMs]);
+
+  const pct = Math.max(0, Math.min(100, (remaining / 90_000) * 100));
+
+  return (
+    <div className="hold-card">
+      <div className="hold-row">
+        <span className="hold-amount">{fmtInr(hold.amountMinor)}</span>
+        <span className="hold-id">{hold.decisionId}</span>
+        <button className="btn-cancel" onClick={() => onCancel(hold.decisionId)}>Cancel</button>
+      </div>
+      <div className="hold-ring-track">
+        <div className="hold-ring-fill" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="hold-ttl">{remaining > 0 ? `Expires in ${Math.ceil(remaining / 1000)}s` : 'Expired'}</span>
+    </div>
+  );
+}
+
+// ── Decision Panel ─────────────────────────────
+function DecisionPanel({ trace }: { trace: DecisionTrace }) {
+  const outcomeColor = trace.outcome === 'APPROVED' ? 'var(--clear)' : trace.outcome === 'HELD' ? 'var(--lien)' : 'var(--breach)';
+
+  return (
+    <div className="decision-inner">
+      <div className="decision-outcome" style={{ color: outcomeColor }}>
+        {trace.outcome}
+      </div>
+      <p className="decision-summary">{trace.summary}</p>
+      <div className="decision-meta">
+        <span>Latency: {trace.latencyMs}ms</span>
+        <span>{fmtInr(trace.amountMinor)}</span>
+      </div>
+      <table className="predicate-table">
+        <thead>
+          <tr>
+            <th>Predicate</th>
+            <th>Expected</th>
+            <th>Actual</th>
+            <th>Pass</th>
+          </tr>
+        </thead>
+        <tbody>
+          {trace.predicates.map(pred => (
+            <tr
+              key={pred.name}
+              className={pred.name === trace.bindingPredicate ? 'binding-row' : ''}
+            >
+              <td className="pred-name">{pred.name}</td>
+              <td className="pred-expected">{pred.expected}</td>
+              <td className={`pred-actual ${pred.passed ? 'pass' : 'fail'}`}>{pred.actual}</td>
+              <td>{pred.passed ? '✓' : '✗'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="decision-hash">
+        <span>Policy: </span>
+        <code className="mono-sm">{trace.policyHash.slice(0, 18)}…</code>
+      </div>
+      <div className="decision-hash">
+        <span>Image: </span>
+        <code className="mono-sm">{trace.coreImageDigest.slice(0, 18)}…</code>
+      </div>
+    </div>
   );
 }
