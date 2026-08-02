@@ -14,8 +14,10 @@ import { registerPaymentRoutes } from './routes/payment.js';
 import { registerHoldRoutes } from './routes/hold.js';
 import { registerTaskRoutes } from './routes/task.js';
 import { registerAuditRoutes } from './routes/audit.js';
+import { registerRevokeRoutes } from './routes/revoke.js';
 import { registerSseRoute } from '../events/sse.js';
 import { emit } from '../events/bus.js';
+import * as store from './store.js';
 
 const PORT = Number(process.env['PORT'] ?? 4000);
 
@@ -44,6 +46,7 @@ async function buildApp() {
   await registerHoldRoutes(app);
   await registerTaskRoutes(app);
   await registerAuditRoutes(app);
+  await registerRevokeRoutes(app);
 
   // Global error handler — fail closed: unknown errors never return 200
   app.setErrorHandler((error, _request, reply) => {
@@ -73,5 +76,15 @@ setInterval(() => {
     imageDigest: process.env['CORE_IMAGE_DIGEST'] ?? 'sha256:dev',
   });
 }, 30_000);
+
+// Dead-man switch: check all mandates every 10s
+setInterval(() => {
+  // Access mandates indirectly via store — freeze if heartbeat lapsed
+  // We expose a checkDeadman helper from store
+  store.checkDeadman((mandateId, epoch) => {
+    emit({ t: 'revocation', epoch, source: 'deadman', latencyMs: 0 });
+    console.warn(`[deadman] mandate ${mandateId} frozen — heartbeat lapsed`);
+  });
+}, 10_000);
 
 export { buildApp };

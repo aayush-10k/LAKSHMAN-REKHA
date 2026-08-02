@@ -6,11 +6,51 @@
  * /settle:  completes an APPROVED decision; produces a txHash.
  */
 
+import { createPublicClient, http, bytesToHex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { baseSepolia } from 'viem/chains';
 import type { FastifyInstance } from 'fastify';
 import { validateFactSheet } from '../validate-factsheet.js';
-import { evaluate, CORE_IMAGE_DIGEST } from '../mock-evaluator.js';
+import { evaluate } from '../mock-evaluator.js';
 import * as store from '../store.js';
 import { emit } from '../../events/bus.js';
+
+const rpcUrl = process.env['BASE_SEPOLIA_RPC'] || 'https://sepolia.base.org';
+const publicClient = createPublicClient({ chain: baseSepolia, transport: http(rpcUrl) });
+const coreSignerKey = process.env['CORE_SIGNER_PRIVATE_KEY'];
+const account = coreSignerKey ? privateKeyToAccount(coreSignerKey as `0x${string}`) : null;
+const policyModuleAddress = (process.env['POLICY_MODULE_ADDRESS'] || '0x0000000000000000000000000000000000000000') as `0x${string}`;
+const imageDigestStr = process.env['CORE_IMAGE_DIGEST'] || '0x0100000000000000000000000000000000000000000000000000000000000000';
+const coreImageDigest = (imageDigestStr.startsWith('0x') ? imageDigestStr : `0x${Buffer.from(imageDigestStr).toString('hex').padEnd(64, '0')}`) as `0x${string}`;
+
+const CATEGORY_MAP: Record<string, number> = {
+  'PACKAGING': 0, 'ADVERTISING': 1, 'CONTENT': 2, 'COMPUTE': 3, 'LOGISTICS': 4, 'SOFTWARE': 5, 'UTILITIES': 6, 'OTHER': 7
+};
+
+const hashRequestAbi = [{
+  type: 'function',
+  name: 'hashRequest',
+  stateMutability: 'view',
+  inputs: [{
+    type: 'tuple',
+    name: 'req',
+    components: [
+      { name: 'amountMinor', type: 'uint256' },
+      { name: 'counterparty', type: 'address' },
+      { name: 'counterpartyTier', type: 'uint8' },
+      { name: 'counterpartyAgeDays', type: 'uint16' },
+      { name: 'counterpartySettledTxns', type: 'uint32' },
+      { name: 'priceBandZ', type: 'int8' },
+      { name: 'categoryCode', type: 'uint8' },
+      { name: 'leaseId', type: 'bytes32' },
+      { name: 'nonce', type: 'uint64' },
+      { name: 'revocationEpoch', type: 'uint64' },
+      { name: 'leaseExpiry', type: 'uint64' },
+      { name: 'coreImageDigest', type: 'bytes32' }
+    ]
+  }],
+  outputs: [{ type: 'bytes32', name: '' }]
+}] as const;
 
 export async function registerPaymentRoutes(app: FastifyInstance): Promise<void> {
   // ── POST /v1/payment/request ───────────────────────────────────────
@@ -24,6 +64,26 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
     }
 
     const { factSheet: fs } = validation;
+
+    // Enforce Registry Rule
+    try {
+      const catalogRes = await fetch('http://localhost:4100/catalog');
+      if (catalogRes.ok) {
+        const vendors = (await catalogRes.json()) as any[];
+        const vendor = vendors.find((v: any) => v.address.toLowerCase() === fs.counterpartyId.toLowerCase());
+        if (vendor) {
+          fs.counterpartyAgeDays = vendor.ageDays;
+          fs.counterpartySettledTxns = vendor.settledTxns;
+        } else {
+          fs.counterpartyAgeDays = 0;
+          fs.counterpartySettledTxns = 0;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to contact vendor registry', e);
+      fs.counterpartyAgeDays = 0;
+      fs.counterpartySettledTxns = 0;
+    }
 
     // Look up lease to get mandate context
     const lease = store.getLease(fs.leaseId);
@@ -101,11 +161,46 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
       });
     }
 
+    let partialSig: string | null = null;
+    if (trace.outcome === 'APPROVED' && account && policyModuleAddress !== '0x0000000000000000000000000000000000000000') {
+      try {
+        const reqTuple = {
+          amountMinor: BigInt(fs.amountMinor),
+          counterparty: fs.counterpartyId as `0x${string}`,
+          counterpartyTier: fs.counterpartyTier,
+          counterpartyAgeDays: fs.counterpartyAgeDays,
+          counterpartySettledTxns: fs.counterpartySettledTxns,
+          priceBandZ: fs.priceBandZ,
+          categoryCode: CATEGORY_MAP[fs.categoryCode] ?? 7,
+          leaseId: bytesToHex(Buffer.from(fs.leaseId).subarray(0, 32), { size: 32 }) as `0x${string}`,
+          nonce: BigInt(fs.nonce),
+          revocationEpoch: BigInt(mandate.revocationEpoch),
+          leaseExpiry: BigInt(Math.floor(lease.expiresAtMs / 1000)),
+          coreImageDigest
+        };
+        
+        const digest = await publicClient.readContract({
+          address: policyModuleAddress,
+          abi: hashRequestAbi,
+          functionName: 'hashRequest',
+          args: [reqTuple]
+        });
+        
+        const sig = await account.sign({ hash: digest });
+        partialSig = sig;
+        trace.signature = sig;
+      } catch (e) {
+        console.error('Failed to generate core signature', e);
+      }
+    } else if (trace.outcome === 'APPROVED') {
+      partialSig = `0x${'ab'.repeat(32)}`;
+    }
+
     return reply.code(200).send({
       decisionId: trace.decisionId,
       outcome: trace.outcome,
       trace,
-      partialSig: trace.outcome === 'APPROVED' ? `0x${'ab'.repeat(32)}` : null,
+      partialSig,
       holdExpiresAtMs: trace.outcome === 'HELD' ? Date.now() + 90_000 : null,
     });
   });

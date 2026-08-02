@@ -4,7 +4,7 @@
 
 Nobody writes feature code until this is committed. After that, everyone builds against these shapes using the fixtures at the bottom — not against each other's running code.
 
-**Schema version: 1.0.0** — bump the minor for additive changes, the major for anything breaking.
+**Schema version: 1.1.0** — bump the minor for additive changes, the major for anything breaking.
 
 ---
 
@@ -436,6 +436,7 @@ struct PaymentRequest {
     uint64  nonce;
     uint64  revocationEpoch;
     uint64  leaseExpiry;
+    bytes32 coreImageDigest;
 }
 
 // PolicyModule
@@ -453,6 +454,7 @@ function balanceMinor() external view returns (uint256);
 
 // Events
 event PaymentExecuted(bytes32 indexed decisionId, address counterparty, uint256 amountMinor);
+event PaymentHeld(bytes32 indexed decisionId, uint16 softFailBitmask);
 event Revoked(uint64 newEpoch, address by);
 event PolicyUpdated(bytes32 newPolicyHash);
 ```
