@@ -1,37 +1,68 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useWriteContract, useAccount, useConnect, useDisconnect } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import type { DecisionTrace, RekhaEvent } from '../../types';
 import { CORE_URL, ensurePaired, renewLease, type Pairing } from '../../lib/pairing';
-import { AgentStatus } from '../../components/AgentStatus';
+import { CONTRACTS, POLICY_MODULE_ADDRESS, basescanAddress, basescanTx, shortHex } from '../../lib/contracts';
+import { Amount, formatInrMinor } from '../../components/Amount';
+import { TTLRing } from '../../components/TTLRing';
+import { PredicateTable } from '../../components/PredicateTable';
 import { CoreOffline } from '../../components/CoreOffline';
 
-const POLICY_MODULE_ADDRESS = (process.env['NEXT_PUBLIC_POLICY_MODULE_ADDRESS'] ?? '0x933bb10252ec2b133f28b7d5edf1d303c3384d87') as `0x${string}`;
+const VENDORSIM_URL = process.env['NEXT_PUBLIC_VENDORSIM_URL'] ?? 'http://localhost:4100';
 
 const revokeAbi = [{ type: 'function', name: 'revoke', stateMutability: 'nonpayable', inputs: [], outputs: [] }] as const;
 
-type FeedItem = {
+/**
+ * One row per payment, not one row per event.
+ *
+ * The old feed pushed a separate row for payment.requested, decision.made,
+ * payment.held and payment.settled, so a single ₹9,400 purchase produced three
+ * lines saying different things about the same money. Rows are keyed by
+ * decisionId and later events merge into the row they belong to — which is also
+ * the only way "settled · 380ms · 0xfc29…" can appear on one line, since the
+ * latency comes from decision.made and the hash from payment.settled.
+ */
+type RowState = 'settled' | 'approved' | 'held' | 'refused' | 'revocation';
+
+type FeedRow = {
+  /** decisionId for payments; a synthetic id for revocation notices. */
   id: string;
-  type: string;
-  text: string;
-  outcome?: string;
-  trace?: DecisionTrace;
+  state: RowState;
   ts: number;
-  txHash?: string;
+  counterpartyId?: string;
   amountMinor?: number;
+  latencyMs?: number;
+  txHash?: string;
+  trace?: DecisionTrace;
+  /** Set on held rows. */
   expiresAtMs?: number;
+  /** When this browser learned of the hold — the ring's denominator. */
+  heldSinceMs?: number;
+  /** Only for rows that are not payments (revocation). */
+  note?: string;
 };
 
-type HoldItem = { decisionId: string; expiresAtMs: number; amountMinor: number };
+type MandateSnapshot = {
+  frozen: boolean;
+  revocationEpoch: number;
+  windowSpentMinor: number;
+  windowCapMinor: number;
+  perTxCapMinor: number;
+};
 
-function fmtInr(minor: number) {
-  return '₹' + (minor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 });
-}
+const STATE_LABEL: Record<RowState, string> = {
+  settled: 'settled',
+  approved: 'approved',
+  held: 'held',
+  refused: 'refused',
+  revocation: 'revoked',
+};
 
-function timeAgo(ts: number) {
-  const d = Date.now() - ts;
+function timeAgo(ts: number, now: number) {
+  const d = now - ts;
   if (d < 5000) return 'just now';
   if (d < 60000) return `${Math.floor(d / 1000)}s ago`;
   if (d < 3600000) return `${Math.floor(d / 60000)}m ago`;
@@ -39,17 +70,19 @@ function timeAgo(ts: number) {
 }
 
 export default function ConsolePage() {
-  const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [rows, setRows] = useState<FeedRow[]>([]);
   const [selected, setSelected] = useState<DecisionTrace | null>(null);
+
   // RekhaAccount's on-chain INRx balance. null until read, and null again if a
   // read fails — never a placeholder that looks like real money.
   const [balance, setBalance] = useState<number | null>(null);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
+  const [mandate, setMandate] = useState<MandateSnapshot | null>(null);
   const [frozen, setFrozen] = useState(false);
-  const [mandateId, setMandateId] = useState<string | null>(null);
+
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [pairError, setPairError] = useState<string | null>(null);
-  const [holds, setHolds] = useState<HoldItem[]>([]);
-  const [holdsError, setHoldsError] = useState<string | null>(null);
+
   const [coreUp, setCoreUp] = useState(false);
   /**
    * Tri-state on purpose (FIX3.md BUG 3). 'checking' is not 'down': a boolean
@@ -58,29 +91,87 @@ export default function ConsolePage() {
    */
   const [coreReach, setCoreReach] = useState<'checking' | 'up' | 'down'>('checking');
   const [coreReachReason, setCoreReachReason] = useState<string | null>(null);
-  const [leaseTtl, setLeaseTtl] = useState(5000);
+
+  const [leaseTtl, setLeaseTtl] = useState(0);
   /** Configured lease TTL, read from the core. The ring denominator, not a guess. */
-  const [leaseTtlMax, setLeaseTtlMax] = useState(5000);
-  const [imageDigest, setImageDigest] = useState('loading…');
-  const feedRef = useRef<HTMLDivElement>(null);
-  const { writeContract, isPending: revokePending } = useWriteContract();
+  const [leaseTtlMax, setLeaseTtlMax] = useState(15000);
+  const [imageDigest, setImageDigest] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  /**
+   * Vendor display names, fetched from the vendor registry — deliberately NOT a
+   * string on FactSheet. FINALE.md Part 5: the FactSheet stays numeric, because a
+   * field the policy engine cannot read is a field an injected page can write to.
+   * Names are cosmetic, so they are fetched separately and degrade to the id.
+   */
+  const [vendorNames, setVendorNames] = useState<Record<string, string>>({});
+
+  /** Drives the held countdowns and the "3m ago" column. One timer, not one per row. */
+  const [now, setNow] = useState(() => Date.now());
+
+  const { writeContract, isPending: revokePending, error: revokeError } = useWriteContract();
   const { address, isConnected } = useAccount();
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
 
-  // Boot: pair with the core, then load balance and holds.
-  // FIX2.md BUG 2 — this used to POST a literal '------' pairing code and drop
-  // the 404 on the floor, so the console was never actually paired.
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const loadBalance = useCallback(() => {
+    fetch(`${CORE_URL}/v1/wallet/balance`)
+      .then(async (r) => {
+        const body = await r.json();
+        if (!r.ok) throw new Error(body?.error?.message ?? `HTTP ${r.status}`);
+        return body;
+      })
+      .then((d) => {
+        if (typeof d.balanceMinor === 'number') {
+          setBalance(d.balanceMinor);
+          setBalanceError(null);
+        }
+      })
+      .catch((e: Error) => {
+        // Fail visible: the figure reads "unavailable" rather than showing a
+        // plausible number, and the reason goes on screen, not just the console.
+        setBalance(null);
+        setBalanceError(e.message);
+      });
+  }, []);
+
+  const loadMandate = useCallback((mandateId: string) => {
+    fetch(`${CORE_URL}/v1/mandate/${mandateId}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((m) => {
+        setMandate({
+          frozen: !!m.frozen,
+          revocationEpoch: m.revocationEpoch ?? 0,
+          windowSpentMinor: m.windowSpentMinor ?? 0,
+          windowCapMinor: m.windowCapMinor ?? 0,
+          perTxCapMinor: m.perTxCapMinor ?? 0,
+        });
+        if (m.frozen) setFrozen(true);
+      })
+      .catch((e: Error) => console.error('[console] mandate read failed:', e.message));
+  }, []);
+
+  // Boot: probe the core, pair, then load balance, holds and vendor names.
   useEffect(() => {
     fetch(`${CORE_URL}/health`)
-      .then(r => {
+      .then((r) => {
         if (!r.ok) throw new Error(`core answered HTTP ${r.status}`);
         return r.json();
       })
-      .then(h => {
-        setCoreUp(true);
+      .then((h) => {
         setCoreReach('up');
         setCoreReachReason(null);
+        // `up` is about issuance, not process liveness: a killed core still
+        // answers /health, and that is exactly the state that must not look fine.
+        setCoreUp(h.issuanceKilledAtMs === null);
         if (h.leaseTtlMs) setLeaseTtlMax(h.leaseTtlMs);
       })
       .catch((e: Error) => {
@@ -90,38 +181,152 @@ export default function ConsolePage() {
       });
 
     ensurePaired()
-      .then(p => {
+      .then((p) => {
         setPairing(p);
-        setMandateId(p.mandateId);
         setLeaseTtlMax(p.leaseTtlMs);
         setLeaseTtl(p.leaseTtlMs); // until the first lease.tick lands
         setPairError(null);
+        loadMandate(p.mandateId);
       })
       .catch((e: Error) => setPairError(e.message));
 
-    // FIX3.md BUG 4: no empty catches. Balance is already fail-visible — it
-    // stays null and the topbar reads "unavailable" rather than showing a
-    // plausible figure — but the reason belongs in the console, not nowhere.
-    fetch(`${CORE_URL}/v1/wallet/balance`)
-      .then(r => r.json())
-      .then(d => { if (d.balanceMinor !== undefined) setBalance(d.balanceMinor); })
-      .catch((e: Error) => {
-        setBalance(null);
-        console.error('[console] balance read failed:', e.message);
-      });
+    loadBalance();
 
     fetch(`${CORE_URL}/v1/holds`)
-      .then(r => r.json())
-      .then(d => { if (Array.isArray(d.holds)) setHolds(d.holds); })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!Array.isArray(d.holds)) return;
+        const learnedAt = Date.now();
+        type Hold = { decisionId: string; expiresAtMs: number; amountMinor: number };
+        const holds: Hold[] = d.holds;
+
+        /**
+         * MERGE, never skip. This and the audit-export read below race, and the
+         * export creates the same row without any hold fields. Filtering out
+         * ids already present meant that whenever the export landed first, the
+         * countdown ring, the Cancel button and the "held" total all silently
+         * vanished — the row was there, in amber, with nothing to act on.
+         */
+        setRows((prev) => {
+          const seen = new Set<string>();
+          const merged = prev.map((r) => {
+            const h = holds.find((x) => x.decisionId === r.id);
+            if (!h) return r;
+            seen.add(h.decisionId);
+            return {
+              ...r,
+              state: 'held' as const,
+              amountMinor: r.amountMinor ?? h.amountMinor,
+              expiresAtMs: h.expiresAtMs,
+              heldSinceMs: r.heldSinceMs ?? learnedAt,
+            };
+          });
+          const fresh: FeedRow[] = holds
+            .filter((h) => !seen.has(h.decisionId))
+            .map((h) => ({
+              id: h.decisionId,
+              state: 'held' as const,
+              ts: learnedAt,
+              amountMinor: h.amountMinor,
+              expiresAtMs: h.expiresAtMs,
+              heldSinceMs: learnedAt,
+            }));
+          return [...fresh, ...merged];
+        });
+      })
+      .catch((e: Error) => console.error('[console] holds read failed:', e.message));
+
+    /**
+     * Payments that happened before this page was opened.
+     *
+     * The live feed is SSE-only by design, and the consequence is that a
+     * refresh — or a judge opening the console after a rehearsal — shows an
+     * empty screen even though real payments settled minutes ago. This is one
+     * historical read at boot, the same shape as the balance and holds reads
+     * above, not polling. Live events merge on top by decisionId.
+     */
+    fetch(`${CORE_URL}/v1/audit/export`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((doc) => {
+        const body = doc?.body ?? doc;
+        const decisions: DecisionTrace[] = Array.isArray(body?.decisions) ? body.decisions : [];
+        const settlements: Array<{ decisionId: string; txHash: string }> = Array.isArray(body?.settlements)
+          ? body.settlements
+          : [];
+        const txByDecision = new Map(settlements.map((s) => [s.decisionId, s.txHash]));
+
+        const historical: FeedRow[] = decisions.map((trace) => {
+          const txHash = txByDecision.get(trace.decisionId);
+          const state: RowState = txHash
+            ? 'settled'
+            : trace.outcome === 'APPROVED'
+              ? 'approved'
+              : trace.outcome === 'HELD'
+                ? 'held'
+                : 'refused';
+          return {
+            id: trace.decisionId,
+            state,
+            ts: trace.evaluatedAtMs,
+            counterpartyId: trace.counterpartyId,
+            amountMinor: trace.amountMinor,
+            latencyMs: trace.latencyMs,
+            trace,
+            ...(txHash ? { txHash } : {}),
+          };
+        });
+
+        // Merge both directions, for the same reason the holds read above does:
+        // a row created by the holds read has expiresAtMs but no trace, so
+        // skipping it here would leave it permanently unclickable. Hold fields
+        // win where both have them — they are the live ones.
+        setRows((prev) => {
+          const seen = new Set<string>();
+          const merged = prev.map((r) => {
+            const h = historical.find((x) => x.id === r.id);
+            if (!h) return r;
+            seen.add(h.id);
+            return { ...h, ...r, state: r.expiresAtMs !== undefined ? r.state : h.state };
+          });
+          return [...merged, ...historical.filter((h) => !seen.has(h.id))]
+            .sort((a, b) => b.ts - a.ts)
+            .slice(0, 100);
+        });
+      })
+      .catch((e: Error) => console.error('[console] payment history unavailable:', e.message));
+
+    fetch(`${VENDORSIM_URL}/catalog`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((list: Array<{ id: string; name: string; address?: string }>) => {
+        if (!Array.isArray(list)) return;
+        // Keyed by BOTH id and lowercased address: DecisionTrace.counterpartyId
+        // carries the vendor's on-chain address (measured — a refused SOFTWARE
+        // trace returns 0x0708…192a, not "ven_pixelvault"), while the holds and
+        // catalog use the ven_* id. Keying on one of them silently falls back to
+        // raw hex for every row.
+        const map: Record<string, string> = {};
+        for (const v of list) {
+          map[v.id] = v.name;
+          if (v.address) map[v.address.toLowerCase()] = v.name;
+        }
+        setVendorNames(map);
+      })
       .catch((e: Error) => {
-        setHoldsError(e.message);
-        console.error('[console] holds read failed:', e.message);
+        // Non-fatal by design: rows fall back to the vendor id, which is the
+        // real identifier anyway. Logged rather than swallowed.
+        console.error('[console] vendor names unavailable, showing ids:', e.message);
       });
-  }, []);
+  }, [loadBalance, loadMandate]);
 
   // Keep the lease alive so the TTL ring shows a real lease rather than a
   // decorative one. renewLease re-pairs by itself if the core has restarted and
-  // forgotten this agentId — the failure mode BUG 2 is about.
+  // forgotten this agentId.
   useEffect(() => {
     if (!pairing) return;
     let current = pairing.agentId;
@@ -133,7 +338,7 @@ export default function ConsolePage() {
         if (stopped) return;
         if (lease.agentId !== current) {
           current = lease.agentId;
-          setPairing(p => (p ? { ...p, agentId: lease.agentId } : p));
+          setPairing((p) => (p ? { ...p, agentId: lease.agentId } : p));
         }
         setLeaseTtlMax(lease.ttlMs);
         setPairError(null);
@@ -144,116 +349,176 @@ export default function ConsolePage() {
 
     void tick();
     const timer = setInterval(tick, Math.max(1000, pairing.leaseTtlMs * 0.6));
-    return () => { stopped = true; clearInterval(timer); };
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
   }, [pairing?.agentId, pairing?.leaseTtlMs]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // SSE subscription
+  /** Merge an event into the row it belongs to, creating it if needed. */
+  const upsert = useCallback((id: string, patch: Partial<FeedRow> & { state: RowState; ts: number }) => {
+    setRows((prev) => {
+      const i = prev.findIndex((r) => r.id === id);
+      if (i === -1) return [{ id, ...patch }, ...prev].slice(0, 100);
+      const next = [...prev];
+      next[i] = { ...next[i]!, ...patch };
+      return next;
+    });
+  }, []);
+
+  const processEvent = useCallback(
+    (event: RekhaEvent) => {
+      const ts = Date.now();
+
+      switch (event.t) {
+        case 'core.status':
+          setCoreUp(event.up);
+          setImageDigest(event.imageDigest);
+          return;
+
+        case 'lease.tick':
+          setLeaseTtl(event.ttlMs);
+          return;
+
+        case 'revocation':
+          setFrozen(true);
+          setRows((prev) =>
+            [
+              {
+                id: `rev-${event.epoch}-${ts}`,
+                state: 'revocation' as const,
+                ts,
+                note: `Spending stopped by ${event.source}. Revocation epoch ${event.epoch}.`,
+              },
+              ...prev,
+            ].slice(0, 100),
+          );
+          return;
+
+        case 'decision.made': {
+          const { trace } = event;
+          const state: RowState =
+            trace.outcome === 'APPROVED' ? 'approved' : trace.outcome === 'HELD' ? 'held' : 'refused';
+          upsert(trace.decisionId, {
+            state,
+            ts,
+            counterpartyId: trace.counterpartyId,
+            amountMinor: trace.amountMinor,
+            latencyMs: trace.latencyMs,
+            trace,
+          });
+          return;
+        }
+
+        case 'payment.settled':
+          // Only ever the chain-read balance. null means the post-settlement read
+          // failed — the payment happened, the figure is unknown, and showing the
+          // last known number would present a stale value as current.
+          setBalance(event.balanceAfterMinor ?? null);
+          setBalanceError(event.balanceAfterMinor === null ? 'the post-settlement balance read failed' : null);
+          upsert(event.decisionId, {
+            state: 'settled',
+            ts,
+            txHash: event.txHash,
+            amountMinor: event.amountMinor,
+            expiresAtMs: undefined,
+          });
+          if (pairing) loadMandate(pairing.mandateId);
+          return;
+
+        case 'payment.held':
+          upsert(event.decisionId, {
+            state: 'held',
+            ts,
+            amountMinor: event.amountMinor,
+            expiresAtMs: event.expiresAtMs,
+            heldSinceMs: ts,
+          });
+          return;
+
+        case 'hold.released':
+          // The hold is gone; the row keeps whatever the decision was. A release
+          // is not itself an outcome, so it must not repaint the row green.
+          setRows((prev) =>
+            prev.map((r) =>
+              r.id === event.decisionId ? { ...r, expiresAtMs: undefined, heldSinceMs: undefined } : r,
+            ),
+          );
+          return;
+
+        case 'ceremony.aborted':
+          upsert(event.decisionId, {
+            state: 'refused',
+            ts,
+            note:
+              event.reason === 'revoked'
+                ? `Signing stopped at round ${event.atRound}. The signature was never completed.`
+                : `Signing timed out at round ${event.atRound}.`,
+          });
+          return;
+
+        default:
+          // task.started, agent.thought, quote.received, payment.requested,
+          // attack.attempt — the agent's working detail and Rogue Mode belong to
+          // the Playground. This feed is the owner's money, and nothing else.
+          return;
+      }
+    },
+    [upsert, loadMandate, pairing],
+  );
+
+  // SSE subscription. All console state comes from here — there is no polling.
   useEffect(() => {
     const evtSource = new EventSource(`${CORE_URL}/v1/events`);
-
-    evtSource.onmessage = (e) => {
-      const event: RekhaEvent = JSON.parse(e.data);
-      processEvent(event);
-    };
-
-    evtSource.onerror = () => {
-      setCoreUp(false);
-    };
-
+    evtSource.onmessage = (e) => processEvent(JSON.parse(e.data) as RekhaEvent);
+    evtSource.onerror = () => setCoreUp(false);
     return () => evtSource.close();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [processEvent]);
 
-  const processEvent = useCallback((event: RekhaEvent) => {
-    const ts = Date.now();
-
-    if (event.t === 'core.status') {
-      setCoreUp(event.up);
-      setImageDigest(event.imageDigest);
-      return;
-    }
-
-    if (event.t === 'lease.tick') {
-      setLeaseTtl(event.ttlMs);
-      return;
-    }
-
-    if (event.t === 'revocation') {
-      setFrozen(true);
-      addFeedItem({ id: `rev-${ts}`, type: 'revocation', text: `⛔ Mandate revoked by ${event.source}. All spending stopped. Epoch: ${event.epoch}`, ts, outcome: 'REFUSED' });
-      return;
-    }
-
-    if (event.t === 'payment.requested') {
-      addFeedItem({ id: `req-${event.lineItemId}`, type: 'requested', text: `→ Payment requested: ${event.lineItemId}`, ts, amountMinor: event.factSheet.amountMinor });
-    }
-
-    if (event.t === 'decision.made') {
-      const { trace } = event;
-      const outcomeIcon = trace.outcome === 'APPROVED' ? '✓' : trace.outcome === 'HELD' ? '⏸' : '✗';
-      addFeedItem({
-        id: `dec-${trace.decisionId}`,
-        type: 'decision',
-        text: `${outcomeIcon} ${trace.outcome}: ${trace.summary}`,
-        ts,
-        outcome: trace.outcome,
-        trace,
-        amountMinor: trace.amountMinor,
+  const handleCancelHold = async (decisionId: string) => {
+    try {
+      const res = await fetch(`${CORE_URL}/v1/hold/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decisionId }),
       });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
+      }
+      setRows((prev) =>
+        prev.map((r) => (r.id === decisionId ? { ...r, expiresAtMs: undefined, heldSinceMs: undefined } : r)),
+      );
+    } catch (e) {
+      // The row must not clear for a cancel that did not happen.
+      setCancelError(`Could not cancel ${decisionId}: ${(e as Error).message}`);
     }
-
-    if (event.t === 'payment.settled') {
-      // Only ever the chain-read balance. null means the post-settlement read
-      // failed — the payment happened, the figure is unknown, and showing the
-      // last known number would be presenting a stale value as current.
-      setBalance(event.balanceAfterMinor ?? null);
-      addFeedItem({ id: `set-${event.decisionId}`, type: 'settled', text: `✓ Settled — tx: ${event.txHash.slice(0, 10)}…`, ts, outcome: 'APPROVED', txHash: event.txHash });
-    }
-
-    if (event.t === 'payment.held') {
-      setHolds(h => [...h, { decisionId: event.decisionId, expiresAtMs: event.expiresAtMs, amountMinor: event.amountMinor }]);
-      addFeedItem({ id: `held-${event.decisionId}`, type: 'held', text: `⏸ Payment held — expires ${new Date(event.expiresAtMs).toLocaleTimeString()}`, ts, outcome: 'HELD', expiresAtMs: event.expiresAtMs });
-    }
-
-    if (event.t === 'hold.released') {
-      setHolds(h => h.filter(x => x.decisionId !== event.decisionId));
-    }
-
-    if (event.t === 'attack.attempt') {
-      addFeedItem({ id: `atk-${ts}`, type: 'attack', text: `${event.blocked ? '🛡 Blocked' : '⚠ Passed'}: ${event.technique} — ${event.revertReason}`, ts, outcome: event.blocked ? 'REFUSED' : 'APPROVED' });
-    }
-  }, []);
-
-  const addFeedItem = useCallback((item: FeedItem) => {
-    setFeed(prev => [item, ...prev].slice(0, 100));
-    setTimeout(() => {
-      feedRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-    }, 50);
-  }, []);
-
-  const handleSoftRevoke = async () => {
-    if (!mandateId) return alert('No mandate connected. Start the core server first.');
-    await fetch(`${CORE_URL}/v1/revoke`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mandateId, source: 'owner' }),
-    });
   };
 
-  const handleOnChainRevoke = () => {
+  /**
+   * REVOKE ALL goes straight from the owner's wallet to PolicyModule.revoke().
+   * It deliberately does NOT go through the core API: the whole claim is that
+   * the owner can stop spending with our servers switched off, and routing it
+   * through our server would quietly make that false.
+   */
+  const handleRevokeAll = () => {
+    if (!isConnected) return connect({ connector: injected() });
     writeContract({ address: POLICY_MODULE_ADDRESS, abi: revokeAbi, functionName: 'revoke' });
   };
 
-  const handleCancelHold = async (decisionId: string) => {
-    await fetch(`${CORE_URL}/v1/hold/cancel`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decisionId }),
-    });
-    setHolds(h => h.filter(x => x.decisionId !== decisionId));
-  };
+  const heldTotal = useMemo(
+    () =>
+      rows
+        .filter((r) => r.expiresAtMs !== undefined && r.expiresAtMs > now)
+        .reduce((sum, r) => sum + (r.amountMinor ?? 0), 0),
+    [rows, now],
+  );
 
-  const leasePercent = Math.max(0, Math.min(100, (leaseTtl / leaseTtlMax) * 100));
+  /** Falls back to the identifier itself — which is real — never to a guess. */
+  const displayName = (id?: string) => {
+    if (!id) return 'unknown counterparty';
+    return vendorNames[id] ?? vendorNames[id.toLowerCase()] ?? (id.startsWith('0x') ? shortHex(id, 8, 6) : id);
+  };
 
   // FIX3.md BUG 3: an unreachable core replaces the console rather than
   // decorating it. Every panel below reads from the core, so leaving them on
@@ -269,243 +534,221 @@ export default function ConsolePage() {
 
   return (
     <div className="console-layout">
-      {/* ── Top Bar ── */}
-      <header className="topbar">
-        <div className="topbar-left">
-          <div className={`core-dot ${coreUp ? 'up' : 'down'}`} title={coreUp ? 'Core online' : 'Core offline'} />
-          <span className="topbar-brand">Lakshman Rekha</span>
-          <AgentStatus pairing={pairing} error={pairError} leaseTtlMs={leaseTtl} />
-          {frozen && <span className="frozen-chip">FROZEN</span>}
-        </div>
-        <div className="topbar-center">
-          <div className="balance-block" title="RekhaAccount INRx balance on Base Sepolia">
-            <span className="balance-label">On-chain</span>
-            <span className="balance-amount">{balance === null ? 'unavailable' : fmtInr(balance)}</span>
+      {/* ── Top bar: the hero figure, the lease, the kill ── */}
+      <header className="con-topbar">
+        <div className="con-hero">
+          <Amount minor={balance} className="con-balance" />
+          <div className="con-hero-meta">
+            <span className="con-hero-label">available</span>
+            {balanceError && <span className="con-hero-err">balance unreadable — {balanceError}</span>}
+            {!balanceError && (
+              <>
+                <span className="con-hero-stat">
+                  held <span className="con-stat-lien">{formatInrMinor(heldTotal, true)}</span>
+                </span>
+                {mandate && (
+                  <span className="con-hero-stat" title="On-chain rolling 24-hour window. A core restart does not reset it.">
+                    spent{' '}
+                    <span className="con-stat-mono">{formatInrMinor(mandate.windowSpentMinor, true)}</span> of{' '}
+                    {formatInrMinor(mandate.windowCapMinor, true)} · 24h window
+                  </span>
+                )}
+              </>
+            )}
           </div>
         </div>
-        <div className="topbar-right">
-          <div className="lease-ring-wrap" title={`Lease TTL: ${leaseTtl}ms`}>
-            <svg width="36" height="36" viewBox="0 0 36 36">
-              <circle cx="18" cy="18" r="14" fill="none" stroke="var(--slate)" strokeWidth="3" />
-              <circle
-                cx="18" cy="18" r="14" fill="none"
-                stroke={leaseTtl < 1500 ? 'var(--breach)' : 'var(--clear)'}
-                strokeWidth="3"
-                strokeDasharray={`${2 * Math.PI * 14}`}
-                strokeDashoffset={`${2 * Math.PI * 14 * (1 - leasePercent / 100)}`}
-                strokeLinecap="round"
-                transform="rotate(-90 18 18)"
-                style={{ transition: 'stroke-dashoffset 0.5s linear, stroke 0.3s' }}
-              />
-            </svg>
-            <span className="lease-ttl-label">{(leaseTtl / 1000).toFixed(1)}s</span>
+
+        <div className="con-topbar-right">
+          <div className="con-lease" title={pairError ?? `Lease TTL ${leaseTtl}ms of ${leaseTtlMax}ms`}>
+            <TTLRing ttlMs={leaseTtl} maxMs={leaseTtlMax} size={36} />
+            <div className="con-lease-text">
+              <span className="con-lease-value">{(Math.max(0, leaseTtl) / 1000).toFixed(1)}s</span>
+              <span className="con-lease-label">lease</span>
+            </div>
           </div>
-          {isConnected ? (
-            <button className="btn-ghost-sm" onClick={() => disconnect()}>
-              {address?.slice(0, 6)}…{address?.slice(-4)} ✕
+
+          <div className={`con-status ${coreUp ? 'is-up' : 'is-down'}`}>
+            <span className="con-status-dot" />
+            <span>{coreUp ? 'core up' : 'core stopped'}</span>
+          </div>
+
+          {frozen && <span className="con-frozen">REVOKED</span>}
+
+          <div className="con-wallet">
+            {isConnected ? (
+              <button className="con-btn-ghost" onClick={() => disconnect()} title={address}>
+                {shortHex(address ?? '')} ✕
+              </button>
+            ) : null}
+            <button className="con-btn-revoke" onClick={handleRevokeAll} disabled={revokePending}>
+              {revokePending ? 'Revoking…' : isConnected ? 'REVOKE ALL' : 'Connect wallet to revoke'}
             </button>
-          ) : (
-            <button className="btn-ghost-sm" onClick={() => connect({ connector: injected() })}>
-              Connect Wallet
-            </button>
-          )}
+          </div>
         </div>
       </header>
 
-      {/* ── Main Layout ── */}
+      {revokeError && (
+        <div className="con-banner con-banner-err">Revoke was not sent — {revokeError.message}</div>
+      )}
+      {pairError && <div className="con-banner con-banner-err">Agent not paired — {pairError}</div>}
+      {cancelError && <div className="con-banner con-banner-err">{cancelError}</div>}
+
       <div className="console-body">
-        {/* Left: Feed */}
-        <div className="feed-panel">
+        {/* ── Left: transactions ── */}
+        <section className="feed-panel">
           <div className="panel-header">
-            <h2>Live Transaction Feed</h2>
-            <a href="/playground" className="btn-primary-sm">Playground →</a>
+            <h2>Transactions</h2>
+            <a href="/playground" className="con-link-page">Playground →</a>
           </div>
 
-          {/* Holds Inbox */}
-          {holdsError && (
-            <div className="control-msg-err">Could not load holds: {holdsError}</div>
-          )}
-          {holds.length > 0 && (
-            <div className="holds-section">
-              <h3 className="holds-title">Holds Inbox ({holds.length})</h3>
-              {holds.map(hold => (
-                <HoldCard key={hold.decisionId} hold={hold} onCancel={handleCancelHold} />
-              ))}
-            </div>
-          )}
-
-          <div className="feed-list" ref={feedRef}>
-            {feed.length === 0 ? (
+          <div className="feed-list">
+            {rows.length === 0 ? (
               <div className="feed-empty">No payments yet. Give your agent a task in the Playground.</div>
             ) : (
-              feed.map(item => (
-                <div
-                  key={item.id}
-                  className={`feed-item feed-${item.outcome?.toLowerCase() ?? 'info'} ${item.trace && selected?.decisionId === item.trace.decisionId ? 'selected' : ''}`}
-                  onClick={() => item.trace && setSelected(item.trace)}
-                  style={{ cursor: item.trace ? 'pointer' : 'default' }}
-                >
-                  <span className="feed-text">{item.text}</span>
-                  <div className="feed-meta">
-                    {item.amountMinor !== undefined && <span className="feed-amount">{fmtInr(item.amountMinor)}</span>}
-                    {item.txHash && (
-                      <a
-                        href={`https://sepolia.basescan.org/tx/${item.txHash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="feed-link"
-                        onClick={e => e.stopPropagation()}
-                      >
-                        Basescan ↗
-                      </a>
+              rows.map((row) => {
+                const holdLive = row.expiresAtMs !== undefined && row.expiresAtMs > now;
+                const isSelected = !!row.trace && selected?.decisionId === row.trace.decisionId;
+                return (
+                  <div
+                    key={row.id}
+                    className={`con-row con-row-${row.state} ${isSelected ? 'is-selected' : ''} ${row.trace ? 'is-clickable' : ''}`}
+                    onClick={() => row.trace && setSelected(row.trace)}
+                    role={row.trace ? 'button' : undefined}
+                    tabIndex={row.trace ? 0 : undefined}
+                    onKeyDown={(e) => {
+                      if (row.trace && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault();
+                        setSelected(row.trace);
+                      }
+                    }}
+                  >
+                    <div className="con-row-main">
+                      <Amount minor={row.amountMinor ?? null} compact className="con-row-amount" />
+                      <span className="con-row-party">
+                        {row.state === 'revocation' ? 'Mandate revoked' : displayName(row.counterpartyId)}
+                      </span>
+                      <span className="con-row-time">{timeAgo(row.ts, now)}</span>
+                    </div>
+
+                    <div className="con-row-meta">
+                      <span className={`con-row-state con-state-${row.state}`}>{STATE_LABEL[row.state]}</span>
+                      {row.note && <span className="con-row-note">{row.note}</span>}
+                      {row.latencyMs !== undefined && !row.note && <span>{row.latencyMs}ms</span>}
+                      {row.state === 'refused' && row.trace?.bindingPredicate && !row.note && (
+                        <span className="con-row-binding">{row.trace.bindingPredicate}</span>
+                      )}
+                      {row.txHash && (
+                        <a
+                          href={basescanTx(row.txHash)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="con-row-link"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {shortHex(row.txHash, 8, 4)} ↗
+                        </a>
+                      )}
+                    </div>
+
+                    {holdLive && (
+                      <div className="con-row-hold">
+                        <TTLRing
+                          ttlMs={row.expiresAtMs! - now}
+                          maxMs={Math.max(1, row.expiresAtMs! - (row.heldSinceMs ?? row.ts))}
+                          size={24}
+                        />
+                        <span className="con-hold-ttl">
+                          {Math.ceil((row.expiresAtMs! - now) / 1000)}s left
+                        </span>
+                        <button
+                          className="con-btn-cancel"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleCancelHold(row.id);
+                          }}
+                        >
+                          Cancel payment
+                        </button>
+                      </div>
                     )}
-                    <span className="feed-time">{timeAgo(item.ts)}</span>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
-        </div>
+        </section>
 
-        {/* Right: Decision Panel + Controls */}
+        {/* ── Right: the decision ── */}
         <aside className="side-panel">
-          {/* Revoke Controls */}
-          <div className="revoke-card">
-            <h3>Revoke Controls</h3>
-            <p className="revoke-desc">Instantly stop all agent spending. Irreversible.</p>
-            <button
-              className="btn-revoke"
-              onClick={handleSoftRevoke}
-              disabled={frozen}
-            >
-              {frozen ? 'Already Revoked' : '⛔ Revoke Mandate (Core)'}
-            </button>
-            <button
-              className="btn-revoke-onchain"
-              onClick={handleOnChainRevoke}
-              disabled={!isConnected || revokePending}
-            >
-              {revokePending ? 'Revoking on chain…' : '⛓ Revoke On-Chain (Wallet)'}
-            </button>
-            {!isConnected && (
-              <p className="revoke-note">Connect wallet to revoke on-chain (works even if core is down)</p>
-            )}
+          <div className="panel-header">
+            <h2>Decision</h2>
           </div>
 
-          {/* Decision Panel */}
-          <div className="decision-panel">
-            <h3>Decision Panel</h3>
+          <div className="con-decision">
             {!selected ? (
-              <p className="decision-empty">Click any decision in the feed to inspect the predicate trace.</p>
+              <p className="decision-empty">
+                Pick a payment on the left to see every rule it was checked against, and the one that decided it.
+              </p>
             ) : (
-              <DecisionPanel trace={selected} />
+              <PredicateTable trace={selected} />
             )}
           </div>
 
-          {/* Enforcement Stack */}
-          <div className="enforcement-card">
-            <h3>Enforcement Stack</h3>
-            <div className="enforcement-row">
-              <span className="enforcement-label">Core</span>
-              <span className={`enforcement-val ${coreUp ? 'ok' : 'err'}`}>{coreUp ? 'Online' : 'Offline'}</span>
+          <div className="con-enforcement">
+            <h3>Enforcement</h3>
+            <div className="con-kv">
+              <span>approval service</span>
+              <span className={coreUp ? 'con-ok' : 'con-bad'}>{coreUp ? 'issuing leases' : 'not issuing'}</span>
             </div>
-            <div className="enforcement-row">
-              <span className="enforcement-label">Image Digest</span>
-              <span className="enforcement-mono" title={imageDigest}>{imageDigest.slice(0, 20)}…</span>
+            <div className="con-kv">
+              <span>mandate</span>
+              <span className={frozen ? 'con-bad' : 'con-ok'}>{frozen ? 'revoked' : 'active'}</span>
             </div>
-            <div className="enforcement-row">
-              <span className="enforcement-label">PolicyModule</span>
-              <a
-                href={`https://sepolia.basescan.org/address/${POLICY_MODULE_ADDRESS}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="enforcement-link"
-              >
-                {POLICY_MODULE_ADDRESS.slice(0, 8)}… ↗
-              </a>
+            {mandate && (
+              <>
+                <div className="con-kv">
+                  <span>revocation epoch</span>
+                  <span className="con-mono">{mandate.revocationEpoch}</span>
+                </div>
+                <div className="con-kv">
+                  <span>per-payment cap</span>
+                  <span className="con-mono">{formatInrMinor(mandate.perTxCapMinor, true)}</span>
+                </div>
+              </>
+            )}
+            <div className="con-kv">
+              <span>core image</span>
+              <span className="con-mono" title={imageDigest ?? undefined}>
+                {imageDigest ? shortHex(imageDigest, 14, 6) : 'waiting for core.status…'}
+              </span>
             </div>
-            <div className="enforcement-row">
-              <span className="enforcement-label">Mandate</span>
-              <span className={`enforcement-val ${frozen ? 'err' : 'ok'}`}>{frozen ? 'FROZEN' : 'Active'}</span>
-            </div>
+            {pairing && (
+              <div className="con-kv">
+                <span>agent</span>
+                <span className="con-mono">{pairing.agentId}</span>
+              </div>
+            )}
           </div>
         </aside>
       </div>
-    </div>
-  );
-}
 
-// ── Hold Card ──────────────────────────────────
-function HoldCard({ hold, onCancel }: { hold: HoldItem; onCancel: (id: string) => void }) {
-  const [remaining, setRemaining] = useState(hold.expiresAtMs - Date.now());
-
-  useEffect(() => {
-    const t = setInterval(() => setRemaining(hold.expiresAtMs - Date.now()), 500);
-    return () => clearInterval(t);
-  }, [hold.expiresAtMs]);
-
-  const pct = Math.max(0, Math.min(100, (remaining / 90_000) * 100));
-
-  return (
-    <div className="hold-card">
-      <div className="hold-row">
-        <span className="hold-amount">{fmtInr(hold.amountMinor)}</span>
-        <span className="hold-id">{hold.decisionId}</span>
-        <button className="btn-cancel" onClick={() => onCancel(hold.decisionId)}>Cancel</button>
-      </div>
-      <div className="hold-ring-track">
-        <div className="hold-ring-fill" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="hold-ttl">{remaining > 0 ? `Expires in ${Math.ceil(remaining / 1000)}s` : 'Expired'}</span>
-    </div>
-  );
-}
-
-// ── Decision Panel ─────────────────────────────
-function DecisionPanel({ trace }: { trace: DecisionTrace }) {
-  const outcomeColor = trace.outcome === 'APPROVED' ? 'var(--clear)' : trace.outcome === 'HELD' ? 'var(--lien)' : 'var(--breach)';
-
-  return (
-    <div className="decision-inner">
-      <div className="decision-outcome" style={{ color: outcomeColor }}>
-        {trace.outcome}
-      </div>
-      <p className="decision-summary">{trace.summary}</p>
-      <div className="decision-meta">
-        <span>Latency: {trace.latencyMs}ms</span>
-        <span>{fmtInr(trace.amountMinor)}</span>
-      </div>
-      <table className="predicate-table">
-        <thead>
-          <tr>
-            <th>Predicate</th>
-            <th>Expected</th>
-            <th>Actual</th>
-            <th>Pass</th>
-          </tr>
-        </thead>
-        <tbody>
-          {trace.predicates.map(pred => (
-            <tr
-              key={pred.name}
-              className={pred.name === trace.bindingPredicate ? 'binding-row' : ''}
-            >
-              <td className="pred-name">{pred.name}</td>
-              <td className="pred-expected">{pred.expected}</td>
-              <td className={`pred-actual ${pred.passed ? 'pass' : 'fail'}`}>{pred.actual}</td>
-              <td>{pred.passed ? '✓' : '✗'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="decision-hash">
-        <span>Policy: </span>
-        <code className="mono-sm">{trace.policyHash.slice(0, 18)}…</code>
-      </div>
-      <div className="decision-hash">
-        <span>Image: </span>
-        <code className="mono-sm">{trace.coreImageDigest.slice(0, 18)}…</code>
-      </div>
+      {/* ── Bottom strip: the part a judge can check without trusting us ── */}
+      <footer className="con-strip">
+        {CONTRACTS.map((c) => (
+          <a
+            key={c.address}
+            href={basescanAddress(c.address)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="con-strip-item"
+            title={c.note}
+          >
+            <span className="con-strip-name">{c.name}</span>
+            <span className="con-strip-addr">{shortHex(c.address, 8, 4)}</span>
+          </a>
+        ))}
+        <span className="con-strip-tail">Base Sepolia · verified source ↗</span>
+      </footer>
     </div>
   );
 }

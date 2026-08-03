@@ -35,10 +35,37 @@
 | FROST Schnorr 2-of-3 | Currently ships as 2-of-2 ECDSA. FROST upgrade is behind a feature flag | FROST Schnorr library stability; the 2-of-2 path always works |
 | Nitro Enclave attestation | We use reproducible-build image digest registered on-chain | Nitro Enclave hardware was not available in our environment |
 | LLM adversary variants | LLM generator requires an API key; deterministic library always runs | API key may not be set in your environment |
-| Category allow-list on the live deployment | The deployed PolicyModule has `permittedCategories = 128` — bit 7, i.e. `OTHER` and nothing else. Every other category is refused by predicate 7, so the vendor storefront purchases (PACKAGING, LOGISTICS, …) do not settle against the current deployment | `contracts/script/Deploy.s.sol` reads `vm.envOr("PERMITTED_CATEGORIES", 1 << 7)` and the variable was not set at deploy time. One owner `setPolicy` call fixes it; we did not make that call, because widening a live enforcement parameter is the owner's decision, not a bugfix |
+| Category allow-list on the live deployment | `SOFTWARE` is the one category the deployed PolicyModule does not permit, so a `SOFTWARE` line item is refused by predicate 7. Every other category settles | Deliberate, and it matches the core's pinned fallback in `apps/core/src/api/store.ts`. It is the live `CategoryNotPermitted` demo case, not a gap |
 | Gas payer | Settlement transactions are broadcast and paid for by `DEPLOYER_PRIVATE_KEY`, not by the core signer | The deployed core signer `0xB18D…` holds 0 ETH on Base Sepolia. `execute` is authorized by the two signatures inside the request, never by `msg.sender`, so the broadcaster only has to be funded — but this does mean the demo spends the deployer's testnet ETH |
 
 ---
+
+## Correction: the category allow-list was never 128
+
+An earlier version of this file stated that the deployed PolicyModule holds
+`permittedCategories = 128` — `OTHER` and nothing else — and that no vendor
+storefront purchase could settle. **That was wrong**, and it was wrong in the
+direction that understates the build.
+
+The claim was inferred from the *default* in `contracts/script/Deploy.s.sol:48`,
+`vm.envOr("PERMITTED_CATEGORIES", uint256(1) << 7)`, rather than read from the
+chain. The variable was in fact set at deploy time. Live state, measured
+2026-08-04 with `apps/core/scripts/chain-state.mjs`:
+
+```
+permittedCategories   223   = 0b11011111
+```
+
+Bits 0,1,2,3,4,6,7 set: `PACKAGING`, `ADVERTISING`, `CONTENT`, `COMPUTE`,
+`LOGISTICS`, `UTILITIES`, `OTHER` all permitted. Bit 5, `SOFTWARE`, is not —
+matching the pinned fallback in `apps/core/src/api/store.ts` exactly.
+
+No owner transaction was made to reach this state and none was needed. The
+contracts are exactly as deployed and verified.
+
+The general lesson, recorded because it applies to every claim in this file:
+**read the chain, not the deploy script.** `chain-state.mjs` is read-only and
+takes two seconds.
 
 ## The fail-closed window is 15 seconds, not 5
 

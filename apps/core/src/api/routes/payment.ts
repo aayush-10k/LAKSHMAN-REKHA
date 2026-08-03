@@ -42,6 +42,9 @@ import {
 /** 65-byte ECDSA signature, as the agent must supply it. */
 const SIGNATURE_RE = /^0x[0-9a-fA-F]{130}$/;
 
+/** Same default and same env var as task.ts and the agent runner. */
+const VENDORSIM_URL = process.env['VENDORSIM_URL'] ?? 'http://localhost:4100';
+
 /**
  * B's stored lease record -> A's Lease.
  *
@@ -82,7 +85,13 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
     // registry, never from the caller. An unreachable registry means zeroes,
     // which the soft predicates treat as unproven.
     try {
-      const catalogRes = await fetch('http://localhost:4100/catalog');
+      // VENDORSIM_URL, not a hardcoded localhost. This was the only service URL
+      // in the repo that was not env-overridable, and it is the one that
+      // enforces the Registry Rule. On the hosted shape the core and vendorsim
+      // are separate services, so this fetch would always fail, the catch below
+      // would zero the two fields, and the rule that stops the agent lying
+      // about counterparty age would silently do nothing on the deployed stack.
+      const catalogRes = await fetch(`${VENDORSIM_URL}/catalog`);
       if (catalogRes.ok) {
         const vendors = (await catalogRes.json()) as any[];
         const vendor = vendors.find((v: any) => v.address.toLowerCase() === fs.counterpartyId.toLowerCase());

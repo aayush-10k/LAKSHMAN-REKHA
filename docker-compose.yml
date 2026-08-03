@@ -3,17 +3,16 @@
 #
 # Service map:
 #   vendorsim  :4100  — vendor catalogue, storefront, counterfeit spawner
-#   core       :4000  — policy evaluator, lease issuer, HTTP API, SSE bus
-#   shopper    :4200  — LangGraph agent (all 6 behaviour modes)
-#   adversary  :4300  — deterministic attack library + LLM generator
-#   web        :3000  — Next.js frontend (Person C)
+#   core       :4000  — policy evaluator, lease issuer, HTTP API, SSE bus,
+#                       and the adversary runner on loopback :4300
+#   agent      :4200  — the other half of the 2-of-2; serves POST /dispatch
+#
+# The web frontend is not in this stack — it deploys to Vercel. See DEPLOY.md.
 #
 # Egress restrictions:
 #   vendorsim  — no external network (pure in-memory catalogue)
 #   core       — Base Sepolia RPC only (for on-chain calls)
-#   shopper    — core + vendorsim only (no direct internet)
-#   adversary  — core only + OpenAI API (for LLM generator)
-#   web        — public internet (for wallet RPC, CDN fonts)
+#   agent      — core + vendorsim only (no direct internet)
 #
 # Screenshot this and put it on the architecture slide.
 
@@ -68,8 +67,9 @@ services:
       # the reasoning in .env.example.
       - LEASE_TTL_MS=${LEASE_TTL_MS:-15000}
       - CEREMONY_ROUND_MS=${CEREMONY_ROUND_MS:-1200}
-      # Rogue Mode proxies to the adversary service (FIX3.md BUG 5).
-      - ADVERSARY_URL=http://adversary:4300
+      # Rogue Mode proxies to the adversary (FIX3.md BUG 5), which now runs
+      # inside this container on loopback rather than as its own service.
+      - ADVERSARY_URL=http://127.0.0.1:4300
       - DATABASE_URL=${DATABASE_URL:-}
       - CORE_SIGNER_PRIVATE_KEY=${CORE_SIGNER_PRIVATE_KEY:-}
       - BASE_SEPOLIA_RPC=${BASE_SEPOLIA_RPC:-https://sepolia.base.org}
@@ -87,76 +87,60 @@ services:
       timeout: 5s
       retries: 3
 
-  # ── Shopper Agent ───────────────────────────────────────────
-  shopper:
+  # ── Agent runner (the other half of the 2-of-2) ─────────────
+  #
+  # This is the TypeScript runner at apps/core/src/agent/runner.ts, which serves
+  # POST /dispatch — the endpoint apps/web actually calls.
+  #
+  # It replaces the former `shopper` service. That one built the PYTHON agent
+  # (apps/agents/shopper), which serves POST /agent/run, not /dispatch. So the
+  # compose stack published a :4200 that the frontend's Dispatch button could
+  # never talk to. One agent, deployed everywhere; two half-wired agents is a
+  # question you do not want on stage.
+  agent:
     build:
       context: .
-      dockerfile: apps/agents/shopper/Dockerfile
-    container_name: rekha-shopper
+      dockerfile: apps/core/Dockerfile.agent
+    container_name: rekha-agent
     ports:
       - "4200:4200"
     networks:
       - rekha-internal   # core + vendorsim only — no internet egress
     environment:
-      - SHOPPER_PORT=4200
+      - AGENT_PORT=4200
       - CORE_URL=http://core:4000
-      - VENDOR_URL=http://vendorsim:4100
-      - LEASE_RENEW_INTERVAL_MS=4000
+      - VENDORSIM_URL=http://vendorsim:4100
+      # Must be byte-identical to the core's, or the two sides build different
+      # PaymentRequest structs and the chain rejects InvalidAgentSignature.
+      - CORE_IMAGE_DIGEST=${CORE_IMAGE_DIGEST:-0x0100000000000000000000000000000000000000000000000000000000000000}
+      # This service holds ONE key share and must never be given the core's.
+      # Separate hosts with separate secrets is what makes the 2-of-2 claim about
+      # deployment and not only about code paths. See LIMITATIONS.md.
+      - AGENT_SIGNER_PRIVATE_KEY=${AGENT_SIGNER_PRIVATE_KEY:-}
     depends_on:
       core:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4200/health', timeout=3)"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:4200/health"]
       interval: 15s
       timeout: 5s
       retries: 3
 
   # ── Adversary ───────────────────────────────────────────────
-  adversary:
-    build:
-      context: .
-      dockerfile: apps/agents/adversary/Dockerfile
-    container_name: rekha-adversary
-    ports:
-      - "4300:4300"
-    networks:
-      - rekha-internal
-      - rekha-external   # needs OpenAI API for LLM generator
-    environment:
-      - ADVERSARY_PORT=4300
-      - CORE_URL=http://core:4000
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - ADVERSARY_MAX_ATTEMPTS=200
-    depends_on:
-      core:
-        condition: service_healthy
-    restart: unless-stopped
+  #
+  # No longer a service. It is pure-stdlib Python and only the CORE ever calls it
+  # (POST /v1/adversary/run proxies to it server-side), so it now runs inside the
+  # core container on loopback — see apps/core/Dockerfile and
+  # apps/core/docker-entrypoint.sh. One less service to start, and it can never
+  # be reached from outside.
 
-  # ── Web Frontend (Person C) ─────────────────────────────────
-  web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-    container_name: rekha-web
-    ports:
-      - "3000:3000"
-    networks:
-      - rekha-internal
-      - rekha-external   # needs public internet for wallet RPC, fonts
-    environment:
-      # NEXT_PUBLIC_* are resolved by the JUDGE'S BROWSER, not by this container,
-      # so they must NOT be compose service names: http://core:4000 does not
-      # exist outside the docker network, and the console would silently reach
-      # nothing (FIX3.md BUG 3). Published ports are the correct default;
-      # override with public URLs when the stack is hosted.
-      - NEXT_PUBLIC_CORE_URL=${NEXT_PUBLIC_CORE_URL:-http://localhost:4000}
-      - NEXT_PUBLIC_AGENT_URL=${NEXT_PUBLIC_AGENT_URL:-http://localhost:4200}
-      - NEXT_PUBLIC_VENDORSIM_URL=${NEXT_PUBLIC_VENDORSIM_URL:-http://localhost:4100}
-      - NEXT_PUBLIC_BASE_SEPOLIA_RPC=${BASE_SEPOLIA_RPC:-https://sepolia.base.org}
-      - DATABASE_URL=${DATABASE_URL:-}
-    depends_on:
-      core:
-        condition: service_healthy
-    restart: unless-stopped
+  # ── Web frontend ────────────────────────────────────────────
+  #
+  # Not a service here. This compose file used to build `apps/web/Dockerfile`,
+  # which does not exist — so `docker compose up` failed on this stack.
+  #
+  # The frontend is deployed to Vercel (see DEPLOY.md); for local work run
+  # `pnpm dev:web` and point NEXT_PUBLIC_* at the published ports above.
+  # NEXT_PUBLIC_* are resolved by the BROWSER, so they must never be compose
+  # service names: http://core:4000 does not exist outside this network.

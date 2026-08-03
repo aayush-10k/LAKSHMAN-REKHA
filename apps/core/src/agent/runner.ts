@@ -48,7 +48,14 @@ import { buildPaymentRequest, hashRequest } from '../signing/request.js';
 import type { Lease } from '../lease/types.js';
 import type { CategoryCode, DecisionTrace, PolicyFactSheet, PolicyState } from '../types.js';
 
-const PORT = Number(process.env['AGENT_PORT'] ?? 4200);
+/**
+ * AGENT_PORT stays authoritative so local dev and docker-compose are unchanged.
+ * PORT is the fallback because that is the variable hosting platforms inject and
+ * route to; without it this service would listen on 4200 while the platform sent
+ * traffic somewhere else, and every Dispatch would time out with nothing in the
+ * logs to explain why. The core (api/index.ts:33) and vendorsim already read PORT.
+ */
+const PORT = Number(process.env['AGENT_PORT'] ?? process.env['PORT'] ?? 4200);
 const CORE_URL = process.env['CORE_URL'] ?? 'http://localhost:4000';
 const VENDORSIM_URL = process.env['VENDORSIM_URL'] ?? 'http://localhost:4100';
 
@@ -68,9 +75,16 @@ type LineItem = {
   lineItemId: string;
   vendorId: string;
   categoryCode: CategoryCode;
+  /** The planner's estimate. NOT what gets paid — the page price is. */
   estimatedAmountMinor: number;
   description: string;
+  /** What to look for on the vendor's page. */
+  sku: string;
+  productName: string;
+  quantity: number;
 };
+
+import { extractFromPage } from './extract.js';
 
 /** A dispatch that ended before settlement, and the reason, in the caller's words. */
 class DispatchError extends Error {
@@ -169,16 +183,64 @@ export type LineItemResult = {
   refusedOnChain: string | null;
 };
 
+/**
+ * Open the vendor's storefront and read the price off it.
+ *
+ * The agent browses the same HTML page a person would, which is what makes the
+ * injected and counterfeit demos real: text added to that page reaches the
+ * agent, and a lookalike store quotes its own (cheaper) price. What comes back
+ * is one integer — see extract.ts for why that is the whole security claim.
+ *
+ * An unreadable page is fatal to the line item. There is no "use the estimate
+ * instead" path, because a price nobody quoted is a price we invented.
+ */
+async function browseAndPrice(taskId: string, item: LineItem, vendor: Vendor) {
+  const url = `${VENDORSIM_URL}/vendor/${vendor.id}`;
+  await say(taskId, `Opening ${url} to read the current price.`);
+
+  let html: string;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    html = await res.text();
+  } catch (e) {
+    throw new DispatchError(503, 'PAGE_UNREACHABLE',
+      `Could not open ${vendor.id}'s storefront, so no price could be read: ${(e as Error).message}`);
+  }
+
+  const facts = await extractFromPage({ html, sku: item.sku, productName: item.productName });
+  if (facts === null) {
+    throw new DispatchError(422, 'PRICE_NOT_FOUND',
+      `Read ${vendor.id}'s storefront but could not find a price for ${item.sku}. Nothing was requested.`);
+  }
+
+  if (facts.injectionSuspected !== null) {
+    // Said out loud, and then ignored. The agent has no special defence and is
+    // not meant to — the FactSheet is what makes the instruction unreachable.
+    await say(taskId, `The page carries instruction-like text: "${facts.injectionSuspected.slice(0, 160)}…"`);
+  }
+
+  const unit = facts.amountMinor;
+  const amountMinor = unit * Math.max(1, item.quantity ?? 1);
+  await say(
+    taskId,
+    `Read ₹${(unit / 100).toLocaleString('en-IN')} per unit off the page (${facts.source === 'model' ? 'model' : 'page parser'}) ` +
+    `× ${item.quantity ?? 1} = ₹${(amountMinor / 100).toLocaleString('en-IN')}.`,
+  );
+
+  return { amountMinor, facts };
+}
+
 async function runLineItem(taskId: string, item: LineItem, agentId: string): Promise<LineItemResult> {
   const vendor = await lookupVendor(item.vendorId);
-  const amountMinor = item.estimatedAmountMinor;
+  const { amountMinor, facts } = await browseAndPrice(taskId, item, vendor);
 
   await postCore('/v1/agent/event', {
     t: 'quote.received',
     lineItemId: item.lineItemId,
     vendorId: vendor.id,
     amountMinor,
-  }).catch(() => {});
+  }).catch((e: Error) => console.warn(`[agent] quote.received not emitted: ${e.message}`));
   await say(taskId, `Quote from ${vendor.id}: ₹${(amountMinor / 100).toLocaleString('en-IN')} (tier ${vendor.tier}, ${vendor.ageDays}d old, ${vendor.settledTxns} settled).`);
 
   // --- lease -------------------------------------------------------------
@@ -345,6 +407,15 @@ app.post<{ Body: { description: string; mode: BehaviourMode; agentId?: string } 
       }
       const taskId = created.json.taskId as string;
       const plan = created.json.plan as LineItem[];
+
+      // Nothing in the registry matched, or the registry was unreachable. That
+      // is a real answer and it must not come back looking like a completed
+      // dispatch with an empty results array — the caller would render success.
+      if (plan.length === 0) {
+        const note = (created.json.note as string | null) ?? 'Nothing could be priced, so no payment was requested.';
+        await say(taskId, note);
+        return reply.code(200).send({ taskId, agentId, repaired, mode, plan: [], results: [], note });
+      }
 
       await say(taskId, `Planning "${description}" — ${plan.length} line item(s), mode=${mode}.`);
 

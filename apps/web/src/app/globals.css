@@ -3,22 +3,41 @@
    BUILD.md Part 11: Six semantic colours, Geist fonts, restraint.
    ═══════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700&display=swap');
+/* Bricolage Grotesque is loaded by next/font in app/layout.tsx, not by an
+   @import here. A CSS @import is a render-blocking request to fonts.googleapis
+   .com on the critical path; next/font self-hosts it and makes no runtime
+   request at all. */
 
 /* ── Tokens ─────────────────────────────────────────────── */
 :root {
-  --ink:    #0B0D14;
-  --slate:  #161A26;
+  /* The six semantic values. There is no seventh.
+     ------------------------------------------------------------------
+     --lien, --clear and --breach carry MEANING and nothing else may use
+     them: amber = money is held, green = money moved, red = something was
+     stopped. If one of them appears where it does not mean its state,
+     delete it. This is the rule that separates this interface from every
+     other dark dashboard a judge sees that day. */
+  --ink:    #0B0D14;   /* base */
+  --slate:  #161A26;   /* raised surfaces */
+  --chalk:  #EDEAE3;   /* the line, primary text — warm, never pure white */
+  --lien:   #F0A202;   /* HELD only */
+  --clear:  #3DD68C;   /* SETTLED only */
+  --breach: #FF4D4D;   /* REFUSED / REVOKED only */
+
+  /* Neutrals derived from the base. These carry no meaning — they are
+     surface, hairline and secondary text. They are not a palette. */
   --card:   #1C2133;
   --border: #252D42;
-  --chalk:  #EDEAE3;
   --muted:  #8892A4;
-  --lien:   #F0A202;
-  --clear:  #3DD68C;
-  --breach: #FF4D4D;
-  --accent: #5B8DEF;
 
-  --font-display: 'Bricolage Grotesque', var(--font-geist-sans), sans-serif;
+  /* There used to be a seventh token here, and it was a blue: the exact
+     generic-dark-SaaS tell BUILD.md Part 11 warns against. It was used for
+     links, focus rings, the primary button and — worst — completed signing
+     ceremony rounds, which read as a fourth state alongside held/settled/
+     refused. Every use is now either --chalk (a neutral affordance) or the
+     state colour that was actually meant. Do not reintroduce it. */
+
+  --font-display: var(--font-bricolage), var(--font-geist-sans), sans-serif;
   --font-body:    var(--font-geist-sans), system-ui, sans-serif;
   --font-mono:    var(--font-geist-mono), 'Geist Mono', monospace;
 
@@ -124,7 +143,7 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 .agent-chip-id {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--accent);
+  color: var(--muted);   /* an agent id is metadata, not a state */
   font-variant-numeric: tabular-nums;
 }
 .agent-chip-sep { color: var(--border); }
@@ -196,13 +215,15 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   font-size: 12px;
   transition: border-color 0.2s;
 }
-.btn-ghost-sm:hover { border-color: var(--accent); }
+.btn-ghost-sm:hover { border-color: var(--chalk); }
 
+/* Inverted rather than coloured. On an interface where colour means a money
+   state, the primary action earns emphasis from contrast, not from hue. */
 .btn-primary-sm {
   padding: 5px 12px;
   border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: #fff;
+  background: var(--chalk);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 600;
   transition: opacity 0.2s;
@@ -224,18 +245,23 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 .btn-revoke:hover:not(:disabled) { background: rgba(255,77,77,0.2); }
 .btn-revoke:disabled { opacity: 0.4; cursor: default; }
 
+/* Solid, where the core revoke above is outlined. Both are revokes so both are
+   --breach; this one is emphatic because it is the stronger claim — it goes
+   from the owner's wallet straight to PolicyModule.revoke() and works with our
+   server switched off. That independence is a scored criterion, so the button
+   that has it should not look like the weaker one. */
 .btn-revoke-onchain {
   width: 100%;
   padding: 10px 16px;
   border-radius: var(--radius-sm);
-  background: rgba(91,141,239,0.1);
-  border: 1px solid var(--accent);
-  color: var(--accent);
+  background: var(--breach);
+  border: 1px solid var(--breach);
+  color: var(--ink);
   font-weight: 600;
   font-size: 13px;
-  transition: background 0.2s;
+  transition: opacity 0.2s;
 }
-.btn-revoke-onchain:hover:not(:disabled) { background: rgba(91,141,239,0.2); }
+.btn-revoke-onchain:hover:not(:disabled) { opacity: 0.85; }
 .btn-revoke-onchain:disabled { opacity: 0.4; cursor: default; }
 
 .btn-cancel {
@@ -253,8 +279,8 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 .btn-dispatch {
   padding: 10px 18px;
   border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: #fff;
+  background: var(--chalk);
+  color: var(--ink);
   font-weight: 600;
   font-size: 13px;
   white-space: nowrap;
@@ -304,7 +330,18 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 .btn-judge-danger:hover:not(:disabled) { background: rgba(255,77,77,0.15); }
 .btn-judge-danger:disabled { opacity: 0.4; cursor: default; }
 
-/* ── Console Layout ─────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   CONSOLE — the owner's control room (FINALE.md Part 2)
+   ═══════════════════════════════════════════════════════════
+   Full width, never a phone frame: this is presented on a projector, and a
+   phone mockup throws away two thirds of the screen.
+
+   Every colour below is one of the six, and the three that carry meaning
+   (--lien held, --clear settled, --breach stopped) appear ONLY on the state
+   they name. Selection, focus and the primary action use --chalk, because on
+   an interface where colour means a money state, emphasis has to come from
+   contrast rather than hue. */
+
 .console-layout {
   display: flex;
   flex-direction: column;
@@ -314,13 +351,121 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 
 .console-body {
   display: grid;
-  grid-template-columns: 1fr 360px;
+  /* 60/40 per the spec, with a floor so the decision panel never gets crushed
+     by a long predicate row. */
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 40%);
   flex: 1;
   overflow: hidden;
-  gap: 0;
 }
 
-/* ── Feed Panel ─────────────────────────────────────────── */
+/* ── Top bar ────────────────────────────────────────────── */
+.con-topbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 28px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.con-hero { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+/* The hero figure. Bricolage, tabular, and the only display-face number on the
+   page. Specificity is .amount.con-balance deliberately: <Amount> sets the mono
+   face for every other figure and this is the one documented exception. */
+.amount.con-balance {
+  font-family: var(--font-display);
+  font-size: clamp(40px, 6vw, 72px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  text-align: left;
+  color: var(--chalk);
+}
+
+.con-hero-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.con-hero-label {
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: 11px;
+}
+.con-hero-stat { font-size: 12px; }
+.con-stat-lien { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--lien); }
+.con-stat-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--chalk); }
+.con-hero-err { color: var(--breach); font-size: 12px; }
+
+.con-topbar-right { display: flex; align-items: center; gap: 22px; flex-shrink: 0; }
+
+.con-lease { display: flex; align-items: center; gap: 9px; }
+.con-lease-text { display: flex; flex-direction: column; line-height: 1.1; }
+.con-lease-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+.con-lease-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+.con-status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
+.con-status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.con-status.is-up .con-status-dot { background: var(--chalk); }
+/* A stopped core is money stopped, which is exactly what --breach means. */
+.con-status.is-down { color: var(--breach); }
+.con-status.is-down .con-status-dot { background: var(--breach); }
+
+.con-frozen {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--breach);
+  border: 1px solid var(--breach);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.con-wallet { display: flex; align-items: center; gap: 10px; }
+
+.con-btn-ghost {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+}
+.con-btn-ghost:hover { border-color: var(--chalk); color: var(--chalk); }
+
+/* Solid --breach. This is the owner's wallet calling PolicyModule.revoke()
+   directly — it works with our servers switched off, so it is the strongest
+   control on the page and must not look like a secondary one. */
+.con-btn-revoke {
+  background: var(--breach);
+  color: var(--ink);
+  font-weight: 650;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  padding: 11px 18px;
+  border-radius: var(--radius-sm);
+}
+.con-btn-revoke:disabled { opacity: 0.45; cursor: default; }
+
+.con-banner {
+  padding: 9px 28px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.con-banner-err { color: var(--breach); background: rgba(255, 77, 77, 0.06); }
+
+/* ── Feed ───────────────────────────────────────────────── */
 .feed-panel {
   display: flex;
   flex-direction: column;
@@ -332,99 +477,190 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
+  padding: 13px 24px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 .panel-header h2 {
   font-family: var(--font-display);
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
 }
 .panel-header h3 { font-size: 13px; font-weight: 600; color: var(--muted); }
 
-.feed-list {
-  flex: 1;
-  overflow-y: auto;
-  scroll-behavior: smooth;
-}
+.con-link-page { font-size: 12px; color: var(--muted); }
+.con-link-page:hover { color: var(--chalk); }
+
+.feed-list { flex: 1; overflow-y: auto; }
 
 .feed-empty {
-  padding: 40px 20px;
-  text-align: center;
+  padding: 48px 24px;
   color: var(--muted);
   font-size: 13px;
+  max-width: 34ch;
 }
 
-.feed-item {
+.con-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 12px 20px;
+  gap: 5px;
+  padding: 14px 24px 14px 21px;
   border-bottom: 1px solid var(--border);
-  transition: background 0.15s;
+  border-left: 4px solid transparent;
 }
-.feed-item:hover { background: var(--card); }
-.feed-item.selected { background: var(--card); border-left: 3px solid var(--accent); }
+.con-row.is-clickable { cursor: pointer; }
+.con-row.is-clickable:hover { background: var(--card); }
+.con-row:focus-visible { outline: 1px solid var(--chalk); outline-offset: -1px; }
 
-.feed-item.feed-approved { border-left: 3px solid var(--clear); }
-.feed-item.feed-held     { border-left: 3px solid var(--lien); }
-.feed-item.feed-refused  { border-left: 3px solid var(--breach); }
-.feed-item.feed-revocation { border-left: 3px solid var(--breach); background: rgba(255,77,77,0.05); }
+/* The 4px left border IS the state. Nothing else in the row is coloured. */
+.con-row-settled    { border-left-color: var(--clear); }
+.con-row-approved   { border-left-color: var(--clear); }
+.con-row-held       { border-left-color: var(--lien); }
+.con-row-refused    { border-left-color: var(--breach); }
+.con-row-revocation { border-left-color: var(--breach); background: rgba(255, 77, 77, 0.05); }
 
-.feed-text { font-size: 13px; }
-.feed-meta { display: flex; gap: 12px; align-items: center; }
-.feed-amount { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.feed-link   { font-size: 11px; color: var(--accent); }
-.feed-link:hover { text-decoration: underline; }
-.feed-time   { font-size: 11px; color: var(--muted); margin-left: auto; }
+/* Selection is not a money state, so it must not borrow one of the three state
+   colours. Chalk reads as "you are looking at this" without claiming an outcome. */
+.con-row.is-selected { background: var(--card); }
 
-/* ── Holds ──────────────────────────────────────────────── */
-.holds-section {
-  padding: 12px 20px;
-  background: rgba(240,162,2,0.05);
-  border-bottom: 1px solid rgba(240,162,2,0.2);
-  flex-shrink: 0;
+.con-row-main { display: flex; align-items: baseline; gap: 14px; }
+.amount.con-row-amount {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--chalk);
+  min-width: 9ch;
+  text-align: right;
 }
-.holds-title { font-size: 12px; color: var(--lien); font-weight: 600; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-.hold-card   { background: var(--card); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 8px; border: 1px solid rgba(240,162,2,0.2); }
-.hold-row    { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.hold-amount { font-family: var(--font-mono); font-weight: 600; color: var(--lien); font-variant-numeric: tabular-nums; }
-.hold-id     { font-size: 11px; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; }
-.hold-ring-track { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
-.hold-ring-fill  { height: 100%; background: var(--lien); border-radius: 2px; transition: width 0.5s linear; }
-.hold-ttl    { font-size: 11px; color: var(--muted); display: block; margin-top: 4px; }
+.con-row-party {
+  font-size: 13px;
+  color: var(--chalk);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.con-row-time { margin-left: auto; font-size: 11px; color: var(--muted); flex-shrink: 0; }
 
-/* ── Side Panel ─────────────────────────────────────────── */
+.con-row-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-left: calc(9ch + 14px);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.con-row-state { text-transform: lowercase; }
+.con-state-settled    { color: var(--clear); }
+.con-state-approved   { color: var(--clear); }
+.con-state-held       { color: var(--lien); }
+.con-state-refused    { color: var(--breach); }
+.con-state-revocation { color: var(--breach); }
+.con-row-binding { color: var(--breach); }
+.con-row-note { font-family: var(--font-body); color: var(--muted); }
+.con-row-link { color: var(--muted); text-decoration: underline; }
+.con-row-link:hover { color: var(--chalk); }
+
+/* Held rows carry the countdown and the cancel inline. No modal: the owner is
+   stopping their own payment, and a dialog asking them to confirm that adds a
+   step to the one action that is meant to be immediate. */
+.con-row-hold {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  padding-left: calc(9ch + 14px);
+}
+.con-hold-ttl {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--lien);
+}
+.con-btn-cancel {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--chalk);
+  font-size: 11px;
+  padding: 5px 11px;
+  border-radius: var(--radius-sm);
+}
+.con-btn-cancel:hover { border-color: var(--chalk); }
+
+/* ── Side panel ─────────────────────────────────────────── */
 .side-panel {
   display: flex;
   flex-direction: column;
-  gap: 0;
   overflow-y: auto;
 }
 
-.revoke-card,
-.decision-panel,
-.enforcement-card {
-  padding: 16px 20px;
+.con-decision { padding: 18px 22px; border-bottom: 1px solid var(--border); }
+
+.decision-empty {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  max-width: 38ch;
+}
+
+.con-enforcement { padding: 16px 22px; }
+.con-enforcement h3 {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.con-kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--muted);
   border-bottom: 1px solid var(--border);
+}
+.con-kv > span:last-child { text-align: right; overflow: hidden; text-overflow: ellipsis; }
+.con-ok  { color: var(--chalk); }
+.con-bad { color: var(--breach); }
+.con-mono { font-family: var(--font-mono); font-size: 11px; color: var(--chalk); }
+
+/* ── Bottom strip ───────────────────────────────────────── */
+/* Always visible. This is the only part of the interface a judge can verify
+   without trusting anything we are running, so it never scrolls away. */
+.con-strip {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  flex-wrap: wrap;
+  padding: 11px 28px;
+  border-top: 1px solid var(--border);
+  background: var(--slate);
   flex-shrink: 0;
 }
-
-.revoke-card h3,
-.decision-panel h3,
-.enforcement-card h3 {
-  font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 8px;
-  color: var(--chalk);
+.con-strip-item { display: flex; align-items: baseline; gap: 8px; }
+.con-strip-item:hover .con-strip-addr { color: var(--chalk); }
+.con-strip-name { font-size: 11px; color: var(--muted); }
+.con-strip-addr {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-decoration: underline;
 }
+.con-strip-tail { margin-left: auto; font-size: 11px; color: var(--muted); }
 
-.revoke-desc { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
-.revoke-note { font-size: 11px; color: var(--muted); margin-top: 8px; }
-
-.decision-empty { font-size: 12px; color: var(--muted); font-style: italic; }
+@media (max-width: 1100px) {
+  .console-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr auto; }
+  .side-panel { border-top: 1px solid var(--border); }
+  .con-topbar { flex-direction: column; align-items: flex-start; gap: 16px; }
+}
 
 /* ── Decision Trace Panel ────────────────────────────────── */
 .decision-inner { display: flex; flex-direction: column; gap: 8px; }
@@ -436,7 +672,20 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 .decision-summary { font-size: 12px; color: var(--muted); line-height: 1.4; }
 .decision-meta    { display: flex; gap: 12px; font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
 
-.predicate-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 4px; }
+/* table-layout: fixed so one long value can never widen the table past its
+   panel. Without it the coreImage digests pushed Actual and Pass off screen. */
+.predicate-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.predicate-table col.col-pred     { width: 44%; }
+.predicate-table col.col-expected { width: 24%; }
+.predicate-table col.col-actual   { width: 24%; }
+.predicate-table col.col-pass     { width: 8%; }
+.predicate-table td { overflow-wrap: anywhere; }
 .predicate-table th {
   text-align: left;
   padding: 4px 6px;
@@ -454,21 +703,17 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 .decision-hash { font-size: 11px; color: var(--muted); display: flex; gap: 4px; align-items: center; }
 .mono-sm { font-family: var(--font-mono); font-size: 10px; }
 
-/* ── Enforcement Stack ─────────────────────────────────── */
-.enforcement-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 5px 0;
-  font-size: 12px;
-  border-bottom: 1px solid var(--border);
+/* The values the predicate was evaluated on, under its name. A rule that failed
+   without showing what it was looking at answers half the question. */
+.pred-inputs { display: block; margin-top: 2px; }
+.pred-input {
+  display: inline-block;
+  margin-right: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
 }
-.enforcement-label { color: var(--muted); }
-.enforcement-val.ok  { color: var(--clear); font-weight: 600; }
-.enforcement-val.err { color: var(--breach); font-weight: 600; }
-.enforcement-mono { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
-.enforcement-link { font-size: 11px; color: var(--accent); }
-.enforcement-link:hover { text-decoration: underline; }
+.pred-input-val { color: var(--chalk); font-variant-numeric: tabular-nums; }
 
 /* ── Playground Layout ─────────────────────────────────── */
 .playground-layout {
@@ -508,7 +753,7 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 }
 .speed-slider {
   flex: 1;
-  accent-color: var(--accent);
+  accent-color: var(--chalk);
   cursor: pointer;
 }
 
@@ -528,7 +773,7 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   font-size: 13px;
   transition: border-color 0.2s;
 }
-.task-input:focus { border-color: var(--accent); }
+.task-input:focus { border-color: var(--chalk); }
 .task-input::placeholder { color: var(--muted); }
 
 .task-list  { flex: 1; overflow-y: auto; min-height: 120px; }
@@ -594,7 +839,9 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 
 .li-settled { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 10px; color: var(--muted); }
 .li-settled-label { color: var(--clear); font-weight: 600; letter-spacing: 0.4px; }
-.li-tx { font-family: var(--font-mono); color: var(--accent); text-decoration: underline; }
+/* The tx link is muted, not green: the "settled" label beside it already carries
+   --clear, and the hash itself is evidence rather than an outcome. */
+.li-tx { font-family: var(--font-mono); color: var(--muted); text-decoration: underline; }
 .li-block, .li-bal { font-variant-numeric: tabular-nums; }
 
 .li-reverted {
@@ -633,7 +880,10 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   transition: background 0.3s;
 }
 .ceremony-seg.seg-pending { background: var(--border); }
-.ceremony-seg.seg-done    { background: var(--accent); }
+/* Chalk, deliberately not --clear. A completed signing round is progress, not
+   money that moved; painting it green would put a fourth thing on screen that
+   looks like a settlement and make the M3 revoke moment ambiguous. */
+.ceremony-seg.seg-done    { background: var(--chalk); }
 .ceremony-seg.seg-broken  {
   background: var(--breach);
   animation: snap 0.4s ease-out;
@@ -757,8 +1007,11 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   text-align: left;
   transition: border-color 0.2s, background 0.2s;
 }
-.mode-card:hover    { background: rgba(91,141,239,0.06); }
-.mode-card.mode-active { background: rgba(91,141,239,0.08); }
+/* Neutral chalk wash, not a hue. The active mode already announces itself with
+   its own state colour on the label (MODE_INFO[m].color in playground/page.tsx);
+   a blue tint behind it added a seventh colour and competed with that signal. */
+.mode-card:hover       { background: rgba(237,234,227,0.05); }
+.mode-card.mode-active { background: rgba(237,234,227,0.08); }
 .mode-name { display: block; font-size: 13px; font-weight: 600; margin-bottom: 2px; }
 .mode-desc { display: block; font-size: 11px; color: var(--muted); line-height: 1.3; }
 
@@ -877,10 +1130,13 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   padding: 6px 0;
   font-size: 13px;
 }
+/* Chalk, i.e. primary. When the core is unreachable these Basescan links are
+   the only thing on screen a judge can act on, so they are the loudest element
+   on the panel rather than a muted afterthought. */
 .core-offline-verify a {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
-  color: var(--accent);
-  text-decoration: none;
+  color: var(--chalk);
+  text-decoration: underline;
   white-space: nowrap;
 }
 .core-offline-verify a:hover { text-decoration: underline; }
@@ -924,4 +1180,200 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   border: 1px solid var(--breach);
   color: var(--breach);
   background: rgba(255, 77, 77, 0.08);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DESIGN SYSTEM PRIMITIVES
+   The five shared components. See src/components/ for the
+   reasoning behind each; this file only dresses them.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── <Amount> ───────────────────────────────────────────────
+   Every rupee figure on screen. Monospace with tabular numerals so digits sit
+   in fixed columns and a changing balance does not jitter — the single detail
+   that makes an interface read as financial software rather than a project. */
+.amount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  display: inline-block;
+  text-align: right;
+}
+.amount-unavailable {
+  color: var(--muted);
+  font-style: italic;
+  /* Never a number. A failed read says so. */
+}
+
+/* ── <Counter> ──────────────────────────────────────────────
+   Tabular so the scoreboard does not reflow while counting. */
+.counter {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── <TTLRing> ──────────────────────────────────────────────
+   Ambient. One of the three things allowed to move. */
+.ttl-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.ttl-ring-arc {
+  transition: stroke-dashoffset 0.4s linear, stroke 0.3s ease;
+}
+.ttl-ring-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  line-height: 1.1;
+}
+.ttl-ring-value {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ttl-ring-unit { font-size: 10px; color: var(--muted); }
+
+/* ── <Rekha> ────────────────────────────────────────────────
+   The line. Quiet by default; reacts only to being tested.
+
+   pathLength=1000 on the SVG side means every figure here is in thousandths of
+   the perimeter, so none of this depends on the panel's pixel size. The path
+   starts at top-centre, so a gap at the start of the dash pattern is a break at
+   the top edge. */
+.rekha {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.rekha-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+  overflow: visible;
+}
+.rekha-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.rekha-line {
+  fill: none;
+  stroke: var(--chalk);
+  stroke-width: 1;
+  opacity: 0.4;          /* present, never insistent */
+  stroke-dasharray: 1000;
+}
+.rekha-flare-path {
+  fill: none;
+  stroke: var(--breach);
+  stroke-width: 1.5;
+  stroke-dasharray: 120 880;   /* a 12%-of-perimeter comet */
+  opacity: 0;
+}
+
+.rekha-flare .rekha-flare-path { animation: rekha-flare 600ms ease-out forwards; }
+.rekha-snap  .rekha-line       { animation: rekha-snap 2600ms ease-out forwards; }
+
+/* Travels ~26% of the perimeter from the top and fades. The dash period is
+   120+880=1000, so an offset of 1000 is identical to 0 — the pulse begins at
+   top-centre and 740 leaves it a quarter of the way round. */
+@keyframes rekha-flare {
+  0%   { stroke-dashoffset: 1000; opacity: 0; }
+  15%  { opacity: 1; }
+  100% { stroke-dashoffset: 740;  opacity: 0; }
+}
+
+/* The break. Three-value dasharrays throughout so the lists interpolate:
+   a zero-length dash, then the gap, then the rest of the line. The gap opening
+   from 0 to 90 IS the recoil. */
+@keyframes rekha-snap {
+  0%   { stroke-dasharray: 0 0 1000;  stroke: var(--breach); opacity: 1; }
+  8%   { stroke-dasharray: 0 90 1000; stroke: var(--breach); opacity: 1; }
+  85%  { stroke-dasharray: 0 90 1000; stroke: var(--breach); opacity: 1; }
+  100% { stroke-dasharray: 0 0 1000;  stroke: var(--chalk);  opacity: 0.4; }
+}
+
+/* ── <PredicateTable> extras ────────────────────────────────
+   The table itself is styled further up with the console's decision panel. */
+.pred-binding-tag {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  background: var(--breach);
+  color: var(--ink);
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.decision-hashes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+.decision-hash {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.decision-hash-label {
+  min-width: 42px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+}
+.copy-btn {
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  transition: border-color 0.2s, color 0.2s;
+}
+.copy-btn:hover { border-color: var(--chalk); color: var(--chalk); }
+
+/* ── Reduced motion ─────────────────────────────────────────
+   Every moving thing has a still equivalent that carries the same information.
+   The snap in particular must still READ as broken when it cannot animate —
+   that beat is the argument, not the decoration. */
+@media (prefers-reduced-motion: reduce) {
+  .rekha-flare .rekha-flare-path {
+    animation: none;
+    opacity: 1;
+    stroke-dashoffset: 870;
+  }
+  .rekha-snap .rekha-line {
+    animation: none;
+    stroke-dasharray: 0 90 1000;
+    stroke: var(--breach);
+    opacity: 1;
+  }
+  .ttl-ring-arc { transition: none; }
+  .ceremony-seg { transition: none; }
+  .ceremony-seg.seg-broken { animation: none; }
+  .core-dot.down { animation: none; }
+  .agent-chip-wait .agent-chip-dot { animation: none; }
+  .task-item.task-running .task-dot { animation: none; }
 }

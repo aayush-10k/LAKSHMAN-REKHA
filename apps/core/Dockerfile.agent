@@ -1,0 +1,56 @@
+# The agent runner, as its own image.
+#
+# ── Why this is a separate service, not a second process in the core image ──
+#
+# The security claim is 2-of-2: the core holds one ECDSA share, the agent the
+# other, and neither can move money alone. LIMITATIONS.md has had to disclose
+# that although the *code paths* are genuinely separate, the *deployment* was
+# not — both shares sat in one .env on one laptop, and the claim is only as
+# strong as the weaker custody.
+#
+# Deploying this image as its own service with its own secret store is what
+# retires that disclosure. It gets AGENT_SIGNER_PRIVATE_KEY and nothing else.
+# Do not add CORE_SIGNER_PRIVATE_KEY to this service's environment — that would
+# quietly undo the only reason this file exists.
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Same copy set and same reasoning as apps/core/Dockerfile: pnpm-lock.yaml is
+# required or `--frozen-lockfile` fails with ERR_PNPM_NO_LOCKFILE.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/core/package.json apps/core/
+COPY apps/core/tsconfig.json apps/core/
+COPY apps/agents/task-engine/package.json apps/agents/task-engine/
+
+RUN corepack enable && corepack pnpm install --frozen-lockfile
+
+# The runner imports ../env.js, ../keys.js, ../signing/request.js,
+# ../lease/types.js and ../types.js, so it needs the core source tree even
+# though it runs none of the core's routes.
+COPY apps/core/src/ apps/core/src/
+
+# After the install: tsx is a devDependency and pnpm drops devDependencies when
+# NODE_ENV=production. See the same note in apps/core/Dockerfile.
+ENV NODE_ENV=production
+ENV AGENT_PORT=4200
+
+# CORE_IMAGE_DIGEST must be byte-identical to the core's. The runner rebuilds
+# the PaymentRequest itself in order to produce its half of the 2-of-2
+# (apps/core/src/agent/runner.ts:248), so if the two sides disagree on this
+# value the digests differ, the signatures recover to different addresses, and
+# PolicyModule rejects the payment with InvalidAgentSignature. The on-chain
+# value is 0x0100…00; set it explicitly rather than relying on the default.
+ENV CORE_IMAGE_DIGEST=0x0100000000000000000000000000000000000000000000000000000000000000
+
+# Required at deploy time, no sensible default:
+#   AGENT_SIGNER_PRIVATE_KEY  — this service's only secret
+#   CORE_URL                  — https URL of the core service
+#   VENDORSIM_URL             — https URL of the vendorsim service
+
+WORKDIR /app/apps/core
+
+EXPOSE 4200
+
+CMD ["node", "--import", "tsx/esm", "src/agent/runner.ts"]

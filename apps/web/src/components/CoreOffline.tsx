@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { CORE_URL } from '../lib/pairing';
+import { CONTRACTS, SETTLED_TX as SETTLED, basescanAddress, basescanTx } from '../lib/contracts';
 
 /**
  * Shown when the enforcement core cannot be reached.
@@ -19,18 +20,6 @@ import { CORE_URL } from '../lib/pairing';
  * Every address and hash below is real and resolvable on Base Sepolia. Nothing
  * here is illustrative.
  */
-
-const CONTRACTS: ReadonlyArray<{ name: string; address: string; note: string }> = [
-  { name: 'INRx', address: '0x9df2d451d682971878d09ba13920ca418697272d', note: 'ERC-20, the money that moves' },
-  { name: 'PolicyModule', address: '0x933bb10252ec2b133f28b7d5edf1d303c3384d87', note: 'the 14 predicates, on chain' },
-  { name: 'RekhaAccount', address: '0xd65122eafeb2e6f384d0095bac7de6f662276f6c', note: '2-of-2 enforcement, no admin backdoor' },
-];
-
-/** Settlements that actually landed. Recorded in FIXLOG2.md. */
-const SETTLED: ReadonlyArray<{ hash: string; detail: string }> = [
-  { hash: '0x35025de91d5f92d76165358ebab92bf94dc8b05ab7bfd9971eb3b061f12c7e90', detail: 'block 44959341 · ₹5,760.00 to ven_meridian' },
-  { hash: '0x1ed0242aee4b863ca20b09999d2d4cd2d6d3b24ac8cceea949c0cd3f64a4df96', detail: 'block 44959201 · ₹9,520.00' },
-];
 
 const short = (s: string) => `${s.slice(0, 10)}…${s.slice(-8)}`;
 
@@ -69,7 +58,7 @@ pnpm dev:web         # :3000`}
             {CONTRACTS.map(c => (
               <li key={c.address}>
                 <a
-                  href={`https://sepolia.basescan.org/address/${c.address}`}
+                  href={basescanAddress(c.address)}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -85,7 +74,7 @@ pnpm dev:web         # :3000`}
             {SETTLED.map(t => (
               <li key={t.hash}>
                 <a
-                  href={`https://sepolia.basescan.org/tx/${t.hash}`}
+                  href={basescanTx(t.hash)}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
