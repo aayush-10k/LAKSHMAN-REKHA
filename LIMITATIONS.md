@@ -63,14 +63,40 @@ adversary suite, class 4 went from a race-dependent `34/16` to a deterministic
 `49 blocked / 1 through`, class 3 from 3 through to 1, and the suite total from
 27–47 through down to **13**.
 
-**Still open: the window cap.** The core will still co-sign past its own
-`windowCapMinor`, because its accounting advances on **settlement** and these
-requests never settle. That is the remaining source of `core-approved,
-unsettled` on the scoreboard (11 of the 13, all attack class 1). `PolicyModule`
-reverts `WindowCapExceeded` on chain against the authoritative counter, so money
-cannot move — but the chain is what stops it, not us. Reserve-on-approve
-accounting is the fix and it is riskier than the nonce one: a reservation that
-outlives its request would refuse legitimate payments.
+**The window cap is reserved on approve, as of 4 Aug 2026.** `windowSpentMinor`
+only advances on **settlement**, so a run of approvals that never settle each
+looked fine on its own — which is how twelve ₹8,000 slices cleared a ₹1,00,000
+window. The core now holds the rupees it has co-signed for.
+
+The design problem was leakage, not accounting: a reservation that outlived its
+request would refuse **legitimate** payments, which is strictly worse than the
+gap it closes. It expires with the lease, and that is not a heuristic —
+settlement requires a valid lease (`leaseExpiry`, predicate 5, enforced on
+chain), so an approved payment whose lease has lapsed can never settle and its
+reservation is provably dead. No timer, no sweeper; expiry is read at the point
+of use.
+
+Measured, 8 parallel slices inside one lease
+(`scripts/verify-window-race.py`):
+
+```
+windowCap 10000000  spent 5036800  headroom 4963200
+8 × 827201 = 6617608 fired
+
+  5 APPROVED  = 4136005   (a 6th would be 4963206 — over by 6 paise)
+  3 REFUSED   binding predicate: windowCap  (×3)
+```
+
+Exact to the paisa, and the refusals name the predicate `PolicyModule` would
+revert with.
+
+> **What this does NOT stop, stated plainly.** A *slow* structuring run still
+> gets each slice approved, because the leases lapse between them and the
+> reservations are released. Those approvals are void — none of them can settle
+> — but the core did sign them. Attack class 1 in the adversary suite is paced
+> that way (two RPC round-trips per slice) and still shows 12 through. The
+> version that could actually take money is the one that fits inside a single
+> lease, and that one is now refused.
 
 ---
 
@@ -301,8 +327,17 @@ tier-2 counterparty.
 - [x] ~~atomic nonce reservation~~ — **done 4 Aug 2026**, `claimNonce` /
       `releaseNonce` in `api/store.ts`. 50 concurrent same-nonce requests now
       yield exactly 1 approval and 49 refusals on predicate `nonce`
-- [ ] Reserve-on-approve window accounting, so
-      the off-chain core refuses what the chain would refuse
+- [x] ~~Reserve-on-approve window accounting~~ — **done 4 Aug 2026**,
+      `reserveSpend` / `releaseSpend` / `reservedSpendMinor` in `api/store.ts`,
+      staked synchronously before evaluation and expiring with the lease.
+      8 parallel slices inside one lease: 5 approved to the paisa, 3 refused on
+      `windowCap`. A *slow* structuring run still gets approvals — those are
+      void, since their leases lapse and they can never settle
+- [ ] A **slow** structuring run still gets each slice approved — the leases
+      lapse between slices, so the reservations are released. Those approvals
+      are void (a lapsed lease can never settle) but the core did sign them.
+      Closing it needs reservations that outlive the lease, which reintroduces
+      the leak the lease-expiry design exists to prevent. Not attempted
 - [ ] No authentication on `/console`. `BUILD.md:45` specifies email + password
       and `:806` promises demo credentials in the README; neither exists. Anyone
       with the URL is the owner. REVOKE ALL is wallet-gated, so the strongest

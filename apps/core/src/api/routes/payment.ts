@@ -62,6 +62,24 @@ function toLease(record: store.LeaseRecord): Lease {
   };
 }
 
+/**
+ * Drop the window reservation a decision is holding.
+ *
+ * Called on BOTH settlement outcomes. On success the rupees are now counted on
+ * chain and `refreshFromChain` reads them back, so keeping the reservation
+ * would count them twice and refuse the next legitimate payment. On a revert
+ * they can never be spent at all.
+ *
+ * The key is the nonce, which is where the reservation was staked — before a
+ * decisionId existed. It is read off the signed request rather than kept in a
+ * second map, so there is nothing to drift.
+ */
+function releaseReservation(decisionId: string, ctx: { request: { nonce: bigint | number } }): void {
+  const mandateId = store.getMandateIdForDecision(decisionId);
+  if (mandateId === undefined) return;
+  store.releaseSpend(mandateId, `nonce:${Number(ctx.request.nonce)}`);
+}
+
 export async function registerPaymentRoutes(app: FastifyInstance): Promise<void> {
   // ── POST /v1/payment/request ───────────────────────────────────────
   app.post<{ Body: { factSheet: unknown } }>('/v1/payment/request', async (request, reply) => {
@@ -153,10 +171,43 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
     // No `await` between the claim and building the state below — that is what
     // makes it atomic on a single-threaded event loop. Moving either line
     // across an await reopens the race.
-    const claimedHere = store.claimNonce(lease.mandateId, fs.nonce);
+    // Expires with the lease, for the same reason spend reservations do: a
+    // payment whose lease has lapsed can never settle, so its nonce is free on
+    // chain and this process must stop refusing it.
+    const claimedHere = store.claimNonce(lease.mandateId, fs.nonce, lease.expiresAtMs);
     const usedNonces = new Set<number>(nonceBurned || !claimedHere ? [fs.nonce] : []);
 
-    const policyState = toPolicyState(mandate, lease, registry, usedNonces);
+    // Rupees this core has already co-signed for but which have not settled.
+    //
+    // `mandate.windowSpentMinor` only moves on settlement, so without this a
+    // run of approvals that never settle each looks fine on its own — which is
+    // exactly how twelve ₹8,000 slices cleared a ₹1,00,000 window.
+    //
+    // Note where this is added: to the STATE handed to the evaluator, not to
+    // the evaluator. `evaluator.ts` stays byte-identical to Solidity
+    // `PolicyModule.validate` — that agreement is checked over 10,000
+    // differential inputs and is worth more than this fix. What changes is the
+    // core's own bookkeeping about what it has already promised.
+    // Read the outstanding total and stake this request's claim in the SAME
+    // tick — no await between them, exactly like the nonce claim above.
+    //
+    // Reserving after coreSign is not enough and the first version did that:
+    // eight concurrent requests all read `reserved` before any of them had
+    // written, and three were approved where one should have been. Measured.
+    // The reservation is keyed by nonce because that is the one identifier
+    // available before a decisionId exists, and it is already unique per
+    // payment — the claim above guarantees it.
+    const reserved = store.reservedSpendMinor(lease.mandateId);
+    const spendKey = `nonce:${fs.nonce}`;
+    store.reserveSpend(lease.mandateId, spendKey, fs.amountMinor, lease.expiresAtMs);
+
+    // `reserved` deliberately excludes this request — the evaluator adds
+    // `fs.amountMinor` itself when it checks the window.
+    const mandateWithReservations = reserved === 0
+      ? mandate
+      : { ...mandate, windowSpentMinor: mandate.windowSpentMinor + reserved };
+
+    const policyState = toPolicyState(mandateWithReservations, lease, registry, usedNonces);
 
     // One call does the deciding AND the signing: coreSign validates the lease,
     // runs the frozen evaluator, and signs only an APPROVED outcome. There is no
@@ -169,6 +220,7 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
       // means no decision and no signature, so holding the nonce would refuse a
       // legitimate retry for a reason that is not true.
       if (claimedHere) store.releaseNonce(lease.mandateId, fs.nonce);
+      store.releaseSpend(lease.mandateId, spendKey);
       if (e instanceof LeaseInvalidError) {
         return reply.code(403).send({ error: { code: 'LEASE_EXPIRED', message: e.message } });
       }
@@ -182,8 +234,10 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
     // ever consume the nonce on chain. Anything else gives it back — a REFUSED
     // or HELD payment burns nothing, so the same request may legitimately be
     // retried with the same nonce once whatever refused it is fixed.
-    if (claimedHere && trace.outcome !== 'APPROVED') {
-      store.releaseNonce(lease.mandateId, fs.nonce);
+    // Nothing was promised unless it was approved, so give both claims back.
+    if (trace.outcome !== 'APPROVED') {
+      if (claimedHere) store.releaseNonce(lease.mandateId, fs.nonce);
+      store.releaseSpend(lease.mandateId, spendKey);
     }
 
     store.storeDecision(trace, lease.mandateId);
@@ -307,6 +361,10 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
       receipt = await broadcastExecute(config, ctx.request, agentSig as Hex, ctx.coreSig);
     } catch (e) {
       if (e instanceof SettlementRevertedError) {
+        // The chain refused it, so it will never consume window. Give the
+        // reservation back rather than letting a rejected payment keep holding
+        // rupees that can no longer be spent.
+        releaseReservation(decisionId, ctx);
         return reply.code(422).send({
           error: { code: e.errorName, message: `Settlement refused on chain: ${e.errorName}.`, decisionId },
         });
@@ -322,6 +380,11 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
 
     // Reached only for a receipt with status 'success'.
     const result = store.settleDecision(decisionId, receipt.txHash, receipt.blockNumber);
+
+    // The spend is now counted on chain, and refreshFromChain reads it back
+    // into windowSpentMinor. Keeping the reservation would count the same
+    // rupees twice and refuse the NEXT legitimate payment.
+    releaseReservation(decisionId, ctx);
 
     // The money moved on chain, so the chain is what the console must show. The
     // local counter in settleDecision is bookkeeping for the audit export; the

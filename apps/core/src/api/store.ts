@@ -248,22 +248,32 @@ export function heartbeat(mandateId: string): void {
 // It does NOT replace the chain read — an unreachable RPC still fails closed to
 // "used", and a nonce burned by some other process is still caught there. This
 // only closes the window this process opens against itself.
-const reservedNonces = new Map<string, Set<number>>();
+//
+// ── Claims expire with the lease, and the first version got this wrong ─────
+// The first cut held claims for the whole process lifetime. That is unbounded
+// growth, and worse: a claim whose lease has lapsed can never settle, so the
+// nonce is free on chain while this process still refuses it. Caught by
+// scripts/verify-window-race.py, where eight requests came back REFUSED on
+// `nonce` instead of `windowCap` — the adversary's nonce counter resets when it
+// restarts, and the core was still holding claims from the previous run. Those
+// refusals looked like enforcement and were an artifact.
+const reservedNonces = new Map<string, Map<number, number>>(); // mandate → nonce → expiresAtMs
 
 /**
- * Claim a nonce for this mandate. Returns false if it is already claimed.
+ * Claim a nonce for this mandate until `expiresAtMs`. False if already claimed.
  *
  * MUST be called synchronously — no `await` between calling this and acting on
  * the result, or the window it exists to close reopens.
  */
-export function claimNonce(mandateId: string, nonce: number): boolean {
+export function claimNonce(mandateId: string, nonce: number, expiresAtMs: number, nowMs = Date.now()): boolean {
   let claimed = reservedNonces.get(mandateId);
   if (claimed === undefined) {
-    claimed = new Set();
+    claimed = new Map();
     reservedNonces.set(mandateId, claimed);
   }
-  if (claimed.has(nonce)) return false;
-  claimed.add(nonce);
+  const held = claimed.get(nonce);
+  if (held !== undefined && held > nowMs) return false;
+  claimed.set(nonce, expiresAtMs);
   return true;
 }
 
@@ -278,9 +288,83 @@ export function releaseNonce(mandateId: string, nonce: number): void {
   reservedNonces.get(mandateId)?.delete(nonce);
 }
 
-/** Test/diagnostic view. */
-export function reservedNonceCount(mandateId: string): number {
-  return reservedNonces.get(mandateId)?.size ?? 0;
+/** Live claims, pruning expired ones as it counts. Test/diagnostic view. */
+export function reservedNonceCount(mandateId: string, nowMs = Date.now()): number {
+  const claimed = reservedNonces.get(mandateId);
+  if (claimed === undefined) return 0;
+  for (const [nonce, expiresAtMs] of claimed) {
+    if (expiresAtMs <= nowMs) claimed.delete(nonce);
+  }
+  return claimed.size;
+}
+
+// ──────────────────────────────────────────────
+// Spend reservation — the core's half of predicate 13
+// ──────────────────────────────────────────────
+//
+// The other half of the same disclosure. `windowSpentMinor` advances on
+// SETTLEMENT, and an approved payment that never settles never moves it — so
+// twelve slices of ₹8,000 against a ₹1,00,000 window were all APPROVED and
+// co-signed. `PolicyModule` reverts `WindowCapExceeded` on chain against the
+// authoritative counter, so money could not move; the chain was doing the work.
+//
+// ── Why this cannot leak, which is the whole design problem ────────────────
+// A reservation that outlives its request would refuse LEGITIMATE payments —
+// strictly worse than the gap it closes, and the reason this was left alone
+// while the nonce fix went in.
+//
+// It expires with the lease, and that is not a heuristic: settlement requires a
+// valid lease (`leaseExpiry` is predicate 5, checked on chain). An approved
+// payment whose lease has expired can never settle, so its reservation is
+// provably dead and is dropped. No timer, no sweeper, no leak — expiry is read
+// at the point of use.
+type SpendReservation = { amountMinor: number; expiresAtMs: number };
+const reservedSpend = new Map<string, Map<string, SpendReservation>>();
+
+/** Hold `amountMinor` against the window until the lease that authorised it expires. */
+export function reserveSpend(
+  mandateId: string,
+  decisionId: string,
+  amountMinor: number,
+  expiresAtMs: number,
+): void {
+  let held = reservedSpend.get(mandateId);
+  if (held === undefined) {
+    held = new Map();
+    reservedSpend.set(mandateId, held);
+  }
+  held.set(decisionId, { amountMinor, expiresAtMs });
+}
+
+/**
+ * Drop a reservation.
+ *
+ * Called on settlement — success or revert. On success the spend is now counted
+ * on chain and `refreshFromChain` picks it up, so keeping the reservation would
+ * count the same rupees twice.
+ */
+export function releaseSpend(mandateId: string, decisionId: string): void {
+  reservedSpend.get(mandateId)?.delete(decisionId);
+}
+
+/**
+ * Rupees approved but not yet settled, excluding any whose lease has lapsed.
+ *
+ * Prunes as it reads, so a dead reservation cannot accumulate.
+ */
+export function reservedSpendMinor(mandateId: string, nowMs = Date.now()): number {
+  const held = reservedSpend.get(mandateId);
+  if (held === undefined) return 0;
+
+  let total = 0;
+  for (const [decisionId, r] of held) {
+    if (r.expiresAtMs <= nowMs) {
+      held.delete(decisionId);
+      continue;
+    }
+    total += r.amountMinor;
+  }
+  return total;
 }
 
 // ──────────────────────────────────────────────
@@ -490,6 +574,18 @@ const decisionToMandate = new Map<string, string>(); // decisionId → mandateId
 
 export function linkDecisionToMandate(decisionId: string, mandateId: string): void {
   decisionToMandate.set(decisionId, mandateId);
+}
+
+/**
+ * Which mandate a decision belongs to.
+ *
+ * The map already existed and had no reader. Settlement needs it to release the
+ * spend reservation, and taking it from here rather than adding `mandateId` to
+ * `SettlementContext` keeps one source of truth — a second copy is a second
+ * chance to disagree.
+ */
+export function getMandateIdForDecision(decisionId: string): string | undefined {
+  return decisionToMandate.get(decisionId);
 }
 
 // ──────────────────────────────────────────────

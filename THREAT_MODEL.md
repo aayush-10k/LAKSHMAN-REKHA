@@ -122,7 +122,22 @@ twelve is not the defence the class was named for.
 | 11 | **Clock Manipulation** — false timestamps | Core uses its own clock; `leaseExpiry` is set at issuance and never read from the request | `leaseExpiry` | `lease/index.ts:133` |
 | 12 | **Lease Renewal Griefing** — flood renewal endpoint | **NOT IMPLEMENTED.** No rate limiting exists in the core. The fail-closed property still holds: no leases → spending stops | fail-closed only | — |
 
-### Class 1 — the core will co-sign past its own window cap
+### Class 1 — the core used to co-sign past its own window cap
+
+> **Fixed 4 Aug 2026 for the version that matters.** The core now stakes a
+> reservation against the window *before* it evaluates, synchronously, and the
+> reservation expires with the lease — settlement requires a valid lease, so an
+> approval whose lease has lapsed is provably dead and its rupees are released.
+> 8 parallel slices inside one lease against a 4,963,200 headroom: **5 approved
+> (4,136,005) and 3 refused on `windowCap`**, exact to the paisa.
+>
+> A **slow** structuring run still gets approvals, because the leases lapse
+> between slices. Those signatures can never settle. The version that could
+> actually take money is the one that fits in a single lease, and that is
+> refused now. Attack class 1 in the suite is paced and still reads 12 through;
+> the number is honest and it is not the dangerous case.
+>
+> The history below is kept because it is why the fix exists.
 
 The previous version of this table said *"per-tx cap blocks each split; window
 cap blocks cumulative"*. Measured 4 Aug 2026, once valid hex ids let the attack
