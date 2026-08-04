@@ -214,19 +214,57 @@ day a real digest is registered.
 
 ## Still outstanding from Part I
 
-**1.1 proper** — register a real digest. Docker is not installed here, so no OCI
-image digest can be produced. The honest alternative is a **source-tree
-digest**: sha256 over the exact file set `apps/core/Dockerfile` copies, which a
-judge can recompute in seconds *without* Docker, registered via the existing
-owner-only `attestCoreImage(bytes32)`. One transaction. It must be labelled a
-source digest, never an image digest.
+> **Updated 4 Aug 2026, after Phases 5–7.** Most of the repo-side items below
+> are now done. What is left is the deck, one on-chain transaction, and a
+> browser.
 
-**1.2** — decide whether to delete the `novel` counter for good (it is already
-gone from the strip) or build the LLM path properly.
+**1.1 — the digest now exists; it is not registered.**
+`apps/core/scripts/core-image-digest.mjs` produces exactly the source-tree
+digest this item asked for: sha256 over the file set `apps/core/Dockerfile`
+copies, 54 files, recomputable in seconds without Docker.
 
-Tier 2 disclosure is written into `LIMITATIONS.md`. The deck corrections
-(4.1 "2-of-3", 4.2 the 247, 3.3 Halmos) are not done — they live in the deck,
-not the repo.
+```
+digest 0xbc770793bf876b8a2238e0448f7af5c5c5fb24c53587946da49dfd228b61c462
+```
+
+Deterministic and sensitive, both measured (`scripts/verify-digest-sensitivity.sh`).
+**It is labelled a source digest everywhere it appears, never an image digest**,
+and `LIMITATIONS.md` states plainly what it does not cover: not the Node
+version, not the resolved dependency tree, not the base image, not that the
+deployed process is running this source.
+
+What remains is the `attestCoreImage()` transaction, and it is deliberately not
+done: predicate 3 compares what the request carries against what the contract
+holds, so there is **no ordering that avoids an outage** — three places have to
+move together (core env, agent env, contract). `LIMITATIONS.md` has the
+procedure. Between rehearsals, never on demo day. Until then the on-chain value
+is the `0x01` placeholder and `isPlaceholderDigest()` keeps labelling it on
+screen.
+
+**1.2 — `novel`.** Still undecided, and now the smaller half of a bigger
+question: the LLM generator has never been invoked by the UI *and* the model
+reader in `extract.ts` has never run against the real API. `test/extract.test.ts`
+covers the code around that call with a stubbed SDK, so a refusal, a thrown
+error, non-JSON and six kinds of out-of-range amount all fall back to the parser
+rather than becoming a price. That is not the same as the call working. **Set
+`ANTHROPIC_API_KEY` and watch one run before claiming the model path**, and
+decide `novel` at the same time.
+
+### Repo-side items now closed
+
+| Item | Where it landed |
+|---|---|
+| **3.3 Halmos** | `THREAT_MODEL.md` marks it **NOT IMPLEMENTED**; `BUILD.md`'s deck slide 5 line is struck through with the replacement written out. *"Fuzzed and differentially checked"*, never *"proven"* |
+| **4.1 "2-of-3"** | `BUILD.md`'s key-split section carries a CORRECTION block, and the rehearsal line *"threshold signing instead of a co-signer"* is struck with a true replacement that is not weaker. `THREAT_MODEL.md` rewritten |
+| **4.2 the 247 / 147** | Both are wrong now. The suite is **99** — structuring went from 60 slices to 12 — measured 26 input / 24 policy / 2 chain / 0 errored. Recorded in `FINALE_PROGRESS.md` |
+| **FROST behind a flag** | Withdrawn in `THREAT_MODEL.md`, `LIMITATIONS.md` and `BUILD.md`. The only "frost" in the codebase is a comment at `payment.ts:5` |
+| **Rate limiting on `/v1/lease/renew`** | Withdrawn; `API.md` marks the `429` as unreachable |
+| **"UI only renders signed traces"** | Withdrawn. The console shows the `signatureStatus` the **core reports** — useful, and a different claim |
+| **3.1 exercise a HELD payment** | Done. `scripts/verify-hold.py` — HELD ₹48 on `priceBand`, the row `/v1/holds` gives the ring and Cancel, the same decision in the audit export, and cancel releases it |
+
+**The deck itself is still the deck.** Every correction above is written into
+the repo with the replacement wording spelled out; none of it has been carried
+across to the slides. That is the highest-value hour left after a browser.
 
 ---
 
@@ -399,8 +437,20 @@ These are not lies. They are untested, and `BUILD.md` Part 12 asks for proof.
   headline sentence survives intact — *"the agent holds one share and is
   incapable of paying alone"* is true of 2-of-2. Say "two-of-two co-signature
   plus an owner key that answers to nobody", not "2-of-3 threshold".
-- **4.2 `BUILD.md:32` says M2 is `247 attempts · 247 blocked`.** Ours is 147.
-  Align the deck to the measured number.
+- **4.2 `BUILD.md:32` says M2 is `247 attempts · 247 blocked`.** ~~Ours is 147.~~
+  **Ours is 99**, and "blocked" is the wrong word for 47 of them. Measured
+  4 Aug 2026 after the suite was fixed: 99 attempts, 52 blocked (26 at the input
+  boundary, 24 by a policy predicate, 2 on chain), 47 core-approved-and-unsettled,
+  0 errored. The 147 figure is itself stale — `StructuringAttack` went from 60
+  slices to 12 when it was fixed, because 60 took 4m39s and ₹48,000 could never
+  reach a ₹1,00,000 window cap anyway. Align the deck to **99, split by stage**;
+  a single conflated total is the thing this document exists to stop.
+
+  **And do not put a precise blocked count on a slide at all.** Run three times:
+  52 / 52 / 69 blocked. Everything except class 4 is identical every run; class
+  4 fires 50 concurrent same-nonce requests and the core's `usedNonces` check is
+  not atomic, so how many win is a genuine race. `total` (99), `input boundary`
+  (26) and `on chain` (2) are stable and can be printed. The rest cannot.
 - **4.3 `BUILD.md:90`** says the counterfeit clones at **60% off**; vendorsim
   builds it at **40% of price** (`server.js:163`), i.e. 60% off. These agree —
   noted only so nobody "fixes" it.

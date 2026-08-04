@@ -120,6 +120,35 @@ six semantic tokens    absent     all six present
 
 ---
 
+## CHAIN STATE — measured at the end of this session
+
+`set -a; . ./.env; set +a; node apps/core/scripts/chain-state.mjs`, block
+45036836:
+
+```
+frozen               false          revocationEpoch 0
+permittedCategories  223            everything except SOFTWARE
+windowSpentMinor     3376800        ₹33,768 of ₹1,00,000
+windowStart          1785787540     vs block 1785841960 -> 54,420s of 86,400
+cumulativeSpentMinor 6166600        of ₹10,00,000
+_inrxAccountBalance  43833400       ₹4,38,334
+_deployerEth         29958422473820901   0.02996 ETH
+lastHeartbeat        1785792590     lapses ≈ 10 Aug 2026, 2 days after the demo
+coreImageDigest      0x0100…00      still the placeholder
+```
+
+**Verification is not free, and this session spent ₹33,768 of the window.** Each
+`overreach` run settles a real ₹480 payment plus gas, and `normal` runs settle
+too. The window had **not** rolled at the time of this reading — about 8.9 hours
+to go — so **check `windowSpentMinor` before rehearsing**, not just on demo day.
+A `windowCap` refusal mid-demo is the policy working, but it is not the moment
+you planned.
+
+Both key addresses still match their on-chain signers, which is the thing that
+must never drift.
+
+---
+
 ## NEXT ACTION
 
 1. **Open `/` and `/playground` in a browser at 1600×950.** Phases 4, 5, 6 and 7
@@ -155,16 +184,39 @@ summary                        byStage
   errored (not tested)   0       unattributed        0
 ```
 
-Three things to read out of that, none of them comfortable:
+**The totals are not stable run to run, and that is the honest finding.** Three
+runs on the same code:
+
+```
+             blocked  through   input  policy  chain   class 4 (TOCTOU)
+run 1           52      47        26     24      2     18 blocked / 32 through
+run 2           52      47        26     24      2     18 blocked / 32 through
+run 3           69      30        26     41      2     35 blocked / 15 through
+```
+
+Everything except class 4 is identical every time. Class 4 fires 50 concurrent
+requests carrying the same nonce, and the core's `usedNonces` check is not
+atomic, so how many of them win is a genuine race — it depends on scheduling,
+not on policy. **This is why a headline "N blocked" was never a stable number**,
+and it is a better reason to split the board by stage than any of the ones
+already written down.
+
+What to say on stage: *"class 4 is a real race and the count moves. Exactly one
+of those 50 could ever settle, because `PolicyModule` enforces the nonce on
+chain — that is what INV5 guarantees, and it is a property of settlement, not of
+core approvals."* Do not quote a precise figure for it.
+
+Three more things to read out of the run, none of them comfortable:
 
 - **The suite is 99 attempts now, not 147.** `StructuringAttack.PAYMENTS` went
   60 → 12 when it was fixed; 60 slices made a Rogue Mode run take 4m39s and
   ₹48,000 could never have reached a ₹1,00,000 window cap anyway. **The "147"
   in the deck and in the older sections of this file is stale. Do not quote it.**
-- **47 got a core approval.** 12 structuring + 32 TOCTOU + 3 lease replay. Both
-  causes are already written down — the core's window accounting advances on
-  *settlement*, and its `usedNonces` check is not atomic — and `PolicyModule`
-  refuses all of them on chain. Nothing settled. The board reports them as
+- **30–47 got a core approval**, depending on the race above. 12 structuring +
+  3 lease replay every time, plus whatever class 4 lets through. Both causes are
+  already written down — the core's window accounting advances on *settlement*,
+  and its `usedNonces` check is not atomic — and `PolicyModule` refuses all of
+  them on chain. Nothing settled. The board reports them as
   `core-approved, unsettled`, in `--breach`, rather than folding them into
   `blocked`.
 - **0 errored.** The run is complete. A non-zero figure there means it is not.
