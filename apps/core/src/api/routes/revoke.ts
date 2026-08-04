@@ -27,22 +27,46 @@ export async function registerRevokeRoutes(app: FastifyInstance): Promise<void> 
         return reply.code(404).send({ error: { code: 'MANDATE_NOT_FOUND', message: 'Mandate not found.' } });
       }
 
+      /**
+       * Freeze latency, honestly (BUILD.md:789 — "measured and displayed").
+       *
+       * This used to report `Date.now() - revokedAt` around two synchronous
+       * in-memory writes, which is always 0. Reporting **0 ms** as the freeze
+       * latency overstates the guarantee, because it is not the question anyone
+       * is actually asking. There are two answers and they are different:
+       *
+       *   effectiveAtMs      when nothing NEW can be approved. Immediate: the
+       *                      epoch has already been bumped by the time this
+       *                      responds, and every subsequent evaluation and every
+       *                      remaining ceremony round re-reads it.
+       *   worstCaseStopMs    when spending is definitely over. A lease already
+       *                      issued stays valid until it expires, and a payment
+       *                      carrying it can still settle within that window.
+       *                      So: the configured lease TTL.
+       *
+       * The second number is the one that survives a hostile question, and it
+       * is the number the fail-closed claim actually rests on.
+       */
       const revokedAt = Date.now();
       store.revokeMandate(mandateId);
       store.logRevocation(mandate.revocationEpoch + 1, source);
+      const effectiveAtMs = Date.now() - revokedAt;
+      const worstCaseStopMs = store.leaseTtlMs();
 
       emit({
         t: 'revocation',
         epoch: mandate.revocationEpoch + 1,
         source,
-        latencyMs: Date.now() - revokedAt,
+        latencyMs: effectiveAtMs,
+        worstCaseStopMs,
       });
 
       return reply.code(200).send({
         revoked: true,
         epoch: mandate.revocationEpoch + 1,
         source,
-        latencyMs: Date.now() - revokedAt,
+        latencyMs: effectiveAtMs,
+        worstCaseStopMs,
       });
     },
   );

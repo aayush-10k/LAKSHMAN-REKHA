@@ -41,10 +41,18 @@ import '../env.js';
 
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import type { Hex } from 'viem';
-import { privateKeyToAccount, sign } from 'viem/accounts';
+import { getAddress, type Hex } from 'viem';
+import { generatePrivateKey, privateKeyToAccount, sign } from 'viem/accounts';
 import { agentPrivateKey } from '../keys.js';
 import { buildPaymentRequest, hashRequest } from '../signing/request.js';
+import { CHAIN_ID, POLICY_MODULE_ADDRESS } from '../signing/constants.js';
+import {
+  executeAbi,
+  publicClient,
+  readDeployedPolicy,
+  rekhaAccountAddress,
+  revertName,
+} from '../api/chain.js';
 import type { Lease } from '../lease/types.js';
 import type { CategoryCode, DecisionTrace, PolicyFactSheet, PolicyState } from '../types.js';
 
@@ -437,6 +445,210 @@ app.post<{ Body: { description: string; mode: BehaviourMode; agentId?: string } 
     }
   },
 );
+
+/**
+ * M1 — the agent, alone.
+ *
+ * FINALE.md's first moment: "It isn't blocked. It's incapable." The agent holds
+ * key share A and full network access, so it does not need our permission to
+ * reach Base Sepolia. It skips the core entirely, builds its own PaymentRequest
+ * paying ITSELF the largest amount the policy allows, signs it, and calls
+ * RekhaAccount.execute() directly. The chain answers.
+ *
+ * ── Why this route lives in the agent process ─────────────────────────────
+ * The claim is that the core is not what stops this. If the core ran the probe,
+ * the core would be holding the agent's key and the demonstration would be
+ * theatre. This process already holds AGENT_SIGNER_PRIVATE_KEY (it is where the
+ * honest half of the 2-of-2 is produced), so the attack is mounted from exactly
+ * the position an attacker would occupy. It imports read-only ABI and RPC
+ * helpers from api/chain.js; it imports no authority.
+ *
+ * ── What the agent puts in the core signature slot ────────────────────────
+ * Its own. That is not a shortcut — it is the whole point. `coreSig` is a real
+ * secp256k1 signature over the correct digest, so ECDSA.recover succeeds and
+ * returns a genuine address; it simply is not `coreSigner`. An agent that could
+ * produce anything better would not need this attack. Sending 65 zero bytes
+ * instead would revert inside OpenZeppelin's ECDSA with a malformed-signature
+ * error and prove something much weaker.
+ *
+ * ── eth_call, not a transaction ───────────────────────────────────────────
+ * The deployed bytecode evaluates the call and returns its real revert. Nothing
+ * is mined, and the response says so in `method` — there is no tx hash here and
+ * the UI must not offer one. A broadcast version would need the agent address
+ * funded with gas; it holds 0 ETH, measured 4 Aug 2026.
+ *
+ * Nothing below asserts the outcome. `InvalidCoreSignature` is what predicate 2
+ * should produce, but the route reports whatever the chain actually said —
+ * including `executed`, which would mean the security claim is false and needs
+ * to be visible rather than swallowed.
+ */
+
+/** PolicyModule.validate's custom errors, in the order they can fire. */
+const REVERT_TO_PREDICATE: Record<string, string> = {
+  InvalidAgentSignature: 'agentSignature',
+  InvalidCoreSignature: 'coreSignature',
+  CoreImageMismatch: 'coreImage',
+  StaleRevocationEpoch: 'revocationEpoch',
+  LeaseExpired: 'leaseExpiry',
+  NonceAlreadyUsed: 'nonce',
+  CategoryNotPermitted: 'categoryPermitted',
+  CounterpartyBlocked: 'counterpartyTier',
+  PerTxCapExceeded: 'perTxCap',
+  WindowCapExceeded: 'windowCap',
+  CumulativeCapExceeded: 'cumulativeCap',
+};
+
+/**
+ * Which signature the agent puts in the core's slot.
+ *
+ *   self-signed  its own — it has no other key. Attack class 5, rail bypass:
+ *                go straight to the contract, no core involvement at all.
+ *   fake-core    a freshly generated throwaway key, i.e. the agent stands up
+ *                its own "core" and co-signs with it. Attack class 7, core
+ *                impersonation.
+ *
+ * Both are real secp256k1 signatures over the correct digest, so `ECDSA.recover`
+ * succeeds in each case and returns a genuine address that simply is not
+ * `coreSigner`. Both reach the deployed contract; neither is asserted.
+ */
+type BypassVariant = 'self-signed' | 'fake-core';
+
+app.post<{ Body: { variant?: BypassVariant } }>('/rail-bypass', async (request, reply) => {
+  const variant: BypassVariant = request.body?.variant === 'fake-core' ? 'fake-core' : 'self-signed';
+
+  if (!hasAgentKey()) {
+    return reply.code(503).send({
+      error: {
+        code: 'NO_AGENT_KEY',
+        message:
+          'AGENT_SIGNER_PRIVATE_KEY is not configured, so this process cannot mount the attack it is meant to lose. Nothing was attempted.',
+      },
+    });
+  }
+
+  const account = rekhaAccountAddress();
+  if (account === null) {
+    return reply.code(503).send({
+      error: { code: 'NO_ACCOUNT_ADDRESS', message: 'REKHA_ACCOUNT_ADDRESS is not configured. Nothing was attempted.' },
+    });
+  }
+
+  // Read the live policy so the ONLY thing wrong with this request is the
+  // signature. A stale epoch or image digest would revert at predicate 3 or 4
+  // and prove a weaker claim than the one M1 makes.
+  const policy = await readDeployedPolicy();
+  if (policy === null) {
+    return reply.code(503).send({
+      error: {
+        code: 'CHAIN_UNREADABLE',
+        message:
+          'PolicyModule could not be read, so the request could not be built against the live epoch and image digest. Nothing was attempted.',
+      },
+    });
+  }
+
+  const agentAddress = privateKeyToAccount(agentPrivateKey()).address;
+
+  // The agent pays itself. Its own address is an unregistered counterparty, so
+  // predicate 8 would refuse it too — but the call never travels that far, and
+  // "the agent tried to move the money to its own wallet" is the actual threat.
+  const nowS = Math.floor(Date.now() / 1000);
+  const paymentRequest = buildPaymentRequest(
+    {
+      amountMinor: policy.perTxCapMinor,
+      counterpartyId: getAddress(agentAddress),
+      counterpartyTier: 1,
+      counterpartyAgeDays: 3650,
+      counterpartySettledTxns: 9999,
+      priceBandZ: 0,
+      categoryCode: 'PACKAGING',
+      // Forged, because a lease is the one thing the core would never issue for
+      // this. Never reaches evaluation; recorded so the response is complete.
+      nonce: nowS,
+      coreImageDigest: policy.coreImageDigest as Hex,
+    } as unknown as PolicyFactSheet,
+    {} as PolicyState,
+    {
+      leaseId: 'lse_forged_by_the_agent',
+      agentId: 'agt_rail_bypass',
+      expiresAtMs: (nowS + 300) * 1000,
+      revocationEpoch: policy.revocationEpoch,
+      policyHash: policy.policyHash,
+      signature: '0x',
+    } as unknown as Lease,
+    policy.coreImageDigest as Hex,
+  );
+
+  const digest = hashRequest(paymentRequest);
+  const agentSig = await sign({ hash: digest, privateKey: agentPrivateKey(), to: 'hex' });
+
+  // The core's slot. Either the agent's own signature, or one from a key it
+  // generated itself a millisecond ago — the difference between "I skipped the
+  // core" and "I built my own core". Both are valid signatures by a key that is
+  // not the registered coreSigner, which is the only thing the chain checks.
+  const fakeCoreKey = variant === 'fake-core' ? generatePrivateKey() : null;
+  const coreSlotSig =
+    fakeCoreKey === null
+      ? agentSig
+      : await sign({ hash: digest, privateKey: fakeCoreKey, to: 'hex' });
+
+  let outcome: 'reverted' | 'executed';
+  let revert: string | null = null;
+
+  try {
+    await publicClient().simulateContract({
+      address: account,
+      abi: executeAbi(),
+      functionName: 'execute',
+      args: [paymentRequest, agentSig, coreSlotSig],
+      account: agentAddress,
+    } as never);
+    // The chain accepted a payment signed by one key share. That is the product
+    // being wrong, and it is reported, not hidden.
+    outcome = 'executed';
+  } catch (err) {
+    const name = revertName(err);
+    if (name === 'Unknown') {
+      request.log.error(err);
+      return reply.code(502).send({
+        error: {
+          code: 'REVERT_UNDECODABLE',
+          message:
+            'RekhaAccount.execute failed, but the revert could not be decoded to a known error. Reporting nothing rather than guessing which predicate bound.',
+        },
+      });
+    }
+    outcome = 'reverted';
+    revert = name;
+  }
+
+  return reply.code(200).send({
+    attempted: true,
+    method: 'eth_call against the deployed contract — no transaction was broadcast',
+    agent: { address: agentAddress, keyShare: 'A of 2' },
+    target: { rekhaAccount: account, policyModule: POLICY_MODULE_ADDRESS, chainId: Number(CHAIN_ID) },
+    request: {
+      amountMinor: policy.perTxCapMinor,
+      counterparty: agentAddress,
+      nonce: nowS,
+      revocationEpoch: policy.revocationEpoch,
+      coreImageDigest: policy.coreImageDigest,
+    },
+    digest,
+    variant,
+    coreSignatureSource:
+      fakeCoreKey === null
+        ? "the agent's own key — the only signature it can produce"
+        : `a throwaway key the agent generated (${privateKeyToAccount(fakeCoreKey).address}) — its own "core"`,
+    outcome,
+    revert,
+    predicate: revert === null ? null : (REVERT_TO_PREDICATE[revert] ?? null),
+    explorer: {
+      account: `https://sepolia.basescan.org/address/${account}`,
+      policyModule: `https://sepolia.basescan.org/address/${POLICY_MODULE_ADDRESS}`,
+    },
+  });
+});
 
 await app.listen({ port: PORT, host: '0.0.0.0' });
 console.log(`agent runner listening on http://localhost:${PORT} (core ${CORE_URL}, registry ${VENDORSIM_URL})`);

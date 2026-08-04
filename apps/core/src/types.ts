@@ -182,9 +182,20 @@ export type RekhaEvent =
   | { t: 'payment.settled'; atMs: number; decisionId: string; txHash: string; blockNumber: number; amountMinor: number; balanceAfterMinor: number | null; balanceSource: 'chain' | 'unavailable' }
   | { t: 'payment.held'; atMs: number; decisionId: string; expiresAtMs: number; amountMinor: number }
   | { t: 'hold.released'; atMs: number; decisionId: string; amountMinor: number }
-  | { t: 'revocation'; atMs: number; epoch: number; source: 'owner' | 'guardian' | 'deadman'; latencyMs: number }
+    // latencyMs: when nothing NEW can be approved — immediate, the epoch is
+  // already bumped. worstCaseStopMs: when spending is definitely over, i.e.
+  // the lease TTL, because a lease already issued stays valid until it
+  // expires. Reporting only the first as "freeze latency" overstates it.
+  | { t: 'revocation'; atMs: number; epoch: number; source: 'owner' | 'guardian' | 'deadman'; latencyMs: number; worstCaseStopMs?: number }
   | { t: 'lease.tick'; atMs: number; leaseId: string; ttlMs: number }
-  | { t: 'attack.attempt'; atMs: number; technique: string; classNumber: number | null; blocked: boolean; revertReason: string; novel: boolean }
+  // `status` and `stage` exist because `blocked` alone could not tell three
+  // different things apart. An attack class that threw, and a response the
+  // classifier did not recognise, both used to arrive here as blocked:true —
+  // so the scoreboard counted our own harness breaking as a defence.
+  //   status  'blocked' stopped · 'through' it worked · 'errored' never tested
+  //   stage   which layer stopped it: the typed-schema input boundary, a named
+  //           policy predicate, or the deployed contract. null when none did.
+  | { t: 'attack.attempt'; atMs: number; technique: string; classNumber: number | null; blocked: boolean; revertReason: string; novel: boolean; status: 'blocked' | 'through' | 'errored'; stage: 'input' | 'policy' | 'chain' | null }
   | { t: 'core.status'; atMs: number; up: boolean; imageDigest: string };
 
 export type ApiError = {

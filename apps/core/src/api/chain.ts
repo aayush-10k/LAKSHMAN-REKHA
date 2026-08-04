@@ -60,8 +60,14 @@ let executeAbiCache: any[] | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let inrxAbiCache: any[] | null = null;
 
+/**
+ * Exported for the agent runner's rail-bypass probe (M1), which calls the same
+ * `execute` entry point this module settles through and needs the same merged
+ * error fragments to name what it gets back. Read-only ABI data, not authority:
+ * nothing about exporting it lets the agent process sign or settle anything.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function executeAbi(): any[] {
+export function executeAbi(): any[] {
   executeAbiCache ??= withErrorsFrom(loadAbi('RekhaAccount'), loadAbi('PolicyModule'));
   return executeAbiCache;
 }
