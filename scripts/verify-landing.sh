@@ -43,6 +43,10 @@ for bad in 5B8DEF linear-gradient radial-gradient backdrop-filter; do
 done
 
 echo
+echo "breakpoints in the built CSS (minified — no space after the colon):"
+grep -o '@media[^{]*max-width:[0-9]*px' /tmp/rekha-lp.css 2>/dev/null | sort -u | sed 's/^/  /'
+
+echo
 echo "other routes:"
 for path in /console /playground /kitchen-sink; do
   curl -sS -o /dev/null -w "  $path  HTTP=%{http_code}\n" "$WEB$path"

@@ -66,10 +66,62 @@ would not change what is enforceable.
 | Vendor registry | Vendors are simulated (VendorSim); real GST/MCA registry integration is not implemented | Demo scope |
 | Agent "web browsing" | Agent reads vendor pages served by our own VendorSim; it does not browse the live internet | Scope + rate-limit safety |
 | FROST Schnorr 2-of-3 | **Not implemented, and not behind a feature flag.** An earlier version of this row said the upgrade shipped behind a flag; it does not exist. The only occurrence of "FROST" in the codebase is a comment at `apps/core/src/api/routes/payment.ts:5` describing the *simulated* ceremony rounds that drive the M3 animation. What ships is 2-of-2 ECDSA — which works, is verified on chain, and has settled real transactions. The multi-round ceremony is a presentation of that one signature, not a threshold protocol; its rounds exist so revocation has something to interrupt | FROST was scoped as an upgrade that must never block the working path (`BUILD.md:340`). The working path was the one that got built |
-| Nitro Enclave attestation | The attestation **mechanism** is real — predicate 3 compares the request's `coreImageDigest` to the value registered on-chain, and a mismatch reverts `CoreImageMismatch`. The registered **value** is a placeholder: `0x01` followed by 31 zero bytes. It is not the hash of anything, so it currently attests nothing. Do not present it as evidence | Nitro Enclave hardware was unavailable, and Docker is not installed on the build machine, so no image digest could be produced. Fix pending: a source-tree digest over the exact file set `apps/core/Dockerfile` copies, registered with `attestCoreImage()` |
+| Nitro Enclave attestation | The attestation **mechanism** is real — predicate 3 compares the request's `coreImageDigest` to the value registered on-chain, and a mismatch reverts `CoreImageMismatch` (`PolicyModule.sol:213`). The registered **value** is still a placeholder: `0x01` followed by 31 zero bytes. It is not the hash of anything, so it currently attests nothing. Do not present it as evidence. **The digest itself now exists** — see the section below — but it has not been registered, because doing so takes the payment path down for the length of the change | Nitro Enclave hardware was unavailable, and Docker is not installed on the build machine, so no *image* digest could be produced |
 | LLM adversary variants | LLM generator requires an API key; deterministic library always runs | API key may not be set in your environment |
 | Category allow-list on the live deployment | `SOFTWARE` is the one category the deployed PolicyModule does not permit, so a `SOFTWARE` line item is refused by predicate 7. Every other category settles | Deliberate, and it matches the core's pinned fallback in `apps/core/src/api/store.ts`. It is the live `CategoryNotPermitted` demo case, not a gap |
 | Gas payer | Settlement transactions are broadcast and paid for by `DEPLOYER_PRIVATE_KEY`, not by the core signer | The deployed core signer `0xB18D…` holds 0 ETH on Base Sepolia. `execute` is authorized by the two signatures inside the request, never by `msg.sender`, so the broadcaster only has to be funded — but this does mean the demo spends the deployer's testnet ETH |
+
+---
+
+## The core image digest — the maths was never the blocker
+
+`apps/core/scripts/core-image-digest.mjs` is new. It hashes the exact file set
+`apps/core/Dockerfile` copies — 54 files, including `pnpm-lock.yaml`, because a
+dependency swap changes what the policy engine does even when no line of our
+source moves.
+
+```
+files    54
+digest   0xbc770793bf876b8a2238e0448f7af5c5c5fb24c53587946da49dfd228b61c462
+```
+
+Deterministic and sensitive, both measured (`scripts/verify-digest-sensitivity.sh`):
+sorted paths, POSIX separators, CRLF normalised to LF, and each file's path
+hashed alongside its bytes so a rename moves the digest. One added comment line
+in `evaluator.ts` changes it; restoring the file restores it exactly. A hash
+that never changes is worse than no hash, because it looks like attestation and
+commits to nothing.
+
+**What this is, stated precisely.** It is a commitment to a specific policy
+engine source tree. It is **not** enclave attestation and not a reproducible
+image digest: it does not cover the Node version, the resolved dependency tree,
+the base image, or the fact that the deployed process is running this source at
+all. Anyone who can set `CORE_IMAGE_DIGEST` can send whatever value they like.
+It closes the gap between *an arbitrary constant* and *a commitment*, which is
+the honest version of `BUILD.md`'s line — *"if we swapped in a permissive policy
+engine every payment would revert."*
+
+**It is not registered, and this is why.** Predicate 3 compares what the request
+carries against what the contract holds, so there is **no ordering of the two
+steps that avoids an outage**: register first and every in-flight payment
+reverts `CoreImageMismatch`; set the env first and every payment reverts the
+same way. Take the window deliberately, between rehearsals, never on demo day:
+
+```
+node apps/core/scripts/core-image-digest.mjs        # read the value
+# 1. set CORE_IMAGE_DIGEST to it everywhere the core AND the agent run
+#    (.env, Railway, docker-compose), then restart both
+# 2. owner calls PolicyModule.attestCoreImage(<digest>)
+node apps/core/scripts/chain-state.mjs              # confirm, then settle once
+```
+
+The script prints `== MATCHES` or `!= DOES NOT MATCH` against `CORE_IMAGE_DIGEST`
+when it is set, so drift between the running core and the source is one command
+away rather than a `CoreImageMismatch` nobody can explain on stage.
+
+Until step 2 happens, `lib/contracts.ts` `isPlaceholderDigest()` keeps labelling
+the on-chain value as a placeholder on both surfaces. Do not remove that label
+before the transaction lands.
 
 ---
 
@@ -225,7 +277,10 @@ tier-2 counterparty.
       deployed. No owner transaction was required and none was made
 - [ ] Halmos symbolic proofs (Foundry fuzzing is in CI; Halmos is a stretch goal)
 - [ ] Mobile-responsive layout for the three-panel playground
-- [ ] Register a real core image digest — the on-chain value is a placeholder
+- [ ] Register the core image digest. The digest now **exists** and is
+      deterministic (`apps/core/scripts/core-image-digest.mjs`); the on-chain
+      value is still the placeholder. Registering it takes the payment path down
+      for the length of the change — see the section above
 - [ ] Reserve-on-approve window accounting, and an atomic nonce reservation, so
       the off-chain core refuses what the chain would refuse
 - [ ] No authentication on `/console`. `BUILD.md:45` specifies email + password

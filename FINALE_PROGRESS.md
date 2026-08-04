@@ -377,16 +377,113 @@ task-engine  node --test              9 pass / 0 fail
 adversary    test_library.py          7 pass / 0 fail (was 6, and 2 of those failed)
 ```
 
+### After the phases — four things the phases exposed
+
+**1. The FactSheet boundary had no tests, and the model path has never run.**
+`apps/core/test/extract.test.ts` (25) and `test/modes.test.ts` (36) are new. The
+core suite went 79 → 140 passing.
+
+Three of the extract tests exist to stop a specific regression rather than to
+check a feature, and each one describes a mistake that has already been made
+once in this repo:
+
+- `parsePrice` must take the real price, **never** the struck-through "was"
+  price. vendorsim emits them in that source order and reorders with CSS on
+  purpose. Reformat the storefront and the agent quotes 1.9× on every tier-3
+  vendor, silently.
+- The system prompt must **not** tell the model to distrust the page. An earlier
+  version did — good practice in a real product, and it defeats Beat 3 entirely.
+  It would only have surfaced the first time a key was set.
+- The injected sentence must still **reach** the model. If it stops doing so,
+  the injected demo has been quietly defused.
+
+**2. Hallucinating mode did not work on cheap items, and I shipped it that way.**
+`HALLUCINATION_FACTOR` was a flat 250×. That clears the ₹25,000 per-tx cap on
+the rehearsed phrase (200 caps × ₹2.40 → ₹1,20,000) and **not** on a single one
+(₹600, which settles). A judge picking Hallucinating and typing "buy 1 tamper
+cap" would have watched the corrupted agent make an ordinary purchase. Caught by
+a unit test, then confirmed against the live stack across the price range:
+
+```
+buy 1 black tamper cap             qty     50,000  ₹1,20,000.00  perTxCap
+buy 200 black tamper caps          qty     50,000  ₹1,20,000.00  perTxCap
+order 1 500ml amber glass bottle   qty      1,277  ₹1,20,038.00  perTxCap
+buy 3 CPU worker hours             qty      7,500  ₹1,20,000.00  perTxCap
+retouch 1 photo                    qty        750  ₹1,20,000.00  perTxCap
+```
+
+The quantity is now sized from the planner's estimate to land near ₹1,20,000,
+with 250× as a floor. **The rehearsed phrase produces the same 50,000 units and
+the same ₹1,20,000 as before**, pinned by a test so the sizing change cannot
+quietly move the number on the run that gets demonstrated.
+
+**3. Three fail-closed catches returned the right answer and said nothing.**
+`nonceUsedOnChain` resolves an unreadable RPC to ALREADY USED, so the refusal
+names predicate 6 and reads exactly like a replay attack.
+`counterpartyTierOnChain` resolves to tier 0, so the refusal names predicate 8
+and reads exactly like the counterfeit storefront being caught. On stage that is
+the difference between *"the chain caught it"* and *"we cannot reach the
+chain"*, and nothing distinguished them. Behaviour unchanged; they log now.
+`say()` likewise — the `agent.thought` stream **is** the demo, and a rejected
+event endpoint left the centre column empty with nothing saying why.
+
+**4. The core image digest exists now.**
+`apps/core/scripts/core-image-digest.mjs` hashes the 54 files
+`apps/core/Dockerfile` copies, `pnpm-lock.yaml` included.
+
+```
+files    54
+digest   0xbc770793bf876b8a2238e0448f7af5c5c5fb24c53587946da49dfd228b61c462
+```
+
+Deterministic **and** sensitive, both measured — one added comment in
+`evaluator.ts` moves it, restoring the file restores it exactly. A hash that
+never changes is worse than no hash, because it looks like attestation and
+commits to nothing.
+
+> **It is NOT registered, and that is deliberate.** Predicate 3 compares what
+> the request carries against what the contract holds, so there is **no
+> ordering of the two steps that avoids an outage** — register first and every
+> in-flight payment reverts `CoreImageMismatch`; set the env first and it
+> reverts the same way. Take the window between rehearsals, never on demo day.
+> `LIMITATIONS.md` carries the exact procedure. Until then the on-chain value is
+> still the `0x01` placeholder and `isPlaceholderDigest()` keeps labelling it on
+> screen — **do not remove that label before the transaction lands.**
+>
+> It is also not enclave attestation. It covers the source tree, not the Node
+> version, the resolved dependency tree, the base image, or the fact that the
+> deployed process is running this source at all.
+
+**Phone-width CSS added, and not verified.** Stacking at 1100px already existed
+and is well-reasoned; below it, three fixed-width flex rows still overflowed the
+viewport — the Rogue Mode scoreboard, both topbars, and the console's contract
+strip. A page that scrolls sideways reads as broken before anyone has read a
+word of it, and FINALE_PLAN's own Phase 1 exit criterion is *"on a phone, on
+cellular"*. A `640px` breakpoint wraps them. **Verified only as CSS**: every
+selector in it was checked against the markup — two of my first draft's
+selectors (`.con-balance-value`, `.pg-kv-value`) did not exist at all, and
+`.amount.con-balance` was already `clamp(40px, 6vw, 72px)`, so a second
+font-size there would have fought the clamp and won. Both breakpoints ship:
+
+```
+@media (max-width:1100px)
+@media (max-width:640px)
+```
+
 ### Still open after Phases 5–7
 
 - **Not seen in a browser.** The Chrome extension is not connected on this
   machine. `/` and the playground's new mode tags and rehearsal-reset button are
   verified by served HTML, built CSS and live HTTP only.
 - **The `injected` mode has still only run through the page parser.** Both API
-  keys are empty, so the Claude reader in `extract.ts` has never executed. The
-  parser reads the SKU's own row, so what is demonstrated today is that a
-  *declared counterparty* and a *stated price* can be moved by the page. Set
-  `ANTHROPIC_API_KEY` and re-run before claiming the model path.
+  keys are empty, so the Claude reader in `extract.ts` has never executed
+  against the real API. The parser reads the SKU's own row, so what is
+  demonstrated today is that a *declared counterparty* and a *stated price* can
+  be moved by the page. `test/extract.test.ts` now drives that branch with a
+  stubbed SDK — refusal, thrown error, non-JSON and six kinds of out-of-range
+  amount all fall back to the parser rather than becoming a price — so the code
+  *around* the call is known-good. That is not the same as the call working.
+  Set `ANTHROPIC_API_KEY` and re-run before claiming the model path.
 - **`overreach` settles a real payment every run.** ₹480 of INRx and deployer
   gas per rehearsal. Watch the window headroom.
 - **The deck still says 147.** The suite is 99. Fix the slide.
