@@ -767,6 +767,71 @@ If asked whether the model really falls for it: **no, not this one.**
 > text back off the rendered page to confirm it is really there** — the inject
 > endpoint returning `{'injected': True}` only means it stored *something*.
 
+### The LLM adversary generator: two bugs, and what the boundaries actually do
+
+`HONESTY_PLAN` 1.2 asked whether to build the `novel` path properly or delete
+the counter. With a real key it could finally be run, and it was broken in two
+independent ways.
+
+**1. An Anthropic key could never have worked.** `run_generator` accepted
+`OPENAI_API_KEY or ANTHROPIC_API_KEY`, then `_llm_generate_variant` sent
+whichever it found to `api.openai.com` as a `Bearer` token with model
+`gpt-4o-mini`. Measured: **`HTTP Error 401: Unauthorized`**, every time. The
+fallback was not a fallback — it made the generator *look* configured while
+guaranteeing it produced nothing, and the failure printed as a bare "LLM call
+failed" with no provider and no status code. Now it picks the provider from
+whichever key is present, talks to the Anthropic Messages API when that is the
+one, and logs `provider HTTP <code>: <body>` on failure.
+
+Working, against `claude-haiku-4-5` (cheapest fast model, as `BUILD.md` asks for
+a loop that fires hundreds of calls):
+
+```
+[adversary/generator] using anthropic
+technique: 'Nonce Rotation Desynchronization'   novel results: 6
+```
+
+**2. Three of the four boundary probes were dead code.** The loop built four
+FactSheets and then `return`ed at the end of its first iteration. Only "amount
+exactly at perTxCap" had ever been sent. Now all four run and the **worst**
+outcome is reported, so one probe getting through is never averaged away by
+three that did not.
+
+**What the boundaries actually do** (`scripts/verify-boundaries.py`, each sent
+on its own with a fresh lease):
+
+```
+amount exactly at perTxCap        APPROVED   binding=None
+amount one paisa over perTxCap    REFUSED    binding=perTxCap
+amount zero                       APPROVED   binding=None
+priceBandZ 127, tier 2, age 25    REFUSED    binding=counterpartyTier
+nonce at uint32 max               APPROVED   binding=None
+```
+
+Read it line by line, because three of these are *not* what they look like:
+
+- **The cap boundary is exactly right.** At the cap approves, one paisa over
+  refuses on `perTxCap`. The cap is `<=`, deliberately, and this is the test
+  that proves the off-by-one is correct rather than lucky.
+- **A zero-amount payment is APPROVED and co-signed.** Minor — no money moves —
+  but it consumes a nonce and a lease. There is no minimum-amount predicate.
+  **Disclosed, not fixed:** adding one to the evaluator alone would break the
+  10,000/10,000 agreement with the deployed Solidity, and `PolicyModule` is
+  already deployed and verified. Change both or neither.
+- **The priceBandZ probe never reaches the price band.** It declares tier 2,
+  which does not match the on-chain registry, so it dies at predicate 8
+  (`counterpartyTier`) before the soft predicates run at all. The probe does not
+  test what its comment claims.
+- **The "nonce near overflow" probe is not near an overflow.** The nonce is
+  `uint64` on chain; `2^32 - 1` is an ordinary value and approving it is
+  correct.
+
+**The `novel` counter stays off the scoreboard.** The generator now runs, but
+only the technique *name* comes from the model — the attempt is the fixed set of
+boundary sheets above. A model-authored string over a code-authored probe is not
+a model-authored attack, and putting a `novel` count on screen would imply the
+latter.
+
 ### Still open after Phases 5–7
 
 - ~~**Not seen in a browser.**~~ **Done** — all three routes rendered, M1 and M3

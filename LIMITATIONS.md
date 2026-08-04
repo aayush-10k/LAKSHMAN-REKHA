@@ -317,9 +317,26 @@ tier-2 counterparty.
 - [ ] No mock deposit or credit line (`BUILD.md:46`)
 - [ ] Simulation-speed slider removed — it was wired to nothing. The task
       engine's fast clock is real but has no HTTP control
-- [ ] `novel` counter removed from the scoreboard. The LLM generator needs an API
-      key, was never invoked by the UI, and derived its "novel" attempts from
-      four hardcoded probes regardless of what the model returned
+- [ ] **A zero-amount payment is APPROVED and co-signed.** There is no
+      minimum-amount predicate, so `amountMinor: 0` passes all 14 and gets the
+      core's signature. No money moves, but it consumes a nonce and a lease.
+      Found 4 Aug 2026 by `scripts/verify-boundaries.py`.
+      **Deliberately not fixed before the demo:** adding the predicate to the
+      TypeScript evaluator alone would break the 10,000/10,000 differential
+      agreement with `PolicyModule.validate`, and the contract is already
+      deployed and source-verified on Base Sepolia. Change both or neither.
+      Worth noting the same probe proved the per-tx cap boundary is exactly
+      right — at the cap approves, one paisa over refuses on `perTxCap`
+- [ ] `novel` counter stays off the scoreboard, and the reason is now sharper.
+      The generator **works** as of 4 Aug 2026 — it had two bugs and both are
+      fixed: it sent an Anthropic key to `api.openai.com` (a guaranteed 401, so
+      it could never have produced anything), and three of its four boundary
+      probes were dead code behind an early `return`. It now runs against
+      `claude-haiku-4-5` and exercises all four. **But only the technique NAME
+      comes from the model** — the attempt itself is the fixed set of boundary
+      FactSheets. A model-authored string over a code-authored probe is not a
+      model-authored attack, and a `novel` count on screen would imply the
+      latter. Build real model-authored attempts or leave the counter off
 - [ ] Deck slide 5 cites Halmos output; there are no Halmos proofs. What exists
       is Foundry invariant fuzzing plus 10,000/10,000 differential agreement
 
