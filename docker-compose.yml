@@ -11,8 +11,35 @@
 #
 # Egress restrictions:
 #   vendorsim  — no internet (pure in-memory catalogue)
-#   core       — the only service with internet, for the Base Sepolia RPC
-#   agent      — core + vendorsim only, no internet
+#   core       — internet, for the Base Sepolia RPC
+#   agent      — internet, for the Base Sepolia RPC, ON PURPOSE — see below
+#
+# ── Why the agent is NOT network-isolated ───────────────────────────────────
+#
+# It used to be, and that was a mistake dressed up as a security property.
+#
+# Attack classes 5 and 7 (rail bypass, core impersonation) exist to demonstrate
+# that an agent holding a real key, in the attacker's own position, still cannot
+# move money — because `coreSig` recovers to an address that is not `coreSigner`
+# and PolicyModule refuses. The probe deliberately runs in the AGENT process for
+# that reason (`agent/runner.ts:543`: "The claim is that the core is not what
+# stops this"). It `eth_call`s the deployed contract and reports whatever the
+# chain actually says, including a result that would prove the claim false.
+#
+# Cut the agent off from the internet and that probe cannot run. Measured in
+# this stack before the change: both classes came back
+# `NOT TESTED — NETWORK_ERROR`, and Rogue Mode showed "2 errored" on screen.
+#
+# The deeper problem is what isolation would have meant if it HAD looked like it
+# worked: the thing preventing the bypass would be a Docker network, not the
+# signature check. That is precisely the claim this project exists to refute —
+# enforcement must not depend on the agent being contained. An agent that can
+# reach the chain and still cannot spend is the whole demonstration.
+#
+# Defence in depth would run both, and a production deployment should. But it
+# must be stated in that order: the cryptography is what stops it, and the
+# network policy is a second layer that must never be what the claim rests on.
+# vendorsim stays isolated because it genuinely has no reason to reach out.
 #
 # Screenshot this and put it on the architecture slide.
 
@@ -139,6 +166,17 @@ services:
       # "the vendor registry could not be read", and the agent — which CAN reach
       # vendorsim and had already proved it — looked like the culprit.
       - VENDORSIM_URL=http://vendorsim:4100
+      # The adversary runs inside THIS container and mounts attack classes 5 and
+      # 7 by POSTing to the agent's /rail-bypass. Its default is
+      # http://localhost:4200, which in here is nothing — so both classes came
+      # back `NOT TESTED — NETWORK_ERROR` and Rogue Mode reported "2 errored".
+      #
+      # Those two are the only classes that reach the deployed contract, so
+      # losing them costs the on-chain half of the enforcement claim while the
+      # scoreboard still looks broadly fine. `_bypass_via_agent` refuses to score
+      # an unreachable agent as `blocked`, which is the only reason this was
+      # visible at all rather than being counted as a successful defence.
+      - AGENT_URL=http://agent:4200
       - DATABASE_URL=${DATABASE_URL:-}
       - CORE_SIGNER_PRIVATE_KEY=${CORE_SIGNER_PRIVATE_KEY:-}
       # The key that PAYS GAS, which is not the key that signs. `execute` is
@@ -192,11 +230,19 @@ services:
     ports:
       - "4200:4200"
     networks:
-      - rekha-svc        # core + vendorsim only — no internet egress
+      rekha-svc: {}
+      # Chain access, deliberately. See the header note: without it the
+      # rail-bypass probe cannot run and the demo would be relying on a Docker
+      # network rather than on the signature check.
+      rekha-external:
+        gw_priority: 100
     environment:
       - AGENT_PORT=4200
       - CORE_URL=http://core:4000
       - VENDORSIM_URL=http://vendorsim:4100
+      # The rail-bypass probe eth_calls the deployed RekhaAccount from this
+      # process. Without an RPC it cannot reach the chain to lose to it.
+      - BASE_SEPOLIA_RPC=${BASE_SEPOLIA_RPC:-https://sepolia.base.org}
       # Must be byte-identical to the core's, or the two sides build different
       # PaymentRequest structs and the chain rejects InvalidAgentSignature.
       - CORE_IMAGE_DIGEST=${CORE_IMAGE_DIGEST:-0x0100000000000000000000000000000000000000000000000000000000000000}

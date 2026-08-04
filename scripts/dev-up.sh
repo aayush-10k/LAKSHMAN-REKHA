@@ -18,13 +18,49 @@ mkdir -p "$LOGS"
 
 port_up() { ss -ltn 2>/dev/null | grep -q ":$1 "; }
 
+# Is the containerised stack holding these ports?
+#
+# It can be, since `docker compose up` publishes 4000/4100/4200 and the
+# containers carry `restart: unless-stopped`, so they come back on their own
+# after a reboot. Without this check the script is quietly wrong in both
+# directions: `start` guards on port_up, so it would find the ports taken, start
+# nothing, and report UP — and you would edit source and wait for a hot reload
+# that is never coming. `stop` would pkill host processes that do not exist,
+# then report UP, because the containers still hold the ports.
+compose_up() { command -v docker >/dev/null 2>&1 && [ -n "$(docker compose ps -q 2>/dev/null)" ]; }
+
+warn_if_containers() {
+  compose_up || return 0
+  echo
+  echo "  NOTE: the containerised stack is running and holds these ports."
+  echo "        docker compose ps      what is up"
+  echo "        docker compose down    stop it, to use the host services instead"
+  echo "        Host services do NOT hot-reload your edits while containers serve these ports."
+}
+
 status() {
   for p in 4000 4100 4200 4300 3000; do
-    if port_up "$p"; then echo "$p UP"; else echo "$p down"; fi
+    if port_up "$p"; then
+      echo "$p UP"
+    elif [ "$p" = 4300 ] && compose_up; then
+      # Not a failure. In the containerised stack the adversary runs on
+      # loopback INSIDE the core container and is deliberately not published —
+      # only the core ever calls it, via POST /v1/adversary/run.
+      echo "4300 down on the host — running inside rekha-core, as intended"
+    else
+      echo "$p down"
+    fi
   done
+  warn_if_containers
 }
 
 start() {
+  if compose_up; then
+    echo "The containerised stack is already serving these ports. Not starting host services."
+    echo "Run 'docker compose down' first if you want the host ones."
+    status
+    return 0
+  fi
   set -a; [ -f .env ] && . ./.env; set +a
 
   # setsid, not bare nohup. These are launched from `wsl -- bash -lc "..."`,
@@ -52,6 +88,9 @@ stop() {
   pkill -f 'adversary/runner.py'   2>/dev/null
   pkill -f 'runner.py'             2>/dev/null
   sleep 1
+  # Deliberately does not touch containers. `stop` means "stop what this script
+  # started"; tearing down a stack this script did not bring up would be a
+  # surprise. The note from status() says what is still holding the ports.
   status
 }
 
