@@ -1386,6 +1386,10 @@ vendor age would silently do nothing. Now `VENDORSIM_URL`.
 - **The remote is `aayush-10k/LAKSHMAN-REKHA`**, not this user's repo. Confirm
   push access. `origin/main` and `finale/frontend` were identical on 2026-08-04,
   so FIXLOG3's "not pushed" note is stale — those 7 commits did land.
-- **The seven commits from the Phase 5–7 session are committed but NOT pushed.**
-  Nobody asked for a push and the remote is not this user's, so it was left
-  alone. `git log origin/finale/frontend..finale/frontend` shows what is waiting.
+- **`finale/frontend` has no upstream and does not exist on the remote.**
+  `git branch -r | grep finale` returns nothing, so
+  `git log origin/finale/frontend..` errors rather than showing zero. Measured
+  4 Aug 2026: **`git rev-list --count origin/main..HEAD` → 13** — the five
+  commits from the earlier sessions plus the eight from Phases 5–7. Nothing was
+  pushed; nobody asked, and the remote is not this user's. The first push needs
+  `git push -u origin finale/frontend`.
