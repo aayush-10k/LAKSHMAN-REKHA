@@ -45,6 +45,25 @@ type FeedRow = {
   note?: string;
 };
 
+/**
+ * Evaluation latency, without overstating the precision we have.
+ *
+ * `trace.latencyMs` is genuinely 0 for almost every decision — the evaluator is
+ * sub-millisecond — but rendering a literal `0ms` on every row reads as
+ * *not measured* rather than *fast*, which is the opposite of what it means and
+ * the first thing a judge squints at. Seen on a real console: every row said
+ * `0ms`.
+ *
+ * `<1ms` is the honest statement of what a millisecond-resolution clock can
+ * tell us. It is deliberately NOT a fabricated figure — FINALE.md's mock shows
+ * `380ms` and inventing something like it would be exactly the kind of thing
+ * FIXLOG3 exists to stop. If a real number is wanted, measure in microseconds
+ * in the core; do not make one up here.
+ */
+function formatLatency(ms: number): string {
+  return ms > 0 ? `${ms}ms` : '<1ms';
+}
+
 type MandateSnapshot = {
   frozen: boolean;
   revocationEpoch: number;
@@ -652,7 +671,7 @@ export default function ConsolePage() {
                     <div className="con-row-meta">
                       <span className={`con-row-state con-state-${row.state}`}>{STATE_LABEL[row.state]}</span>
                       {row.note && <span className="con-row-note">{row.note}</span>}
-                      {row.latencyMs !== undefined && !row.note && <span>{row.latencyMs}ms</span>}
+                      {row.latencyMs !== undefined && !row.note && <span>{formatLatency(row.latencyMs)}</span>}
                       {row.state === 'refused' && row.trace?.bindingPredicate && !row.note && (
                         <span className="con-row-binding">{row.trace.bindingPredicate}</span>
                       )}

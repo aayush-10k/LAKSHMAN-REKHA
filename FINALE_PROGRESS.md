@@ -27,13 +27,10 @@ Phase 7  landing page                █████████░ DONE — ser
 **The only thing blocking Phase 1 is Railway and Vercel accounts.** Every code
 change hosting needs is written and verified as far as it can be without them.
 
-**Phases 5–7 have not been seen in a browser.** The Chrome extension is not
-connected on this machine (`tabs_context_mcp` → "Browser extension is not
-connected"), so `/` and the new playground controls are verified by served HTML,
-built CSS and live HTTP only. `/console`'s own notes are the warning: the
-predicate-table overflow and `allowedDevOrigins` were both invisible until a
-real browser rendered the page. **Open `/` and `/playground` at 1600×950 before
-trusting either layout.**
+**All three routes have now been rendered in Chrome** — see "Seen in a browser"
+below. `/playground` had never been opened before this session; doing so found a
+real bug within minutes, which is the fourth time that has happened on this
+project.
 
 ---
 
@@ -535,11 +532,129 @@ font-size there would have fought the clamp and won. Both breakpoints ship:
 @media (max-width:640px)
 ```
 
+### Seen in a browser — and the bug that only showed up there
+
+Chrome, against the running stack, at 1280×609 CSS px (the display is 1280 wide
+at dpr 2; Chrome will not size a window past the screen).
+
+**The bug: the task row showed the planner's estimate, not what the agent asked
+for.** `playground/page.tsx:919` rendered `item.estimatedAmountMinor` — computed
+before the agent ever opened the storefront — and kept rendering it after the
+result came back. An `injected` dispatch where the page talked the agent into
+paying **₹9,99,800 to `0xdeadbeef…`** displayed as **₹480**. The one number on
+screen was the one number the agent did not use.
+
+It was wrong in every mode. Reading the price off a live page is the whole point
+of browsing, so estimate and actual are *expected* to differ — the difference is
+the story. `hallucinating` would have shown ₹480 for a ₹1,20,000 attempt. Fixed;
+the row now reads:
+
+```
+ven_meridian    ₹9,99,800    REFUSED · counterpartyTier
+the storefront moved this off the registry's ₹480
+paid to 0xdeadbeef…c0ffee
+```
+
+Both extra lines stay silent on an ordinary purchase. An in-flight dispatch
+still shows the estimate, labelled `EST`.
+
+**M1, live.** Clicked "Pay itself, without the core":
+
+```
+agent 0x6E19cA…00d5 · tried to take ₹25,000
+InvalidCoreSignature          bound on coreSignature
+"It isn't blocked. It's incapable."
+```
+
+**M3, live — and the Rekha snap has now actually been observed.** Screenshots
+race a 2600 ms animation and land on the healed line, so this was sampled from
+inside a single `getComputedStyle` poll at 80 ms:
+
+```
+ceremony      is-done | is-broken | is-broken     "broken at round 2 of 3"
+
++0ms      idle   stroke rgb(237,234,227)  dash 1000px            anim none
++1173ms   snap   stroke rgb(255,77,77)    dash 0, 20.6, 1000     anim rekha-snap
++1258ms   snap                            dash 0, 66.6, 1000
++1425ms   snap                            dash 0, 90.0, 1000   ← fully open
+```
+
+The 90-thousandths gap at the **start** of the path is the break at top-centre,
+exactly as Phase 2 specified. ~1173 ms between the revoke click and the snap is
+the SSE round trip for `ceremony.aborted`. Nothing settled.
+
+**The rehearsal reset works from the UI.** After the revoke the button appears,
+clears the freeze, disappears, and `REVOKE` goes back from `REVOKED`. Confirmed
+against the backend afterwards: `frozen=False revocationEpoch=0`, leases issuing.
+
+**M2, live — and the flare fires.** Rogue Mode driven from the browser. 157
+samples caught the pulse:
+
+```
+stroke rgb(255,77,77)   dash 120px, 880px   anim rekha-flare
+```
+
+120 thousandths of the perimeter travelling along the line, exactly as Phase 2
+specified. The scoreboard renders the Phase 5.1 split **live**:
+
+```
+99 ATTEMPTS · 26 INPUT BOUNDARY · 36 POLICY PREDICATES · 2 ON CHAIN
+35 CORE-APPROVED, UNSETTLED (--lien)      ₹0 LOST · NOTHING SETTLED (--clear)
+```
+
+99 attack rows, each carrying its stage and the real reason.
+
+> **Rogue Mode takes about two minutes before anything appears, and that is by
+> design.** `api/routes/adversary.ts:88` replays the events onto the SSE bus
+> only after the whole run returns, then paces them. The strip sits at 0 the
+> entire time. **Do not press it and start talking** — start it, move to another
+> beat, and come back. Two separate attempts here looked like a hung button.
+>
+> Also: **Dispatch does nothing without a description**, in every mode including
+> Compromised, where the text is otherwise unused. The first Rogue Mode attempt
+> silently did nothing for that reason.
+
+**Everything else that was checked:**
+
+```
+/            Rekha idle, chalk at 0.4 opacity · InvalidCoreSignature 60px --breach
+             settled tx hashes in --clear · disclosure renders
+/console     LIVE — ₹4,36,414.00 from chain, spent ₹35,688 of ₹1,00,000
+             core up · lease 15.0s · 100 feed rows · columns 768px/512px
+             placeholder-digest warning in --lien
+/playground  columns 340/620/320 · Rekha present and idle
+             mode tags in Geist Mono: perTxCap, counterpartyTier,
+             categoryPermitted, counterpartyTier · zero is-unwired elements
+             ₹0 at 54px in --clear, the largest figure on the strip
+             predicate table opens with 8 rows and 2 binding badges
+```
+
+**The 640px breakpoint, tested properly.** Chrome would not shrink the window
+below screen width, so each route was loaded into a **426px same-origin
+iframe** — media queries resolve against the iframe's viewport, so this is a
+genuine phone-width render:
+
+```
+route        matches640   horizontal scroll   overflowing elements
+/            true         NO                  0
+/console     true         NO                  0
+/playground  true         NO                  0
+
+pg-body       340/620/320  ->  single column
+rogue scores  nowrap       ->  wrap
+lost figure   54px         ->  38px, margin-left auto -> 0
+balance       72px         ->  40px — the clamp's own floor, which is why
+                               deleting my invented .con-balance-value rule
+                               was the right call
+```
+
 ### Still open after Phases 5–7
 
-- **Not seen in a browser.** The Chrome extension is not connected on this
-  machine. `/` and the playground's new mode tags and rehearsal-reset button are
-  verified by served HTML, built CSS and live HTTP only.
+- ~~**Not seen in a browser.**~~ **Done** — all three routes rendered, M1 and M3
+  driven live, the snap observed, phone width tested in an iframe. See above.
+  `/kitchen-sink`, the console's held row + Cancel, and the Rogue Mode flare are
+  all done too. **Every surface in this product has now been rendered and every
+  moment driven live.** Nothing on the UI is unverified.
 - **The `injected` mode has still only run through the page parser.** Both API
   keys are empty, so the Claude reader in `extract.ts` has never executed
   against the real API. The parser reads the SKU's own row, so what is
@@ -1010,12 +1125,22 @@ Display-only; no value is altered.
 
 ### Still open on `/console`
 
-- **Every row reads `0ms`.** That is genuinely what `trace.latencyMs` returns —
-  the evaluator is sub-millisecond — but on a projector `0ms` reads as
-  *not measured* rather than *fast*. FINALE.md's mock shows `380ms`. Either
-  report sub-millisecond honestly (`<1ms`) or measure in µs. Do not invent one.
-- **A held payment has never been exercised**, so the inline countdown ring and
-  the Cancel button are still untested against real data.
+- ~~**Every row reads `0ms`.**~~ **Fixed** — `formatLatency()` renders `<1ms`
+  when the value is 0. Seen on a real console first: every single row said
+  `0ms`, which reads as *not measured* rather than *fast*, the opposite of what
+  it means. `<1ms` is the honest statement of what a millisecond-resolution
+  clock can say. **No figure was invented** — FINALE.md's mock shows `380ms` and
+  producing something like it is exactly what FIXLOG3 exists to stop. If a real
+  number is wanted, measure in µs in the core.
+- ~~**A held payment has never been exercised.**~~ **Done, in the browser.**
+  Dispatched `buy 3 CPU worker hours` with the console open, so the row was
+  driven by a live SSE event rather than a boot read:
+  ```
+  ₹48  Cloud Harbor Compute  ·  held  ·  <1ms  ·  80s left  ·  [Cancel payment]
+  left border rgb(240,162,2) = --lien exactly     hero: held ₹48
+  ```
+  Cancel then took the hero total ₹48 → ₹0 and removed the ring and the button
+  from the row. The whole amber affordance is verified end to end.
 - Windows **can** reach WSL on `localhost` on this machine — a direct fetch to
   `http://localhost:4000/health` from the browser returned 200. The note further
   down claiming localhost forwarding is off is stale for the current session.
