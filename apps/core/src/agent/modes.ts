@@ -87,13 +87,44 @@ export type ModeNotes = string[];
 /**
  * How far `hallucinating` overshoots.
  *
- * 250× is not arbitrary. The cheapest thing in the catalogue is a ₹2.40 tamper
- * cap, and the per-tx cap is ₹25,000 — so a factor that clears the cap even on
- * the cheapest single-unit request has to be large. 250 × 200 caps × ₹2.40 is
- * ₹1,20,000, comfortably past both the per-tx cap and the ₹1,00,000 window.
- * A model that miscounts a zero is the realistic failure; this is that, twice.
+ * A flat multiplier is not enough, and the first version of this was wrong in a
+ * way only a test caught. 250× on the demo phrase — 200 tamper caps at ₹2.40 —
+ * lands on ₹1,20,000, past both the ₹25,000 per-tx cap and the ₹1,00,000
+ * window. 250× on *one* tamper cap lands on ₹600, which **settles**. A judge
+ * who typed "buy 1 tamper cap" in Hallucinating mode would have watched the
+ * corrupted agent make an ordinary purchase.
+ *
+ * So the quantity is sized from the planner's own estimate to land near
+ * `HALLUCINATION_TARGET_MINOR`, with the flat factor as a floor. On the demo
+ * phrase the two agree exactly — 200 × 250 and 12,000,000 ÷ 240 are both
+ * 50,000 units — so the number on screen does not change; it just also works
+ * for everything else in the catalogue.
+ *
+ * A model that miscounts by orders of magnitude is the realistic failure. This
+ * is that, plus the same line item submitted twice because it lost track.
  */
 const HALLUCINATION_FACTOR = 250;
+
+/** ₹1,20,000 — past the ₹25,000 per-tx cap AND the ₹1,00,000 rolling window. */
+const HALLUCINATION_TARGET_MINOR = 12_000_000;
+
+/**
+ * The quantity a hallucinating agent reads instead of the real one.
+ *
+ * `estimatedAmountMinor` is the planner's `units × registry price`, so dividing
+ * it by the quantity recovers the unit price without another catalogue lookup.
+ * A zero or missing estimate falls back to the flat factor rather than dividing
+ * by zero and proposing something the schema validator rejects.
+ */
+function hallucinatedQuantity(item: ModeLineItem): number {
+  const quantity = Math.max(1, item.quantity);
+  const floor = quantity * HALLUCINATION_FACTOR;
+
+  const unitMinor = Math.floor(item.estimatedAmountMinor / quantity);
+  if (!Number.isFinite(unitMinor) || unitMinor <= 0) return floor;
+
+  return Math.max(floor, Math.ceil(HALLUCINATION_TARGET_MINOR / unitMinor));
+}
 
 /**
  * The plan, after the mode has had its way with it.
@@ -116,7 +147,7 @@ export function warpPlan(
     // submitted twice because the agent lost track of what it had already done.
     const inflated = plan.map((item) => ({
       ...item,
-      quantity: Math.max(1, item.quantity) * HALLUCINATION_FACTOR,
+      quantity: hallucinatedQuantity(item),
     }));
     const first = inflated[0];
     if (first === undefined) return { plan, notes };
@@ -135,8 +166,8 @@ export function warpPlan(
     };
 
     notes.push(
-      `Quantities re-read as ${inflated.map((i) => i.quantity).join(', ')} — ` +
-        `${HALLUCINATION_FACTOR}× what was asked for.`,
+      `Quantities re-read as ${inflated.map((i) => i.quantity.toLocaleString('en-IN')).join(', ')} — ` +
+        `orders of magnitude past what was asked for.`,
       `Re-submitting ${first.productName} a second time; no record of having ordered it already.`,
     );
     return { plan: [...inflated, duplicate], notes };
@@ -390,7 +421,7 @@ export function warpFactSheet(
 export function describeMode(mode: BehaviourMode): string | null {
   switch (mode) {
     case 'hallucinating':
-      return `Quantities multiplied by ${HALLUCINATION_FACTOR} and one line item submitted twice.`;
+      return 'Quantities read orders of magnitude too large, and one line item submitted twice.';
     case 'overreach':
       return 'An extra line item nobody asked for, chosen for being out of scope.';
     case 'colluding':
