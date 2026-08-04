@@ -119,9 +119,27 @@ async function getCore(path: string): Promise<{ status: number; json: any }> {
   return { status: res.status, json: await res.json().catch(() => null) };
 }
 
-/** Display-only narration. Never load-bearing, so a failure is ignored. */
+/**
+ * Display-only narration. Never load-bearing, so a failure never fails the
+ * dispatch — but it is no longer silent.
+ *
+ * The `agent.thought` stream IS the demo: on /playground it is the legible
+ * story a judge follows, and if the core rejects these the centre column simply
+ * stays empty with nothing anywhere saying why. Warned once per process, since
+ * a broken event endpoint would otherwise print a line for every sentence the
+ * agent says.
+ */
+let sayFailureLogged = false;
 async function say(taskId: string, text: string): Promise<void> {
-  await postCore('/v1/agent/event', { t: 'agent.thought', taskId, text }).catch(() => {});
+  await postCore('/v1/agent/event', { t: 'agent.thought', taskId, text }).catch((e: Error) => {
+    if (!sayFailureLogged) {
+      sayFailureLogged = true;
+      console.warn(
+        `[agent] narration is not reaching the core, so the thought stream will be empty: ${e.message}. ` +
+        'Dispatches still run; only the commentary is lost.',
+      );
+    }
+  });
 }
 
 /**

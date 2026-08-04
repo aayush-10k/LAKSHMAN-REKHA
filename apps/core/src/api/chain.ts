@@ -253,11 +253,23 @@ export async function broadcastExecute(
 const policyRead = (functionName: string, args: unknown[] = []) =>
   publicClient().readContract({ address: POLICY_MODULE_ADDRESS, abi: policyAbi(), functionName, args });
 
-/** Has PolicyModule already burned this nonce? Unreachable chain => treat as used. */
+/**
+ * Has PolicyModule already burned this nonce? Unreachable chain => treat as used.
+ *
+ * Failing closed is right. Failing closed SILENTLY is not: the refusal that
+ * comes out the other end names predicate 6 and reads exactly like a replay
+ * attack, so a dead RPC on stage looks like the demo catching an attack rather
+ * than the demo being unable to see the chain. The log line is the only thing
+ * that tells those two apart.
+ */
 export async function nonceUsedOnChain(nonce: number): Promise<boolean> {
   try {
     return (await policyRead('usedNonces', [BigInt(nonce)])) as boolean;
-  } catch {
+  } catch (e) {
+    console.warn(
+      `[chain] usedNonces(${nonce}) unreadable, failing closed as ALREADY USED — ` +
+      `predicate 6 will refuse. This is an RPC failure, not a replay: ${(e as Error).message}`,
+    );
     return true;
   }
 }
@@ -269,11 +281,21 @@ export async function nonceUsedOnChain(nonce: number): Promise<boolean> {
  * Deliberately not the FactSheet and not the vendor catalogue: both are reachable
  * by the agent, and trusting either is precisely the counterfeit-storefront
  * attack. 0 means unknown, which the evaluator blocks.
+ *
+ * Same reason as `nonceUsedOnChain` for the log line: an unreadable tier and a
+ * genuinely unregistered counterparty both surface as `counterpartyTier`
+ * refusals with registry 0, and on stage that is the difference between "the
+ * chain caught the counterfeit" and "we cannot reach the chain".
  */
 export async function counterpartyTierOnChain(address: string): Promise<number> {
   try {
     return Number((await policyRead('counterpartyTier', [getAddress(address)])) as number | bigint);
-  } catch {
+  } catch (e) {
+    console.warn(
+      `[chain] counterpartyTier(${address}) unreadable, failing closed as tier 0 — ` +
+      `predicate 8 will refuse. This is an RPC failure, not an unregistered ` +
+      `vendor: ${(e as Error).message}`,
+    );
     return 0;
   }
 }

@@ -123,11 +123,15 @@ export function warpPlan(
 
     const duplicate: ModeLineItem = {
       ...first,
-      // Same task, next slot. API.md §3 requires li_<hex>_<2 digits>, and the
-      // planner only ever emits _01, so _02 is free and still valid — an
-      // invalid id would die at the schema validator and never reach a
-      // predicate, which would prove the wrong thing.
-      lineItemId: `${first.lineItemId.slice(0, -2)}02`,
+      // Same task, next free slot. API.md §3 requires li_<hex>_<2 digits>, and
+      // an invalid id dies at the schema validator without ever reaching a
+      // predicate — which would prove the wrong thing entirely.
+      //
+      // Derived from the highest slot in the plan rather than hardcoded to _02.
+      // The planner emits only _01 today, so _02 was free; the day it emits two
+      // line items, a hardcoded _02 would collide with a real one and the core
+      // would see two different payments claiming the same id.
+      lineItemId: nextLineItemSlot(inflated),
     };
 
     notes.push(
@@ -144,7 +148,7 @@ export function warpPlan(
     // SKU→category lookup the FactSheet boundary uses (extract.ts), so this is
     // not a hardcoded pointer at PixelVault: it is whatever the live catalogue
     // currently sells that falls outside the permitted set.
-    const extra = findOutOfScopeItem(catalog, plan[0]);
+    const extra = findOutOfScopeItem(catalog, plan);
     if (extra === null) {
       notes.push(
         'Nothing out of scope was available in the registry, so this run is indistinguishable from normal. ' +
@@ -164,6 +168,24 @@ export function warpPlan(
 }
 
 /**
+ * The next free `_NN` slot for a plan's task, as `li_<hex>_<2 digits>`.
+ *
+ * Capped at 99 because the id format is two digits; a plan that long is not
+ * something any mode should be inventing, so it reuses the last slot rather
+ * than emitting an id the schema validator would reject.
+ */
+function nextLineItemSlot(plan: ModeLineItem[]): string {
+  const first = plan[0];
+  if (first === undefined) return 'li_000000_02';
+  const prefix = first.lineItemId.slice(0, -2);
+  const highest = plan.reduce((max, item) => {
+    const slot = Number(item.lineItemId.slice(-2));
+    return Number.isFinite(slot) && slot > max ? slot : max;
+  }, 0);
+  return `${prefix}${String(Math.min(highest + 1, 99)).padStart(2, '0')}`;
+}
+
+/**
  * The most expensive thing in the registry whose category is NOT the one the
  * task asked for, preferring `SOFTWARE` because that is the single category the
  * deployed PolicyModule refuses (`permittedCategories = 223`, bit 5 clear).
@@ -173,8 +195,9 @@ export function warpPlan(
  */
 function findOutOfScopeItem(
   catalog: CatalogVendor[],
-  requested: ModeLineItem | undefined,
+  plan: ModeLineItem[],
 ): { vendorId: string; item: ModeLineItem } | null {
+  const requested = plan[0];
   type Candidate = { vendorId: string; product: CatalogProduct; category: CategoryCode };
   const candidates: Candidate[] = [];
 
@@ -199,12 +222,11 @@ function findOutOfScopeItem(
   const best = candidates[0];
   if (best === undefined) return null;
 
-  const base = requested?.lineItemId ?? 'li_000000_01';
   return {
     vendorId: best.vendorId,
     item: {
-      // _09 so it can never collide with the planner's _01 or hallucinating's _02.
-      lineItemId: `${base.slice(0, -2)}09`,
+      // The next free slot in this task, same as hallucinating's duplicate.
+      lineItemId: nextLineItemSlot(plan),
       vendorId: best.vendorId,
       categoryCode: best.category,
       estimatedAmountMinor: best.product.amountMinor,
