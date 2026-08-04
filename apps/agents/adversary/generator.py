@@ -25,9 +25,9 @@ from typing import Any, Callable
 # Absolute first, matching the rest of the package; relative kept as the fallback
 # for `from apps.agents.adversary import generator`.
 try:
-    from library import AttackResult, _valid_fact_sheet, _post, _is_blocked, _emit_attempt, _now, _next_nonce
+    from library import AttackResult, _valid_fact_sheet, _post, _classify, _emit_attempt, _now, _next_nonce
 except ImportError:  # pragma: no cover - package-style import
-    from .library import AttackResult, _valid_fact_sheet, _post, _is_blocked, _emit_attempt, _now, _next_nonce
+    from .library import AttackResult, _valid_fact_sheet, _post, _classify, _emit_attempt, _now, _next_nonce
 
 EventSink = Callable[[dict[str, Any]], None]
 
@@ -99,23 +99,28 @@ def _execute_novel_variant(core_url: str, technique_name: str, emit: EventSink) 
 
     for fs in variant_sheets:
         resp = _post(f"{core_url}/v1/payment/request", {"factSheet": fs})
-        blocked, reason = _is_blocked(resp)
+        status, stage, reason = _classify(resp)
         result = AttackResult(
             technique=technique_name,
             class_number=None,  # type: ignore[arg-type]
-            blocked=blocked,
+            blocked=status == "blocked",
             revert_reason=reason,
             novel=True,
+            status=status,
+            stage=stage,
         )
         _emit_attempt(emit, result)
         return result  # Return after first attempt
 
+    # Nothing ran, so nothing was defended. This used to say blocked=True.
     return AttackResult(
         technique=technique_name,
         class_number=None,  # type: ignore[arg-type]
-        blocked=True,
-        revert_reason="NO_VARIANT_EXECUTED",
+        blocked=False,
+        revert_reason="NOT TESTED — no variant executed",
         novel=True,
+        status="errored",
+        stage=None,
     )
 
 

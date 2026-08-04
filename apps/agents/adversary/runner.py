@@ -62,21 +62,41 @@ class Handler(BaseHTTPRequestHandler):
 
         all_results = det_results + llm_results
         total = len(all_results)
-        blocked = sum(1 for r in all_results if r.blocked)
-        novel_count = sum(1 for r in llm_results)
+
+        # Counted from the results, never assumed. `fundsLostMinor` used to be
+        # the literal `0` with the comment "target is always ₹0" — a hardcoded
+        # answer to the single most important question on the scoreboard. It is
+        # gone. What we can honestly report is how many attacks got THROUGH;
+        # an attempt carries no amount, so no rupee figure is invented here.
+        blocked = sum(1 for r in all_results if r.status == "blocked")
+        through = sum(1 for r in all_results if r.status == "through")
+        errored = sum(1 for r in all_results if r.status == "errored")
+
+        by_stage = {
+            "input": sum(1 for r in all_results if r.stage == "input"),
+            "policy": sum(1 for r in all_results if r.stage == "policy"),
+            "chain": sum(1 for r in all_results if r.stage == "chain"),
+            "unattributed": sum(1 for r in all_results if r.status == "blocked" and r.stage is None),
+        }
 
         self._send(200, {
             "summary": {
                 "total": total,
                 "blocked": blocked,
-                "fundsLostMinor": 0,  # target is always ₹0
-                "novelTechniques": novel_count,
+                "through": through,
+                # Attacks we failed to run. Not a defence, and not hidden:
+                # a non-zero value here means the run below is incomplete.
+                "errored": errored,
+                "byStage": by_stage,
+                "novelTechniques": sum(1 for r in llm_results),
             },
             "results": [
                 {
                     "technique": r.technique,
                     "classNumber": r.class_number,
                     "blocked": r.blocked,
+                    "status": r.status,
+                    "stage": r.stage,
                     "revertReason": r.revert_reason,
                     "novel": r.novel,
                 }
