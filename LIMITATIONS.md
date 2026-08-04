@@ -38,23 +38,39 @@ cap — are all APPROVED, because none of them has settled yet and each looks fi
 alone. Nothing can move: `PolicyModule.validate` reverts `WindowCapExceeded`
 against the authoritative **on-chain** counter (`PolicyModule.sol:253`).
 
-**The core is not concurrency-safe on nonces.** 50 parallel requests carrying the
-same nonce get most threads approved — the check and the write are not atomic.
-On chain `usedNonces` is enforced in the contract, so **exactly one could ever
-settle**, which is what `BUILD.md`'s INV5 actually guarantees. The off-chain
-figure in `BUILD.md:793` ("50 parallel same-nonce payments → exactly one
-settles") is true of settlement, not of core approvals.
+~~**The core is not concurrency-safe on nonces.**~~ **FIXED 4 Aug 2026.** 50
+parallel requests carrying the same nonce used to get most threads approved —
+the chain read answers *"has anyone burned this?"* and cannot answer *"is
+another request in this same process already holding it?"*, because none of them
+have settled yet. On chain `usedNonces` meant **exactly one could ever settle**,
+which is what `BUILD.md`'s INV5 guarantees — but INV5 is a property of
+settlement, and the core issuing N signatures for one nonce was a different and
+uglier fact.
 
-What this means for the product claim: unchanged. The agent cannot pay without
-the chain agreeing, and the chain enforces caps, nonces and both signatures. What
-it means for the scoreboard: an approval is not a breach, and the board now
-labels those separately — `core-approved, unsettled` in amber, with `₹0 lost`
-reserved for money that actually moved.
+`api/store.ts` now does a synchronous check-and-claim (`claimNonce` /
+`releaseNonce`). The race lived entirely between the `await` on the chain read
+and the `await` on `coreSign`; Node runs one turn at a time, so a claim with no
+`await` between the check and the set cannot interleave. A decision that is not
+APPROVED gives the nonce back immediately — a REFUSED or HELD payment burns
+nothing on chain, so holding it would refuse a legitimate retry for a reason
+that is not true. It does **not** replace the chain read: an unreachable RPC
+still fails closed to "used".
 
-Fixing the core to refuse these itself is real work (reserve-on-approve
-accounting, and a lock or atomic reservation around the nonce) and is not
-attempted before the demo. It would make the pre-filter agree with the chain; it
-would not change what is enforceable.
+Measured, 50 concurrent requests on one nonce
+(`scripts/verify-nonce-race.py`): **1 APPROVED, 49 REFUSED, all 49 binding on
+predicate `nonce`** — the same predicate the chain would name. Across the
+adversary suite, class 4 went from a race-dependent `34/16` to a deterministic
+`49 blocked / 1 through`, class 3 from 3 through to 1, and the suite total from
+27–47 through down to **13**.
+
+**Still open: the window cap.** The core will still co-sign past its own
+`windowCapMinor`, because its accounting advances on **settlement** and these
+requests never settle. That is the remaining source of `core-approved,
+unsettled` on the scoreboard (11 of the 13, all attack class 1). `PolicyModule`
+reverts `WindowCapExceeded` on chain against the authoritative counter, so money
+cannot move — but the chain is what stops it, not us. Reserve-on-approve
+accounting is the fix and it is riskier than the nonce one: a reservation that
+outlives its request would refuse legitimate payments.
 
 ---
 
@@ -282,7 +298,10 @@ tier-2 counterparty.
       deterministic (`apps/core/scripts/core-image-digest.mjs`); the on-chain
       value is still the placeholder. Registering it takes the payment path down
       for the length of the change — see the section above
-- [ ] Reserve-on-approve window accounting, and an atomic nonce reservation, so
+- [x] ~~atomic nonce reservation~~ — **done 4 Aug 2026**, `claimNonce` /
+      `releaseNonce` in `api/store.ts`. 50 concurrent same-nonce requests now
+      yield exactly 1 approval and 49 refusals on predicate `nonce`
+- [ ] Reserve-on-approve window accounting, so
       the off-chain core refuses what the chain would refuse
 - [ ] No authentication on `/console`. `BUILD.md:45` specifies email + password
       and `:806` promises demo credentials in the README; neither exists. Anyone

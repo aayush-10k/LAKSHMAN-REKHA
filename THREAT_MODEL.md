@@ -142,13 +142,39 @@ either way: ₹48,000 is under a ₹1,00,000 window cap, so **neither the per-tx
 nor the window cap could fire**. The attack now sizes its slices from live
 headroom.
 
-### Class 4 — the core is not concurrency-safe on nonces
+### Class 4 — the nonce race, and how it was closed
 
-50 parallel requests carrying the same nonce get most threads approved. The
-`usedNonces` check in the core is not atomic. `PolicyModule` enforces it on
-chain, so **exactly one could ever settle**, which is what INV5 actually
-guarantees — but INV5 is a property of *settlement*, not of core approvals, and
-the two were being conflated.
+**Previously:** 50 parallel requests carrying the same nonce got most threads
+approved. The chain read answers *"has anyone burned this?"* and cannot answer
+*"is another request in this same process already holding it?"* — none of them
+have settled yet. `PolicyModule` meant **exactly one could ever settle**, which
+is what INV5 guarantees, but INV5 is a property of *settlement* and the core
+issuing N signatures for one nonce is a different and uglier fact.
+
+**Fixed 4 Aug 2026** with a synchronous check-and-claim in
+`api/store.ts` (`claimNonce` / `releaseNonce`). The race lived entirely between
+the `await` on the chain read and the `await` on `coreSign`; Node runs one turn
+at a time, so a claim with **no await between the check and the set** cannot
+interleave. A decision that is not APPROVED gives the nonce straight back — a
+REFUSED or HELD payment burns nothing on chain, so holding it would refuse a
+legitimate retry for a reason that is not true.
+
+It does **not** replace the chain read. An unreachable RPC still fails closed to
+"used", and a nonce burned by another process is still caught there. It closes
+only the window this process opened against itself.
+
+Measured, 50 concurrent requests on one nonce
+(`scripts/verify-nonce-race.py`):
+
+```
+   1  APPROVED
+  49  REFUSED      binding predicate: nonce  (×49)
+```
+
+The refusals name **the same predicate the chain would**. Across the full
+adversary suite, class 4 moved from a race-dependent `34 blocked / 16 through`
+to a deterministic **49 blocked / 1 through**, and class 3 (lease replay) went
+from 3 through to 1.
 
 ### Class 10 — the UI does not verify signatures
 

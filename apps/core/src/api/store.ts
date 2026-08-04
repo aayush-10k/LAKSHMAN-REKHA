@@ -229,6 +229,61 @@ export function heartbeat(mandateId: string): void {
 }
 
 // ──────────────────────────────────────────────
+// Nonce reservation — the core's half of predicate 6
+// ──────────────────────────────────────────────
+//
+// LIMITATIONS.md has disclosed that "the core is not concurrency-safe on
+// nonces": 50 parallel requests carrying the same nonce all read
+// `usedNonces(nonce) == false` off the chain, all evaluate independently, and
+// most get APPROVED and co-signed. `PolicyModule` enforces the nonce on chain
+// so **exactly one could ever settle** — which is what INV5 guarantees — but
+// INV5 is a property of SETTLEMENT, and the core handing out N signatures for
+// one nonce is a different and uglier fact.
+//
+// The race is entirely between the `await` on the chain read and the `await` on
+// coreSign. Node runs one turn at a time, so a check-and-claim with **no await
+// between the check and the set** cannot interleave. That is the whole fix:
+// this Map is consulted and written synchronously, in the same tick.
+//
+// It does NOT replace the chain read — an unreachable RPC still fails closed to
+// "used", and a nonce burned by some other process is still caught there. This
+// only closes the window this process opens against itself.
+const reservedNonces = new Map<string, Set<number>>();
+
+/**
+ * Claim a nonce for this mandate. Returns false if it is already claimed.
+ *
+ * MUST be called synchronously — no `await` between calling this and acting on
+ * the result, or the window it exists to close reopens.
+ */
+export function claimNonce(mandateId: string, nonce: number): boolean {
+  let claimed = reservedNonces.get(mandateId);
+  if (claimed === undefined) {
+    claimed = new Set();
+    reservedNonces.set(mandateId, claimed);
+  }
+  if (claimed.has(nonce)) return false;
+  claimed.add(nonce);
+  return true;
+}
+
+/**
+ * Give a claimed nonce back.
+ *
+ * Called when the decision did not produce a signature. A REFUSED or HELD
+ * payment consumes nothing on chain, so holding its nonce would refuse a later
+ * legitimate retry of the same request for a reason that is not true.
+ */
+export function releaseNonce(mandateId: string, nonce: number): void {
+  reservedNonces.get(mandateId)?.delete(nonce);
+}
+
+/** Test/diagnostic view. */
+export function reservedNonceCount(mandateId: string): number {
+  return reservedNonces.get(mandateId)?.size ?? 0;
+}
+
+// ──────────────────────────────────────────────
 // Agents
 // ──────────────────────────────────────────────
 

@@ -141,7 +141,20 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
     const registry = new Map<string, RegistryTier>([
       [fs.counterpartyId.toLowerCase(), onChainTier as RegistryTier],
     ]);
-    const usedNonces = new Set<number>(nonceBurned ? [fs.nonce] : []);
+    // Claim the nonce for this process, synchronously.
+    //
+    // The chain read above answers "has anyone burned this?" — it cannot answer
+    // "is another request in THIS process already holding it?", because none of
+    // them have settled yet. 50 concurrent requests with one nonce all saw
+    // `false` here and most were APPROVED and co-signed. PolicyModule meant
+    // only one could ever settle, but the core was still handing out N
+    // signatures for one nonce.
+    //
+    // No `await` between the claim and building the state below — that is what
+    // makes it atomic on a single-threaded event loop. Moving either line
+    // across an await reopens the race.
+    const claimedHere = store.claimNonce(lease.mandateId, fs.nonce);
+    const usedNonces = new Set<number>(nonceBurned || !claimedHere ? [fs.nonce] : []);
 
     const policyState = toPolicyState(mandate, lease, registry, usedNonces);
 
@@ -152,6 +165,10 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
     try {
       signed = await coreSign(toPolicyFactSheet(fs), policyState, toLease(lease), Date.now());
     } catch (e) {
+      // The claim must not outlive the request that made it. A lease error here
+      // means no decision and no signature, so holding the nonce would refuse a
+      // legitimate retry for a reason that is not true.
+      if (claimedHere) store.releaseNonce(lease.mandateId, fs.nonce);
       if (e instanceof LeaseInvalidError) {
         return reply.code(403).send({ error: { code: 'LEASE_EXPIRED', message: e.message } });
       }
@@ -160,6 +177,14 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
 
     const trace = signed.trace;
     if (signed.partialSig !== null) trace.signature = signed.partialSig;
+
+    // Only an APPROVED decision produces a signature, and only a signature can
+    // ever consume the nonce on chain. Anything else gives it back — a REFUSED
+    // or HELD payment burns nothing, so the same request may legitimately be
+    // retried with the same nonce once whatever refused it is fixed.
+    if (claimedHere && trace.outcome !== 'APPROVED') {
+      store.releaseNonce(lease.mandateId, fs.nonce);
+    }
 
     store.storeDecision(trace, lease.mandateId);
     store.linkDecisionToMandate(trace.decisionId, lease.mandateId);
