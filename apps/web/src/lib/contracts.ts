@@ -53,3 +53,24 @@ export const basescanTx = (hash: string) => `${EXPLORER}/tx/${hash}`;
 /** 0x1234…abcd. For addresses and hashes in dense rows. */
 export const shortHex = (s: string, lead = 6, tail = 4) =>
   s.length <= lead + tail + 1 ? s : `${s.slice(0, lead)}…${s.slice(-tail)}`;
+
+/**
+ * True for a `coreImageDigest` that is a stand-in rather than the hash of a
+ * build. The deployed value is currently `0x01` followed by 31 zero bytes.
+ *
+ * Predicate 3 is real — a mismatch reverts `CoreImageMismatch` on chain — but
+ * the registered value attests nothing, and both surfaces print it beside a
+ * copy button where it reads as evidence. This is what labels it. See
+ * LIMITATIONS.md and HONESTY_PLAN.md item 1.1.
+ *
+ * Deliberately a shape test rather than equality against that one constant: a
+ * digest whose whole body is one leading byte followed by zeros is a
+ * placeholder by construction, and a real hash will never look like one. Delete
+ * this helper the day a real digest is registered.
+ */
+export function isPlaceholderDigest(digest: string | null | undefined): boolean {
+  if (!digest) return false;
+  const hex = digest.replace(/^0x/, '').toLowerCase();
+  if (hex.length !== 64) return false;
+  return /^[0-9a-f]{0,2}0{62,64}$/.test(hex);
+}

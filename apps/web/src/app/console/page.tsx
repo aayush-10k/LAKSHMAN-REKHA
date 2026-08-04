@@ -5,7 +5,7 @@ import { useWriteContract, useAccount, useConnect, useDisconnect } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import type { DecisionTrace, RekhaEvent } from '../../types';
 import { CORE_URL, ensurePaired, renewLease, type Pairing } from '../../lib/pairing';
-import { CONTRACTS, POLICY_MODULE_ADDRESS, basescanAddress, basescanTx, shortHex } from '../../lib/contracts';
+import { CONTRACTS, POLICY_MODULE_ADDRESS, basescanAddress, basescanTx, isPlaceholderDigest, shortHex } from '../../lib/contracts';
 import { Amount, formatInrMinor } from '../../components/Amount';
 import { TTLRing } from '../../components/TTLRing';
 import { PredicateTable } from '../../components/PredicateTable';
@@ -105,6 +105,14 @@ export default function ConsolePage() {
    * Names are cosmetic, so they are fetched separately and degrade to the id.
    */
   const [vendorNames, setVendorNames] = useState<Record<string, string>>({});
+
+  /**
+   * The audit export's own account of itself, read at boot from the same
+   * response that seeds the feed. BUILD.md:53 asks for a "signed, replayable,
+   * downloadable log" — signing and replay already shipped; this is the
+   * download, and the status beside it is what makes it worth downloading.
+   */
+  const [audit, setAudit] = useState<{ status: string; digest: string | null; signer: string | null } | null>(null);
 
   /** Drives the held countdowns and the "3m ago" column. One timer, not one per row. */
   const [now, setNow] = useState(() => Date.now());
@@ -251,6 +259,17 @@ export default function ConsolePage() {
         return r.json();
       })
       .then((doc) => {
+        // The export is signed by the core key and the endpoint already sets
+        // Content-Disposition: attachment, so the download link below needs no
+        // JavaScript. What it does need is for the judge to see the signature
+        // status BEFORE taking the file — an audit log you cannot verify is a
+        // text file with opinions in it.
+        setAudit({
+          status: typeof doc?.signatureStatus === 'string' ? doc.signatureStatus : 'unknown',
+          digest: typeof doc?.digest === 'string' ? doc.digest : null,
+          signer: typeof doc?.coreSignerAddress === 'string' ? doc.coreSignerAddress : null,
+        });
+
         const body = doc?.body ?? doc;
         const decisions: DecisionTrace[] = Array.isArray(body?.decisions) ? body.decisions : [];
         const settlements: Array<{ decisionId: string; txHash: string }> = Array.isArray(body?.settlements)
@@ -722,12 +741,55 @@ export default function ConsolePage() {
                 {imageDigest ? shortHex(imageDigest, 14, 6) : 'waiting for core.status…'}
               </span>
             </div>
+            {/* The predicate is real — a mismatch reverts CoreImageMismatch on
+                chain. The registered VALUE is 0x01 and 31 zero bytes, which is
+                the hash of nothing. Printing it beside a copy button, unlabelled,
+                invites a judge to read it as an attestation it is not. */}
+            {isPlaceholderDigest(imageDigest) && (
+              <div className="con-kv con-kv-warn">
+                <span />
+                <span>placeholder digest — the check is real, this value attests nothing</span>
+              </div>
+            )}
             {pairing && (
               <div className="con-kv">
                 <span>agent</span>
                 <span className="con-mono">{pairing.agentId}</span>
               </div>
             )}
+
+            {/* BUILD.md:53 — "signed, replayable, downloadable". The endpoint
+                already sends Content-Disposition: attachment, so this needs no
+                JavaScript. The status beside it is the point: an audit log you
+                cannot verify is a text file with opinions in it. */}
+            <div className="con-audit">
+              <a
+                className="con-btn-audit"
+                href={`${CORE_URL}/v1/audit/export`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Download signed audit log
+              </a>
+              {audit && (
+                <div className="con-audit-meta">
+                  <span className={audit.status === 'signed' ? 'con-ok' : 'con-bad'}>{audit.status}</span>
+                  {audit.signer && (
+                    <span className="con-mono" title={audit.signer}>
+                      by {shortHex(audit.signer, 8, 4)}
+                    </span>
+                  )}
+                  {audit.digest && (
+                    <span className="con-mono" title={audit.digest}>
+                      {shortHex(audit.digest, 10, 4)}
+                    </span>
+                  )}
+                  <span className="con-audit-how">
+                    verify with <code>node apps/core/scripts/verify-audit.mjs</code>
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         </aside>
       </div>

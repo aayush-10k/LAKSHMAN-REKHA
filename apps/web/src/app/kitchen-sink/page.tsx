@@ -265,25 +265,25 @@ export default function KitchenSinkPage() {
         <p style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
           Completed rounds are chalk, not green: a signed round is progress, not money that moved.
         </p>
+        {/* The playground's own classes, not a second copy of them. This page
+            exists to show the real primitives; a showcase that had drifted from
+            the shipped bar would be worse than no showcase. */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <div className="ceremony-bar">
-            <div className="ceremony-label">Signing Ceremony — Round 2 of 3</div>
-            <div className="ceremony-track">
-              <div className="ceremony-seg seg-done" />
-              <div className="ceremony-seg seg-done" />
-              <div className="ceremony-seg seg-pending" />
+          <div className="pg-ceremony">
+            <div className="pg-ceremony-track">
+              <div className="pg-seg is-done" />
+              <div className="pg-seg is-done" />
+              <div className="pg-seg is-pending" />
             </div>
+            <span className="pg-ceremony-label">round 2 of 3</span>
           </div>
-          <div className="ceremony-bar aborted">
-            <div className="ceremony-label">⛔ Ceremony Aborted</div>
-            <div className="ceremony-track">
-              <div className="ceremony-seg seg-done" />
-              <div className="ceremony-seg seg-broken" />
-              <div className="ceremony-seg seg-broken" />
+          <div className="pg-ceremony is-aborted">
+            <div className="pg-ceremony-track">
+              <div className="pg-seg is-done" />
+              <div className="pg-seg is-broken" />
+              <div className="pg-seg is-broken" />
             </div>
-            <div className="ceremony-snap-msg">
-              Signature revoked mid-ceremony — it never existed.
-            </div>
+            <span className="pg-ceremony-label">broken at round 2 of 3</span>
           </div>
         </div>
       </section>
