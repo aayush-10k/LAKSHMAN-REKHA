@@ -154,6 +154,19 @@ must never drift.
 1. **Open `/` and `/playground` in a browser at 1600×950.** Phases 4, 5, 6 and 7
    are code-complete and verified against the live stack, and none of them has
    been rendered. This is the single highest-value hour available.
+
+   The stack was left running at the end of the last session. From Windows,
+   either works on this machine:
+
+   ```
+   http://localhost:3000/          (localhost forwarding is ON here — measured)
+   http://172.27.211.212:3000/     (the VM address; CHANGES when WSL restarts)
+   ```
+
+   `next start` is serving the production build, not `next dev`, so the
+   `allowedDevOrigins` trap does not apply. If the services are down,
+   `bash scripts/dev-up.sh start`. **Check `/` first** — it is server-rendered
+   with no fetching, so if it looks wrong the problem is CSS, not the backend.
 2. Follow `DEPLOY.md` top to bottom for Phase 1. It needs a Railway account
    (free $5 trial, no card) and a Vercel account (free).
 3. **Fix the deck.** It says 147 attempts; the suite is 99. It cites Halmos
@@ -1373,3 +1386,6 @@ vendor age would silently do nothing. Now `VENDORSIM_URL`.
 - **The remote is `aayush-10k/LAKSHMAN-REKHA`**, not this user's repo. Confirm
   push access. `origin/main` and `finale/frontend` were identical on 2026-08-04,
   so FIXLOG3's "not pushed" note is stale — those 7 commits did land.
+- **The seven commits from the Phase 5–7 session are committed but NOT pushed.**
+  Nobody asked for a push and the remote is not this user's, so it was left
+  alone. `git log origin/finale/frontend..finale/frontend` shows what is waiting.
