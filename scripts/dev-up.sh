@@ -6,7 +6,10 @@
 # because tsx runs as `node .../tsx/dist/cli.mjs watch <entry>`. Both cost a
 # session an hour. Stop targets the entry script instead.
 #
-#   scripts/dev-up.sh start|stop|status
+#   scripts/dev-up.sh start|stop|status|restart <svc>|anvil|stop-anvil
+#
+# `anvil` starts the two chains the test suite needs. Run it before
+# `npx vitest run` in apps/core or 7 tests skip or fail.
 set -u
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
@@ -52,6 +55,47 @@ stop() {
   status
 }
 
+stop_anvil() {
+  fuser -k 8545/tcp 2>/dev/null
+  fuser -k 8546/tcp 2>/dev/null
+  sleep 1
+  for p in 8545 8546; do
+    if port_up "$p"; then echo "$p UP"; else echo "$p down"; fi
+  done
+}
+
+# The two anvil chains the test suite needs. Without them, 7 of the 147 core
+# tests skip or fail — including the 10,000-input differential test, which is
+# one of the two headline claims. They were skipped on this machine for weeks
+# purely because `forge` and `anvil` live in ~/.foundry and that is not on PATH
+# in a non-interactive shell. `command -v forge` returning nothing is NOT proof
+# Foundry is missing; check ~/.foundry/bin first.
+#
+#   8545  plain local chain — differential.test.ts deploys PolicyModule to it
+#   8546  Base Sepolia fork — the *.fork.test.ts files run against the REAL
+#         deployed contracts, so this one needs network
+FOUNDRY_BIN="$HOME/.foundry/bin"
+
+anvils() {
+  if [ ! -x "$FOUNDRY_BIN/anvil" ]; then
+    echo "anvil not found at $FOUNDRY_BIN/anvil — install Foundry (curl -L https://foundry.paradigm.xyz | bash; foundryup)"
+    return 1
+  fi
+  port_up 8545 || (cd "$ROOT" && setsid nohup "$FOUNDRY_BIN/anvil" --port 8545 \
+    > "$LOGS/anvil-8545.log" 2>&1 < /dev/null &)
+  port_up 8546 || (cd "$ROOT" && setsid nohup "$FOUNDRY_BIN/anvil" \
+    --fork-url https://sepolia.base.org --port 8546 \
+    > "$LOGS/anvil-8546.log" 2>&1 < /dev/null &)
+  # The fork needs to pull state before it answers; 8545 is instant.
+  for _ in $(seq 1 40); do
+    if port_up 8545 && port_up 8546; then break; fi
+    sleep 1
+  done
+  for p in 8545 8546; do
+    if port_up "$p"; then echo "$p UP"; else echo "$p down"; fi
+  done
+}
+
 # Restart ONE service by port.
 #
 # Do not reach for `pkill -f 'src/api/index.ts'` from a `wsl -- bash -lc "..."`
@@ -75,5 +119,7 @@ case "${1:-status}" in
   start) start ;;
   stop) stop ;;
   restart) restart "${2:-}" ;;
+  anvil) anvils ;;
+  stop-anvil) stop_anvil ;;
   *) status ;;
 esac

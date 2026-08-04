@@ -78,6 +78,24 @@ reach the evaluator, the lease or the chain. Measured, not asserted:
 outcome and binding predicate for each. `scripts/capture-thoughts.sh <mode>`
 prints the agent's own narration off the SSE stream.
 
+### Tests
+
+```bash
+bash scripts/dev-up.sh anvil        # two chains the suite needs — see below
+cd apps/core   && npx vitest run    # 147 passed, 0 skipped
+cd contracts   && forge test        # 48 passed, incl. all five invariants
+cd apps/agents/task-engine && node --test          # 9 pass
+cd apps/agents/adversary   && python3 test_library.py   # 7 pass
+```
+
+> **`forge` and `anvil` live in `~/.foundry/bin`, which is not on `PATH` in a
+> non-interactive shell.** `command -v forge` finding nothing is not proof they
+> are missing — believing that kept the five invariants and the 10,000-input
+> differential test unrun on this machine for weeks. `bash scripts/dev-up.sh
+> anvil` uses the absolute path and starts both chains: a plain one on 8545 for
+> the differential test, and a Base Sepolia fork on 8546 for the fork tests.
+> Without them 7 tests skip.
+
 ## Things a judge can verify without running anything
 
 **Contracts — deployed and source-verified on Base Sepolia:**
@@ -120,8 +138,10 @@ short version:
 - Signing is **2-of-2 ECDSA plus an owner key that can act alone**. Not a
   threshold scheme. There is no FROST implementation behind a flag
 - The invariants are **fuzzed and differentially checked** — five Foundry
-  stateful invariants, and 10,000/10,000 agreement between the TypeScript
-  evaluator and Solidity `validate`. Not proven. There are no Halmos proofs
+  stateful invariants at 64 runs × 4096 calls each, and 10,000/10,000 agreement
+  between the TypeScript evaluator and Solidity `validate`. Both re-measured
+  4 Aug 2026: `forge test` 48/48, core suite 147/147 with nothing skipped.
+  **Fuzzed, not proven.** There are no Halmos proofs
 - The core **will co-sign past its own window cap**, because its accounting
   advances on settlement. `PolicyModule` reverts `WindowCapExceeded` on chain
   against the authoritative counter, so money cannot move — but the chain is

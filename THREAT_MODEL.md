@@ -172,11 +172,31 @@ browser, against the on-chain `coreSigner` address, is unbuilt.
 | **INV4** | No transfer succeeds to a counterparty failing its tier predicates |
 | **INV5** | No nonce is consumed twice |
 
-**How they are actually proved.** Foundry stateful invariant fuzzing —
-`contracts/test/Invariants.t.sol`, one `invariant_` function per ID plus
-`invariant_valueConservation`. Separately, the TypeScript evaluator is checked
-against Solidity `PolicyModule.validate` over 10 000 differential inputs
-(`apps/core/test/differential.test.ts`) with full agreement.
+**How they are actually proved, and when it was last run.** Foundry stateful
+invariant fuzzing — `contracts/test/Invariants.t.sol`, one `invariant_` function
+per ID plus `invariant_valueConservation`. Measured 4 Aug 2026:
+
+```
+INV1 windowNeverExceedsCap          runs 64, calls 4096, reverts 10   PASS
+INV2 noStaleEpochTransfer           runs 64, calls 4096, reverts 10   PASS
+INV3 noBadSigTransfer               runs 64, calls 4096, reverts 10   PASS
+INV4 noBlockedCounterpartyTransfer  runs 64, calls 4096, reverts 10   PASS
+INV5 noNonceConsumedTwice           runs 64, calls 4096, reverts 10   PASS
+     valueConservation              runs 64, calls 4096, reverts 10   PASS
+
+forge test   48 passed, 0 failed, 0 skipped
+```
+
+Separately, the TypeScript evaluator is checked against Solidity
+`PolicyModule.validate` over 10 000 differential inputs
+(`apps/core/test/differential.test.ts`) — `10000/10000 agree`, same date, with
+the core suite at **147/147 and nothing skipped**.
+
+> Reproduce with `bash scripts/dev-up.sh anvil` (two chains: a plain one on
+> 8545 for the differential test, a Base Sepolia fork on 8546 for the fork
+> tests) then `npx vitest run` in `apps/core` and `forge test` in `contracts/`.
+> Without the chains, 7 tests skip and the differential claim is not exercised
+> at all.
 
 > **NOT IMPLEMENTED: Halmos symbolic execution.** The previous version claimed
 > *"targeted Halmos symbolic execution"*. Halmos is not in this repository —

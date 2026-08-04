@@ -242,7 +242,16 @@ describe('2-of-2 against the deployed RekhaAccount.execute', () => {
     expect(revertName(err)).toBe('InvalidAgentSignature');
   });
 
-  it('accepts agent + core and actually moves the money', async () => {
+  // 30s, not the 5s default. This is the only test in the file that BROADCASTS
+  // rather than eth_calls: it writes the transaction, waits for the receipt,
+  // and then re-reads two balances off a forked chain. Measured against a live
+  // `anvil --fork-url https://sepolia.base.org`, that does not fit in 5s and
+  // the test timed out — which looks like a failing 2-of-2 and is not.
+  //
+  // The first run of this test on this machine was that timeout. It had been
+  // skipped for lack of anvil until then, so nobody had seen it either pass or
+  // fail.
+  it('accepts agent + core and actually moves the money', { timeout: 30_000 }, async () => {
     const { req, coreSig, agentSig, blockTs } = await armRequest(103);
 
     const balanceOf = (who: Address) =>

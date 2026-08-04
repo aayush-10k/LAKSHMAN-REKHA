@@ -653,6 +653,75 @@ balance       72px         ->  40px — the clamp's own floor, which is why
                                was the right call
 ```
 
+### Foundry was installed the whole time, and the invariants had never been run
+
+**`command -v forge` returning nothing is not proof Foundry is missing.** The
+binaries were sitting in `~/.foundry/bin`, dated 1 Aug, and that directory is
+simply not on `PATH` in a non-interactive shell. On that basis I had declared
+`forge` unavailable, marked the guardian test as unwritable, and left the 7 fork
+tests skipped. All three were wrong.
+
+**The five invariants pass. This is the first time they have been run here.**
+
+```
+INV1 windowNeverExceedsCap            runs 64, calls 4096, reverts 10   PASS
+INV2 noStaleEpochTransfer             runs 64, calls 4096, reverts 10   PASS
+INV3 noBadSigTransfer                 runs 64, calls 4096, reverts 10   PASS
+INV4 noBlockedCounterpartyTransfer    runs 64, calls 4096, reverts 10   PASS
+INV5 noNonceConsumedTwice             runs 64, calls 4096, reverts 10   PASS
+     valueConservation                runs 64, calls 4096, reverts 10   PASS
+
+forge test   48 passed, 0 failed, 0 skipped  (4 suites)
+```
+
+**The core suite is now 147/147 — nothing skipped.** It was `140 passed /
+7 skipped` because both anvil chains were missing:
+
+```
+8545   plain local chain    differential.test.ts deploys PolicyModule to it
+8546   Base Sepolia fork    the *.fork.test.ts files hit the REAL contracts
+```
+
+`bash scripts/dev-up.sh anvil` starts both. And with them:
+
+```
+differential.test.ts    10000/10000 agree
+core vitest             147 passed, 0 failed, 0 SKIPPED (147)
+```
+
+**The 10,000/10,000 differential claim is now measured on this machine**, not
+inherited. So is every invariant. Both were headline claims resting on someone
+else's run.
+
+**One real defect surfaced.** `execute.fork.test.ts` "accepts agent + core and
+actually moves the money" **timed out at the 5 s default** — it is the only test
+in the file that BROADCASTS rather than `eth_call`s, and writing a transaction
+plus waiting for a receipt plus re-reading two balances off a forked chain does
+not fit in 5 s. Given a 30 s timeout it passes. It had been skipped for lack of
+anvil, so nobody had ever seen it pass *or* fail; a timeout there reads as a
+failing 2-of-2, which would have been an ugly thing to discover on demo eve.
+
+**The guardian claim is now fully tested** — `PolicyModule.t.sol` went 21 → 30.
+`HONESTY_PLAN` 3.2 asked for the negative half and it is nine tests:
+
+```
+test_guardian_canRevoke                                PASS
+test_guardian_cannotChangePolicy                       PASS
+test_guardian_cannotRepointSigners                     PASS   <- the sharpest
+test_guardian_cannotMoveTheAccount                     PASS
+test_guardian_cannotAttestACoreImage                   PASS
+test_guardian_cannotPromoteACounterparty               PASS
+test_guardian_cannotHeartbeat                          PASS
+test_guardian_cannotSpend                              PASS
+test_guardian_cannotSpend_evenWithTheAgentsSignature   PASS
+```
+
+`cannotRepointSigners` is the one that matters: a guardian who could call
+`setSigners` would hand itself the second signature outright, making "cannot
+spend" false by a longer route than forging. `cannotSpend_evenWithTheAgents-
+Signature` is the strongest position a guardian could reach — one genuine
+signature plus its own — and it still reverts `InvalidCoreSignature`.
+
 ### Still open after Phases 5–7
 
 - ~~**Not seen in a browser.**~~ **Done** — all three routes rendered, M1 and M3

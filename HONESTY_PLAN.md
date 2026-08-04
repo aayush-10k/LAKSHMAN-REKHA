@@ -419,10 +419,18 @@ These are not lies. They are untested, and `BUILD.md` Part 12 asks for proof.
   - The **CAN** half is real and chain-enforced: `PolicyModule.sol:331` is
     owner-or-guardian for `revoke()` and every other state-changing function is
     `onlyOwner`. `contracts/test/PolicyModule.t.sol:160` exercises it.
-  - The **CANNOT** half is true by construction and **still untested**. Foundry
-    is not installed on this machine, so the assertion could not be written
-    *and run*, and an unrun test is worse than none. Install `forge` and add it,
-    or say only what `PolicyModule.sol:331` shows.
+  - The **CANNOT** half is now **tested and passing** — nine tests in
+    `PolicyModule.t.sol` (21 → 30). The guardian cannot `setPolicy`,
+    `setSigners`, `setAccount`, `attestCoreImage`, `setCounterpartyTier` or
+    `heartbeat`; a payment it signs reverts `InvalidAgentSignature`; and holding
+    a *genuine* agent signature alongside its own still reverts
+    `InvalidCoreSignature`. `setSigners` is the one that mattered — a guardian
+    who could call it would hand itself the second signature outright.
+    > **The earlier note here — "Foundry is not installed on this machine" —
+    > was wrong.** `forge` and `anvil` were in `~/.foundry/bin` all along; that
+    > directory is not on `PATH` in a non-interactive shell, so `command -v
+    > forge` found nothing and I believed it. That single mistake also kept the
+    > five invariants and the 10,000-input differential test unrun here.
   - **A separate finding fell out of it**: the core does not authenticate the
     revoke source at all. `source` is free text on the request body, so anyone
     who can reach `/v1/revoke` can pass `"guardian"` and the SSE stream and the

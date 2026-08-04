@@ -297,16 +297,18 @@ tier-2 counterparty.
       properly, `revoke()` being owner-or-guardian while every other
       state-changing function is `onlyOwner`. It is a hole in *attribution*:
       never present the `source` on a revocation event as evidence of who did it
-- [ ] **"Guardian can revoke but cannot spend" is only half proven.**
-      `contracts/test/PolicyModule.t.sol:160` pranks the guardian through
-      `revoke()`, so the CAN half is real. Nothing asserts the negative — that a
-      guardian cannot call `setPolicy`, `setSigners`, `setAccount`,
-      `attestCoreImage` or `heartbeat`, and cannot produce either required
-      signature. `onlyOwner` makes all of that true by construction, but true by
-      construction is not the same as tested. Foundry is not installed on the
-      current build machine, so the test could not be written *and run*, and an
-      unrun test is worse than none. Install `forge` and add it, or say only
-      what `PolicyModule.sol:331` shows
+- [x] ~~**"Guardian can revoke but cannot spend" is only half proven.**~~
+      **Done.** Nine tests in `contracts/test/PolicyModule.t.sol`, all passing:
+      the guardian can `revoke()`, and cannot `setPolicy`, `setSigners`,
+      `setAccount`, `attestCoreImage`, `setCounterpartyTier` or `heartbeat`.
+      Two more prove the claim end to end — a payment signed by the guardian
+      reverts `InvalidAgentSignature`, and the guardian holding a *genuine*
+      agent signature alongside its own still reverts `InvalidCoreSignature`.
+      `setSigners` is the one that mattered: a guardian who could call it would
+      hand itself the second signature outright.
+      **The earlier note here said Foundry was not installed. That was wrong** —
+      it was in `~/.foundry/bin`, which is not on `PATH` in a non-interactive
+      shell, so `command -v forge` found nothing
 - [ ] No policy editor (`BUILD.md:52`). `setPolicy` is owner-only and called by
       script
 - [ ] No per-agent revoke (`BUILD.md:51`). Global REVOKE ALL and per-hold Cancel

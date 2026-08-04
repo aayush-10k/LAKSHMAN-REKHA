@@ -319,4 +319,109 @@ contract PolicyModuleTest is Test {
         a = _sign(agentPk, req);
         c = _sign(corePk, req);
     }
+
+    // ------------------------------------------------------------------- //
+    //          The guardian: can revoke, cannot do anything else          //
+    // ------------------------------------------------------------------- //
+    //
+    // HONESTY_PLAN.md 3.2. BUILD.md:787 claims "guardian can revoke but cannot
+    // spend" and only the CAN half was ever exercised (test_p4 pranks the
+    // guardian through revoke()). The negative half was true by construction —
+    // every other state-changing function is onlyOwner — but true by
+    // construction is not the same as tested, and an untested half-claim on a
+    // slide is exactly what HONESTY_PLAN exists to catch.
+    //
+    // These are cheap, and they are the difference between "we reasoned about
+    // it" and "we checked".
+
+    /// @dev The half that was already true: the guardian may raise the epoch.
+    function test_guardian_canRevoke() public {
+        uint64 before = policy.revocationEpoch();
+        vm.prank(guardian);
+        policy.revoke();
+        assertEq(policy.revocationEpoch(), before + 1, "guardian must be able to revoke");
+    }
+
+    /// @dev And nothing else. Each of these is `onlyOwner`; a guardian that
+    ///      could reach any one of them could re-point the signers, lift the
+    ///      caps, or attest a core image of its choosing — which would make
+    ///      "cannot spend" false by a longer route than signing.
+    function test_guardian_cannotChangePolicy() public {
+        vm.prank(guardian);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", guardian));
+        policy.setPolicy(
+            PER_TX, WINDOW_CAP, WINDOW_SECS, CUMULATIVE_CAP,
+            uint256(1) << CATEGORY, 30, 5, 2, TIER2_CAP
+        );
+    }
+
+    function test_guardian_cannotRepointSigners() public {
+        // The sharpest one. Repointing the core signer to a key the guardian
+        // holds would hand it the second signature outright.
+        vm.prank(guardian);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", guardian));
+        policy.setSigners(guardian, guardian);
+    }
+
+    function test_guardian_cannotMoveTheAccount() public {
+        vm.prank(guardian);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", guardian));
+        policy.setAccount(guardian);
+    }
+
+    function test_guardian_cannotAttestACoreImage() public {
+        vm.prank(guardian);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", guardian));
+        policy.attestCoreImage(keccak256("a core the guardian wrote"));
+    }
+
+    function test_guardian_cannotPromoteACounterparty() public {
+        vm.prank(guardian);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", guardian));
+        policy.setCounterpartyTier(guardian, 1);
+    }
+
+    function test_guardian_cannotHeartbeat() public {
+        // Keeping the dead-man switch alive is an owner responsibility. A
+        // guardian that could heartbeat could hold a lapsed mandate open.
+        vm.prank(guardian);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", guardian));
+        policy.heartbeat();
+    }
+
+    /// @dev The claim itself, end to end: a payment naming the guardian as both
+    ///      signer and payee does not validate. The guardian holds neither key,
+    ///      so `ECDSA.recover` returns its address and predicate 1 refuses.
+    function test_guardian_cannotSpend() public {
+        (address guardianAddr, uint256 guardianPk) = makeAddrAndKey("guardian");
+        assertEq(guardianAddr, guardian, "fixture drift: guardian key must match the init address");
+
+        PaymentRequest memory req = _baseReq();
+        req.counterparty = guardian; // pay itself
+
+        bytes memory a = _sign(guardianPk, req);
+        bytes memory c = _sign(guardianPk, req);
+
+        // Dies at predicate 1. It never even reaches the counterparty checks —
+        // which is the point: the guardian is not a signer, and no amount of
+        // being a guardian makes it one.
+        vm.expectRevert(PolicyModule.InvalidAgentSignature.selector);
+        policy.validate(req, a, c);
+    }
+
+    /// @dev And it cannot borrow the agent's half either. Holding one real
+    ///      signature plus its own is the strongest position a guardian could
+    ///      reach, and it is still short.
+    function test_guardian_cannotSpend_evenWithTheAgentsSignature() public {
+        (, uint256 guardianPk) = makeAddrAndKey("guardian");
+
+        PaymentRequest memory req = _baseReq();
+        req.counterparty = guardian;
+
+        bytes memory a = _sign(agentPk, req); // a genuine agent signature
+        bytes memory c = _sign(guardianPk, req); // the guardian standing in for the core
+
+        vm.expectRevert(PolicyModule.InvalidCoreSignature.selector);
+        policy.validate(req, a, c);
+    }
 }
