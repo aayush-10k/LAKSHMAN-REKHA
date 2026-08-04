@@ -67,17 +67,17 @@ const PORT = Number(process.env['AGENT_PORT'] ?? process.env['PORT'] ?? 4200);
 const CORE_URL = process.env['CORE_URL'] ?? 'http://localhost:4000';
 const VENDORSIM_URL = process.env['VENDORSIM_URL'] ?? 'http://localhost:4100';
 
-type BehaviourMode = 'normal' | 'hallucinating' | 'injected' | 'compromised' | 'overreach' | 'colluding';
+import {
+  describeMode,
+  obeyInjection,
+  warpFactSheet,
+  warpPlan,
+  type BehaviourMode,
+  type CatalogVendor,
+  type PageInstruction,
+} from './modes.js';
 
-type Vendor = {
-  id: string;
-  tier: 1 | 2 | 3;
-  ageDays: number;
-  settledTxns: number;
-  priceBandZ: number;
-  address: string;
-  categoryCode: CategoryCode;
-};
+type Vendor = CatalogVendor;
 
 type LineItem = {
   lineItemId: string;
@@ -149,22 +149,34 @@ async function resolveAgentId(preferred?: string): Promise<{ agentId: string; re
 }
 
 /**
- * The counterparty's facts, from the vendor registry.
+ * The vendor registry, whole.
  *
- * Never from the task description, and never from anything the agent made up:
- * the tier here has to match what PolicyModule holds or predicate 8 refuses. An
- * unreachable registry is fatal to the dispatch rather than a reason to guess.
+ * Read once per dispatch rather than once per line item: the behaviour modes
+ * need to see the entire catalogue (to find something out of scope, or a
+ * counterfeit storefront the judge has spawned), and re-fetching it mid-run
+ * would let the two halves of one dispatch disagree about what exists.
+ *
+ * An unreachable registry is fatal to the dispatch rather than a reason to
+ * guess. Nothing downstream has a "assume it's fine" branch.
  */
-async function lookupVendor(vendorId: string): Promise<Vendor> {
-  let catalog: Vendor[];
+async function fetchCatalog(): Promise<Vendor[]> {
   try {
     const res = await fetch(`${VENDORSIM_URL}/catalog`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    catalog = (await res.json()) as Vendor[];
+    return (await res.json()) as Vendor[];
   } catch (e) {
     throw new DispatchError(503, 'REGISTRY_UNAVAILABLE',
       `Vendor registry at ${VENDORSIM_URL} is unreachable, so the counterparty cannot be verified: ${(e as Error).message}`);
   }
+}
+
+/**
+ * The counterparty's facts, from the vendor registry.
+ *
+ * Never from the task description, and never from anything the agent made up:
+ * the tier here has to match what PolicyModule holds or predicate 8 refuses.
+ */
+function lookupVendor(catalog: Vendor[], vendorId: string): Vendor {
   const vendor = catalog.find((v) => v.id === vendorId);
   if (!vendor) {
     throw new DispatchError(422, 'VENDOR_NOT_FOUND', `The plan names vendor ${vendorId}, which is not in the registry.`);
@@ -202,7 +214,7 @@ export type LineItemResult = {
  * An unreadable page is fatal to the line item. There is no "use the estimate
  * instead" path, because a price nobody quoted is a price we invented.
  */
-async function browseAndPrice(taskId: string, item: LineItem, vendor: Vendor) {
+async function browseAndPrice(taskId: string, item: LineItem, vendor: Vendor, mode: BehaviourMode) {
   const url = `${VENDORSIM_URL}/vendor/${vendor.id}`;
   await say(taskId, `Opening ${url} to read the current price.`);
 
@@ -223,12 +235,30 @@ async function browseAndPrice(taskId: string, item: LineItem, vendor: Vendor) {
   }
 
   if (facts.injectionSuspected !== null) {
-    // Said out loud, and then ignored. The agent has no special defence and is
-    // not meant to — the FactSheet is what makes the instruction unreachable.
+    // Said out loud. In every mode except `injected` it is then ignored — the
+    // agent has no special defence and is not meant to, because the FactSheet
+    // is what makes the instruction unreachable.
     await say(taskId, `The page carries instruction-like text: "${facts.injectionSuspected.slice(0, 160)}…"`);
   }
 
-  const unit = facts.amountMinor;
+  // `injected`: the agent believes the page. This is the only place in the repo
+  // where attacker-written text changes a value the agent will act on, and it
+  // is deliberate — see modes.ts obeyInjection(). Note what it can and cannot
+  // reach: the unit price here, and the counterparty in the FactSheet below.
+  // Not the category (that is a SKU lookup), not the tier (that is on chain),
+  // not the age or settled count (the core overwrites both from the registry).
+  const instruction = mode === 'injected' ? obeyInjection(facts.injectionSuspected) : null;
+
+  let unit = facts.amountMinor;
+  if (instruction?.unitAmountMinor != null) {
+    await say(
+      taskId,
+      `The page states the unit price is ₹${(instruction.unitAmountMinor / 100).toLocaleString('en-IN')}, ` +
+        `not the ₹${(unit / 100).toLocaleString('en-IN')} in the product row. Using what the page says.`,
+    );
+    unit = instruction.unitAmountMinor;
+  }
+
   const amountMinor = unit * Math.max(1, item.quantity ?? 1);
   await say(
     taskId,
@@ -236,12 +266,18 @@ async function browseAndPrice(taskId: string, item: LineItem, vendor: Vendor) {
     `× ${item.quantity ?? 1} = ₹${(amountMinor / 100).toLocaleString('en-IN')}.`,
   );
 
-  return { amountMinor, facts };
+  return { amountMinor, facts, instruction };
 }
 
-async function runLineItem(taskId: string, item: LineItem, agentId: string): Promise<LineItemResult> {
-  const vendor = await lookupVendor(item.vendorId);
-  const { amountMinor, facts } = await browseAndPrice(taskId, item, vendor);
+async function runLineItem(
+  taskId: string,
+  item: LineItem,
+  agentId: string,
+  mode: BehaviourMode,
+  catalog: Vendor[],
+): Promise<LineItemResult> {
+  const vendor = lookupVendor(catalog, item.vendorId);
+  const { amountMinor, instruction } = await browseAndPrice(taskId, item, vendor, mode);
 
   await postCore('/v1/agent/event', {
     t: 'quote.received',
@@ -267,17 +303,33 @@ async function runLineItem(taskId: string, item: LineItem, agentId: string): Pro
   }
 
   // --- factSheet ---------------------------------------------------------
-  // No free text. Every counterparty field comes from the registry lookup above;
-  // item.description is display-only and deliberately not carried here.
+  // No free text. In `normal` mode every counterparty field comes from the
+  // registry lookup above; item.description is display-only and deliberately
+  // not carried here.
+  //
+  // `colluding` and `injected` falsify this block — that is the only thing they
+  // are permitted to touch, and the point is that it does not get them
+  // anywhere: predicate 8 reads the tier from PolicyModule storage, and the
+  // core overwrites age and settled count from the registry before the
+  // evaluator runs. The agent is allowed to lie; the lie is not load-bearing.
+  const { declared, notes: sheetNotes } = warpFactSheet(
+    mode,
+    {
+      counterpartyId: vendor.address.toLowerCase(),
+      counterpartyTier: vendor.tier,
+      counterpartyAgeDays: vendor.ageDays,
+      counterpartySettledTxns: vendor.settledTxns,
+      priceBandZ: vendor.priceBandZ,
+    },
+    { agentAddress: privateKeyToAccount(agentPrivateKey()).address, catalog, instruction },
+  );
+  for (const note of sheetNotes) await say(taskId, note);
+
   const factSheet = {
     amountMinor,
     currency: 'INR' as const,
     categoryCode: item.categoryCode,
-    counterpartyId: vendor.address.toLowerCase(),
-    counterpartyTier: vendor.tier,
-    counterpartyAgeDays: vendor.ageDays,
-    counterpartySettledTxns: vendor.settledTxns,
-    priceBandZ: vendor.priceBandZ,
+    ...declared,
     taskId,
     lineItemId: item.lineItemId,
     leaseId: leased.json.leaseId as string,
@@ -414,22 +466,36 @@ app.post<{ Body: { description: string; mode: BehaviourMode; agentId?: string } 
           created.json?.error?.message ?? `Task create failed (HTTP ${created.status}).`);
       }
       const taskId = created.json.taskId as string;
-      const plan = created.json.plan as LineItem[];
+      const planned = created.json.plan as LineItem[];
 
       // Nothing in the registry matched, or the registry was unreachable. That
       // is a real answer and it must not come back looking like a completed
       // dispatch with an empty results array — the caller would render success.
-      if (plan.length === 0) {
+      if (planned.length === 0) {
         const note = (created.json.note as string | null) ?? 'Nothing could be priced, so no payment was requested.';
         await say(taskId, note);
         return reply.code(200).send({ taskId, agentId, repaired, mode, plan: [], results: [], note });
       }
 
+      // The registry, read once for the whole dispatch. The modes need to see
+      // all of it; every line item then resolves its counterparty from the same
+      // snapshot rather than re-fetching and possibly disagreeing with itself.
+      const catalog = await fetchCatalog();
+
+      // The mode gets its hands on the plan HERE — after the planner, before
+      // anything is priced or signed. Nothing downstream knows which mode it is
+      // running under except the two narrow hooks in modes.ts; the lease, the
+      // signature and the settlement path are byte-identical in all six.
+      const { plan, notes: planNotes } = warpPlan(mode, planned, catalog);
+
       await say(taskId, `Planning "${description}" — ${plan.length} line item(s), mode=${mode}.`);
+      const intent = describeMode(mode);
+      if (intent) await say(taskId, intent);
+      for (const note of planNotes) await say(taskId, note);
 
       const results: LineItemResult[] = [];
       for (const item of plan) {
-        results.push(await runLineItem(taskId, item, agentId));
+        results.push(await runLineItem(taskId, item, agentId, mode, catalog));
       }
 
       return reply.code(200).send({ taskId, agentId, repaired, mode, plan, results });

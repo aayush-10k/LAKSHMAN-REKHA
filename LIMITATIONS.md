@@ -65,7 +65,7 @@ would not change what is enforceable.
 | UPI semantics | The ₹ amounts are real ERC-20 transfers, but UPI rails (NPCI/IMPS) are not accessible | UAP spec is unpublished; NPCI API requires licensed entity access |
 | Vendor registry | Vendors are simulated (VendorSim); real GST/MCA registry integration is not implemented | Demo scope |
 | Agent "web browsing" | Agent reads vendor pages served by our own VendorSim; it does not browse the live internet | Scope + rate-limit safety |
-| FROST Schnorr 2-of-3 | Currently ships as 2-of-2 ECDSA. FROST upgrade is behind a feature flag | FROST Schnorr library stability; the 2-of-2 path always works |
+| FROST Schnorr 2-of-3 | **Not implemented, and not behind a feature flag.** An earlier version of this row said the upgrade shipped behind a flag; it does not exist. The only occurrence of "FROST" in the codebase is a comment at `apps/core/src/api/routes/payment.ts:5` describing the *simulated* ceremony rounds that drive the M3 animation. What ships is 2-of-2 ECDSA — which works, is verified on chain, and has settled real transactions. The multi-round ceremony is a presentation of that one signature, not a threshold protocol; its rounds exist so revocation has something to interrupt | FROST was scoped as an upgrade that must never block the working path (`BUILD.md:340`). The working path was the one that got built |
 | Nitro Enclave attestation | The attestation **mechanism** is real — predicate 3 compares the request's `coreImageDigest` to the value registered on-chain, and a mismatch reverts `CoreImageMismatch`. The registered **value** is a placeholder: `0x01` followed by 31 zero bytes. It is not the hash of anything, so it currently attests nothing. Do not present it as evidence | Nitro Enclave hardware was unavailable, and Docker is not installed on the build machine, so no image digest could be produced. Fix pending: a source-tree digest over the exact file set `apps/core/Dockerfile` copies, registered with `attestCoreImage()` |
 | LLM adversary variants | LLM generator requires an API key; deterministic library always runs | API key may not be set in your environment |
 | Category allow-list on the live deployment | `SOFTWARE` is the one category the deployed PolicyModule does not permit, so a `SOFTWARE` line item is refused by predicate 7. Every other category settles | Deliberate, and it matches the core's pinned fallback in `apps/core/src/api/store.ts`. It is the live `CategoryNotPermitted` demo case, not a gap |
@@ -212,12 +212,17 @@ tier-2 counterparty.
 
 ## Known Open Items
 
-- [ ] FROST Schnorr upgrade (behind feature flag, not default)
+- [ ] FROST Schnorr upgrade — **not started.** No feature flag, no partial
+      implementation. See the "What Is Simulated" row above
 - [ ] Postgres persistence (currently in-memory; restarts lose state)
 - [ ] Real vendor registry integration (GST, MCA)
 - [ ] Guardian address flow in UI (backend supports it, UI doesn't expose it yet)
 - [ ] Return the signed `PaymentRequest` from `/v1/payment/request` (see the rough edge above)
-- [ ] Set `PERMITTED_CATEGORIES` on the live PolicyModule so categories other than `OTHER` can settle
+- [x] ~~Set `PERMITTED_CATEGORIES` on the live PolicyModule so categories other
+      than `OTHER` can settle~~ — **struck: this was never needed.** It restated
+      the `permittedCategories = 128` claim that the Correction section above
+      withdraws. Live value is 223; every category except `SOFTWARE` settles as
+      deployed. No owner transaction was required and none was made
 - [ ] Halmos symbolic proofs (Foundry fuzzing is in CI; Halmos is a stretch goal)
 - [ ] Mobile-responsive layout for the three-panel playground
 - [ ] Register a real core image digest — the on-chain value is a placeholder

@@ -1,8 +1,20 @@
 """
 B7 — Adversary library tests
 
-Assert all 12 attack classes are blocked.
-If any one succeeds, that's a real vulnerability and the build is broken.
+These used to assert "all 12 attack classes are blocked". They no longer do,
+because that is the claim HONESTY_PLAN.md withdrew: the old suite counted its
+own crashes and its own unreachable services as defences, and two of the twelve
+classes returned a hardcoded revert string without ever touching the chain.
+
+What is asserted now is the contract the scoreboard depends on:
+
+  - `blocked` only ever means we got a verdict and the payment stopped
+  - a harness failure is `errored`, and `errored` is never `blocked`
+  - nothing the core refused is reported as having got `through`
+  - each class attempts what it says it attempts
+
+If any one of those breaks, every number on the Rogue Mode board is unsafe to
+show, which is a worse failure than an attack getting through.
 """
 
 from __future__ import annotations
@@ -60,32 +72,77 @@ class AllAttackClassesBlocked(unittest.TestCase):
         self.assertFalse(missing, f"Missing attack classes: {missing}")
 
     @patch("library._post")
-    def test_no_attack_succeeds_when_core_is_correct(self, mock_post: MagicMock) -> None:
-        """When the core correctly blocks all attempts, funds lost must be ₹0."""
+    def test_nothing_the_core_refused_is_reported_as_through(self, mock_post: MagicMock) -> None:
+        """
+        When every core call comes back refused, nothing may be reported as
+        `through`.
+
+        This replaces `test_no_attack_succeeds_when_core_is_correct`, which
+        asserted that EVERY result was `blocked`. That assertion encodes the
+        claim this suite exists to retire. Classes 5 and 7 go through the agent
+        runner's /rail-bypass, and a mocked-out runner is a service we could not
+        reach — so those results are `errored`, and `errored` is deliberately
+        not `blocked`. A test that demanded otherwise would fail the day the
+        instrumentation started telling the truth. It did, and it did.
+        """
         mock_post.return_value = self._mock_blocked_response()
 
         results = run_all_attacks(CORE_URL, _noop_emit)
 
-        unblocked = [r for r in results if not r.blocked]
+        through = [r for r in results if r.status == "through"]
         self.assertFalse(
-            unblocked,
-            f"These attacks were NOT blocked: {[(r.technique, r.revert_reason) for r in unblocked]}\n"
-            "This represents a real vulnerability. Fix it before the demo."
+            through,
+            f"These attacks got THROUGH a core that refused everything: "
+            f"{[(r.technique, r.revert_reason) for r in through]}\n"
+            "That is a real vulnerability, or a classifier bug. Either way, fix it."
         )
 
     @patch("library._post")
-    def test_structuring_class_1_all_60_blocked(self, mock_post: MagicMock) -> None:
-        """Class 1 structuring: all 60 micro-payments should be blocked collectively."""
+    def test_a_result_is_blocked_only_when_we_got_a_verdict(self, mock_post: MagicMock) -> None:
+        """
+        The invariant the whole scoreboard rests on: `blocked` means something
+        stopped the payment, never that our own harness fell over.
+
+        FIXLOG3.md:317. `blocked` used to be the only state, so an attack class
+        that threw and a response shape the classifier did not recognise both
+        landed on the board as successful defences. A number that goes up when
+        our test rig breaks is worthless.
+        """
+        mock_post.return_value = {"error": {"code": "NETWORK_ERROR", "message": "connection refused"}}
+
+        results = run_all_attacks(CORE_URL, _noop_emit)
+
+        self.assertGreater(len(results), 0)
+        wrongly_blocked = [r for r in results if r.blocked or r.status == "blocked"]
+        self.assertFalse(
+            wrongly_blocked,
+            f"A core we never reached was counted as a defence: "
+            f"{[(r.technique, r.status, r.revert_reason) for r in wrongly_blocked]}"
+        )
+        # And every one of them says so, rather than being silently dropped.
+        self.assertTrue(all(r.status == "errored" for r in results))
+        self.assertTrue(all(r.stage is None for r in results))
+
+    @patch("library._post")
+    def test_structuring_sizes_itself_from_live_headroom(self, mock_post: MagicMock) -> None:
+        """
+        Class 1 attempts exactly `StructuringAttack.PAYMENTS` slices.
+
+        This used to assert the literal 60, and 60 was wrong twice over: the run
+        took 4m39s (each request costs two RPC round-trips), and 60 x ₹800 is
+        ₹48,000 against a ₹1,00,000 window cap, so neither the per-tx cap nor
+        the window cap could ever fire. The count now comes from the class, and
+        the slice size from live headroom — assert the contract, not a constant
+        that was chosen before anyone measured it.
+        """
         mock_post.return_value = self._mock_blocked_response("POLICY_REFUSED", "REFUSED")
 
         from library import StructuringAttack
         attack = StructuringAttack()
         results = attack.execute(CORE_URL, _noop_emit)
 
-        self.assertEqual(len(results), 60, "Structuring attack should attempt exactly 60 payments")
-        # In a correctly configured system with window caps, these should all be blocked
-        # (or some get through until the window cap is hit)
-        # The important thing: no unbounded spending
+        self.assertEqual(len(results), attack.PAYMENTS)
+        self.assertTrue(all(r.class_number == 1 for r in results))
 
     @patch("library._post")
     def test_toctou_class_4_at_most_one_succeeds(self, mock_post: MagicMock) -> None:

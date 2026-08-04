@@ -9,7 +9,7 @@
 import type { FastifyInstance } from 'fastify';
 import * as store from '../store.js';
 import { emit } from '../../events/bus.js';
-import { inrxBalanceOf, rekhaAccountAddress } from '../chain.js';
+import { inrxBalanceOf, readDeployedPolicy, rekhaAccountAddress } from '../chain.js';
 
 export async function registerRevokeRoutes(app: FastifyInstance): Promise<void> {
   // POST /v1/revoke
@@ -70,6 +70,59 @@ export async function registerRevokeRoutes(app: FastifyInstance): Promise<void> 
       });
     },
   );
+
+  /**
+   * POST /v1/admin/unrevoke — clears an OFF-CHAIN revoke.
+   *
+   * FINALE_PLAN.md Phase 5 item 3. Before this, a judge who pressed "Revoke
+   * Mandate (Core)" ended the demo: nothing could spend again until someone
+   * restarted the process, which on stage is indistinguishable from the demo
+   * having broken. The playground labels the button one-way; this is the reset.
+   *
+   * It is deliberately NOT beside the revoke control in the UI. Putting an undo
+   * next to a kill switch teaches a judge that the kill switch is soft, and it
+   * is not — `PolicyModule.revoke()` from the owner's wallet has no undo at all,
+   * and there is no unfreeze function in the contract. This route refuses when
+   * the chain is the thing that is frozen, and says why.
+   *
+   * Unauthenticated for the same reason as /v1/admin/kill, and with the same
+   * disclosure: a real deployment does not expose this.
+   */
+  app.post<{ Body: { mandateId?: string } }>('/v1/admin/unrevoke', async (request, reply) => {
+    const mandateId = request.body?.mandateId;
+    if (!mandateId) {
+      return reply.code(400).send({ error: { code: 'INVALID_REQUEST', message: 'mandateId is required.' } });
+    }
+
+    // Read the chain FIRST. The store refuses to clear anything without an
+    // authoritative answer, so an unreachable RPC is a 503 and not a guess.
+    const snapshot = await readDeployedPolicy();
+    const result = store.unrevokeMandate(
+      mandateId,
+      snapshot === null ? null : { frozen: snapshot.frozen, revocationEpoch: snapshot.revocationEpoch },
+    );
+
+    if (!result.ok) {
+      const code = snapshot === null ? 'CHAIN_UNREADABLE' : 'UNREVOKE_REFUSED';
+      return reply.code(snapshot === null ? 503 : 409).send({
+        error: { code, message: result.reason },
+      });
+    }
+
+    const mandate = store.getMandate(mandateId);
+    emit({
+      t: 'revocation',
+      epoch: mandate?.revocationEpoch ?? 0,
+      source: 'owner',
+      latencyMs: 0,
+    });
+
+    return reply.code(200).send({
+      revoked: false,
+      epoch: mandate?.revocationEpoch ?? 0,
+      message: result.reason,
+    });
+  });
 
   // POST /v1/agent/heartbeat — keeps dead-man switch alive
   app.post<{ Body: { mandateId: string } }>('/v1/agent/heartbeat', async (request, reply) => {

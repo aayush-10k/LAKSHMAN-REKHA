@@ -135,6 +135,18 @@ Task 3 · procure · 100× glass bottle 500ml · vendor: Meridian Packaging
 
 ### Key split — 2-of-3
 
+> **CORRECTION (4 Aug 2026) — what shipped is a co-signer, not a threshold.**
+> This section is the original brief and is kept as written. What exists is
+> **2-of-2 ECDSA** (`agentSignature` + `coreSignature`, both verified in
+> `PolicyModule.validate`) plus a **separate `onlyOwner` EOA**. "Key share C" is
+> not a share: it is an owner key that can act entirely alone — `revoke()`,
+> `setPolicy()` and `heartbeat()` need neither A nor B. That independence is the
+> point of the kill switch and it is a real, good property. It is not the
+> property "the full key never exists in one place", which requires a threshold
+> scheme that was never built. Say **"a key the agent doesn't have, plus an
+> owner override that answers to nobody"** — it is true, and it is the sentence
+> the demo actually earns. See `THREAT_MODEL.md` and `LIMITATIONS.md`.
+
 The full private key never exists in one place at any point in its lifetime.
 
 | Combination | Capability |
@@ -182,7 +194,7 @@ A judge will ask: *"If you have an allowlist, why do you need scam detection?"* 
 | Monorepo | pnpm workspaces + Turborepo | plain pnpm workspaces |
 | Contracts | Solidity 0.8.24, Foundry, Base Sepolia | — |
 | Account | Custom `RekhaAccount` + `PolicyModule` (simpler to explain than full ERC-4337) | — |
-| Threshold signing | **Start: 2-of-2 co-signature** (agent ECDSA + core ECDSA, both verified on-chain). **Upgrade: FROST Schnorr 2-of-3** + Solidity Schnorr verifier | The 2-of-2 path must work first and always |
+| Threshold signing | **Start: 2-of-2 co-signature** (agent ECDSA + core ECDSA, both verified on-chain). ~~**Upgrade: FROST Schnorr 2-of-3** + Solidity Schnorr verifier~~ — **SHIPPED: 2-of-2 only. FROST was never started** — no flag, no partial implementation, no Schnorr verifier | The 2-of-2 path must work first and always — and it is the only one that does |
 | Core service | Node + TypeScript + Fastify | — |
 | Isolation | Docker containers, per-service egress restrictions | — |
 | Attestation | Nitro Enclave if reachable; else **reproducible-build attestation** — publish core image digest, register on-chain, sign decisions with a digest-bound key | Fallback earns most of the credit; state honestly which shipped |
@@ -195,7 +207,7 @@ A judge will ask: *"If you have an allowlist, why do you need scam detection?"* 
 | DB | Postgres (Supabase/Neon) + Prisma | SQLite |
 | Auth | Auth.js credentials provider | — |
 | Deploy | Frontend Vercel · services Railway/Fly · contracts Base Sepolia | — |
-| Proofs | Foundry invariant fuzzing + Halmos symbolic execution | fuzzing only |
+| Proofs | ~~Foundry invariant fuzzing + Halmos symbolic execution~~ — **SHIPPED: the fallback.** Foundry stateful invariant fuzzing (`contracts/test/Invariants.t.sol`, one function per INV1–INV5) plus 10,000/10,000 differential agreement between the TS evaluator and Solidity `validate`. **Halmos is not in this repository** | fuzzing only |
 
 **Model choice:** deliberately use a mid-tier model for the shopper agent. We *want* it to fall for injections — that's the realistic case and the honest demo. Cheapest fast model for the adversary loop, which fires hundreds of calls.
 
@@ -838,8 +850,8 @@ test(contracts): assert one-of-fifty parallel nonce race
 1. **The problem.** Scammers now build fake shops designed to fool AI shoppers — Visa logged a 450% rise in criminals discussing AI agents in six months. India is building the protocol to let agents pay over UPI: 22.71 billion transactions a month. UPI has no chargeback. *An AI that can be tricked, holding money that can't be recovered.*
 2. **What everyone else builds vs what we built.** A pause button is software that says no. Ours is a key the agent doesn't have. Three differences: impossible not forbidden · fails safe not open · we attack ourselves live.
 3. **Architecture.** The trust-boundary diagram. One trusted component, everything else hostile. The typed-schema boundary marked clearly.
-4. **The three keys.** Table of combinations. *"The full key never exists in one place at any point in its lifetime."*
-5. **Attack resistance.** The twelve classes, the scoreboard screenshot, the Halmos invariant output. *"Not tested. Proven."*
+4. **The two keys, and the owner.** ~~Table of combinations. *"The full key never exists in one place at any point in its lifetime."*~~ — **REWRITTEN.** 2-of-2 ECDSA plus an owner EOA that can revoke alone. *"The agent holds one of two required signatures. Alone it is not restricted — it is incapable. And the kill switch runs through none of our services."* Back it live: `/playground` M1 mounts the attack from the agent's own process and the deployed contract answers `InvalidCoreSignature`.
+5. **Attack resistance.** The twelve classes and the scoreboard, ~~the Halmos invariant output. *"Not tested. Proven."*~~ — **REWRITTEN.** There are no Halmos proofs. What there is: five Foundry stateful invariants and 10,000/10,000 differential agreement between the TypeScript evaluator and Solidity `validate`. Say ***"fuzzed and differentially checked"***, never "proven". And show the scoreboard **split** — input boundary / policy predicates / on chain — because a single "147 blocked" conflates a schema regex with the policy engine, and a judge who finds that themselves is a judge you have lost.
 6. **What's real and what isn't.** Real contract on Base Sepolia with an explorer link. Simulated UPI semantics, faithful to UPI Circle delegation caps and Block/Lien mandate lifecycle. NPCI's UAP is unpublished — we align with the announced direction, we do not claim compliance. Consumer agentic purchasing at scale is a 2027–28 story; guardrails have to exist first.
 
 Slide 6 is not a weakness. Judges trust teams that disclose and punish teams they catch.
@@ -871,7 +883,16 @@ Say these out loud until they're natural. They're the difference between a good 
 
 > *"Our infrastructure failing is indistinguishable from the kill switch firing. There is no failure mode where money keeps moving."*
 
-> *"We revoked a transaction that hadn't finished being created. The signature doesn't exist and never will — that's only possible because we used threshold signing instead of a co-signer. A co-signer can only say no before or after."*
+> ~~*"We revoked a transaction that hadn't finished being created. The signature doesn't exist and never will — that's only possible because we used threshold signing instead of a co-signer. A co-signer can only say no before or after."*~~
+>
+> **DO NOT SAY THIS. You are a co-signer.** The line asserts the one thing that
+> was not built, and it invites the exact follow-up question you cannot answer.
+> The true version is not weaker:
+>
+> *"We revoked it mid-ceremony. The core re-checks the revocation epoch between
+> rounds, so the signature was abandoned before it existed — and because the
+> chain also checks the epoch, a signature made a moment earlier would have
+> reverted anyway. Two independent places say no."*
 
 > *"An identity allowlist is a subscription control, not a commerce control. An agent whose job is finding vendors can't run on one."*
 

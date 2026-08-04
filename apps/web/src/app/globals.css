@@ -773,18 +773,21 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 }
 .pg-mode:hover    { background: rgba(237,234,227,0.05); }
 .pg-mode.is-active { background: rgba(237,234,227,0.09); border-color: var(--chalk); }
-.pg-mode.is-unwired .pg-mode-name { color: var(--muted); }
 .pg-mode-name { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
 .pg-mode-desc { display: block; font-size: 10.5px; color: var(--muted); line-height: 1.35; margin-top: 2px; }
-/* Says on the card that the button only sets a label. See MODE_INFO. */
+/* Names the predicate the mode is aiming at, before it runs. See MODE_INFO.
+   Mono because it is an identifier out of evaluator.ts, not prose — a judge
+   should be able to match it character for character against the decision
+   panel. Deliberately --muted and not a state colour: it is a prediction, and
+   only the row that comes back is allowed to use the three money colours. */
 .pg-mode-tag {
   padding: 0 5px;
   border-radius: 3px;
   border: 1px solid var(--border);
+  font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.2px;
   color: var(--muted);
 }
 
@@ -963,6 +966,22 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 .pg-ceremony.is-aborted .pg-ceremony-label { color: var(--breach); }
 .pg-ceremony-idle { font-size: 10px; color: var(--muted); font-style: italic; }
 .pg-ceremony-note { margin-top: 7px; font-size: 10px; color: var(--muted); line-height: 1.4; }
+/* The rehearsal reset. Deliberately the quietest control on the page — a
+   hairline text button, no state colour, no fill. It undoes an off-chain
+   freeze, which is the weaker of the two revokes, and it must never read as
+   though it could undo the on-chain one. */
+.pg-btn-reset {
+  margin-top: 8px;
+  padding: 4px 8px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  color: var(--muted);
+  transition: color 0.15s, border-color 0.15s;
+}
+.pg-btn-reset:hover { color: var(--chalk); border-color: var(--chalk); }
+.pg-btn-reset:focus-visible { outline: 2px solid var(--chalk); outline-offset: 2px; }
 
 .pg-seg { flex: 1; height: 6px; border-radius: 3px; transition: background 0.25s; }
 .pg-seg.is-pending { background: var(--border); }
@@ -1294,6 +1313,208 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
    the perimeter, so none of this depends on the panel's pixel size. The path
    starts at top-centre, so a gap at the start of the dash pattern is a break at
    the top edge. */
+/* ═══════════════════════════════════════════════════════════
+   LANDING  —  app/page.tsx
+   ═══════════════════════════════════════════════════════════
+   One column, generous measure, no cards. The page is an evidence sheet: a
+   claim, then the address where you can check it. Nothing here fetches, so
+   nothing here has an error state.
+
+   Everything is sized in clamp() rather than at breakpoints. There is one
+   layout; it just gets narrower. A judge opening this on a phone in the
+   audience gets the same page, not a reduced one. */
+.lp {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: clamp(20px, 4vw, 48px) clamp(18px, 4vw, 40px) 64px;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(36px, 6vw, 64px);
+}
+
+/* ── Bar ─────────────────────────────────────────────────── */
+.lp-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.lp-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+/* The rekha in the wordmark. 28px of 1px chalk, at the same 40% the boundary
+   itself sits at when nothing is happening. */
+.lp-wordmark-rule {
+  width: 28px;
+  height: 1px;
+  background: var(--chalk);
+  opacity: 0.4;
+}
+.lp-bar-nav { display: flex; gap: 18px; }
+.lp-bar-link {
+  font-size: 12.5px;
+  color: var(--muted);
+  padding-bottom: 2px;
+  border-bottom: 1px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.lp-bar-link:hover  { color: var(--chalk); border-bottom-color: var(--chalk); }
+.lp-bar-link:focus-visible { outline: 2px solid var(--chalk); outline-offset: 3px; }
+
+/* ── Hero, inside the line ───────────────────────────────── */
+.lp-rekha { border-radius: 0; }
+.lp-hero {
+  padding: clamp(26px, 5vw, 52px) clamp(20px, 4vw, 44px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lp-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* The one large thing on the page, and it is a Solidity error rather than a
+   headline we wrote. Mono, because it is a literal identifier out of the
+   deployed bytecode and setting it in the display face would dress it up as
+   copy. --breach is correct and not decorative: this IS a refusal. */
+.lp-revert {
+  font-family: var(--font-mono);
+  font-size: clamp(26px, 6.2vw, 60px);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--breach);
+  overflow-wrap: anywhere;
+}
+.lp-thesis {
+  font-family: var(--font-display);
+  font-size: clamp(21px, 3.4vw, 34px);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--chalk);
+}
+.lp-lede {
+  max-width: 62ch;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.lp-provenance {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.lp-provenance code { color: var(--chalk); }
+.lp-inline-link {
+  color: var(--chalk);
+  border-bottom: 1px solid var(--border);
+  transition: border-color 0.15s;
+}
+.lp-inline-link:hover { border-bottom-color: var(--chalk); }
+.lp-inline-link:focus-visible { outline: 2px solid var(--chalk); outline-offset: 2px; }
+
+/* ── Evidence rows ───────────────────────────────────────── */
+.lp-h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+}
+.lp-h2-note { font-family: var(--font-body); font-size: 12px; font-weight: 400; color: var(--muted); }
+
+.lp-rows { list-style: none; }
+/* Three columns that collapse to two lines on a narrow screen without a media
+   query: the note wraps to its own row once the grid runs out of width. */
+.lp-row {
+  display: grid;
+  grid-template-columns: minmax(110px, max-content) minmax(150px, max-content) 1fr;
+  gap: 6px 18px;
+  align-items: baseline;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+}
+.lp-row-key {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--chalk);
+  border-bottom: 1px solid var(--border);
+  transition: border-color 0.15s;
+}
+.lp-row-key:hover { border-bottom-color: var(--chalk); }
+.lp-row-key:focus-visible { outline: 2px solid var(--chalk); outline-offset: 3px; }
+/* --clear only ever means money moved. These rows are settled transactions,
+   so this is the one place on the page it is allowed. */
+.lp-row-key-settled { color: var(--clear); }
+.lp-row-key-settled:hover { border-bottom-color: var(--clear); }
+.lp-row-hex {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.lp-row-note { font-size: 12.5px; color: var(--muted); }
+.lp-row-note-wide { grid-column: 2 / -1; }
+
+/* ── Two ways in ─────────────────────────────────────────── */
+.lp-doors {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+/* No hover lift, no shadow, no gradient — BUILD.md Part 11. The only thing
+   that changes on hover is the border, which is also the only thing that would
+   change if this were a real boundary. */
+.lp-door {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: border-color 0.15s, background 0.15s;
+}
+.lp-door:hover { border-color: var(--chalk); background: rgba(237, 234, 227, 0.05); }
+.lp-door:focus-visible { outline: 2px solid var(--chalk); outline-offset: 3px; }
+.lp-door-name { font-family: var(--font-display); font-size: 18px; font-weight: 600; }
+.lp-door-desc { font-size: 12.5px; line-height: 1.55; color: var(--muted); }
+.lp-door-go { margin-top: 4px; font-family: var(--font-mono); font-size: 11.5px; color: var(--chalk); }
+
+/* ── Disclosure ──────────────────────────────────────────── */
+.lp-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.lp-foot-line { max-width: 74ch; font-size: 12.5px; line-height: 1.65; color: var(--muted); }
+.lp-foot-strong { color: var(--chalk); font-weight: 600; }
+.lp-foot-muted { font-size: 11.5px; }
+.lp-foot code { font-family: var(--font-mono); color: var(--chalk); }
+
 .rekha {
   position: relative;
   display: flex;

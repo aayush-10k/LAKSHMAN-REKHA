@@ -32,3 +32,6 @@ venv/
 
 # Local tooling scratch
 .claude/
+
+# Local dev service logs written by scripts/dev-up.sh
+.devlogs/

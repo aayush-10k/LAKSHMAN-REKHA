@@ -79,43 +79,49 @@ type RailBypass = {
 };
 
 /**
- * Two of these six do something. The other four set a label and nothing else —
- * FINALE_PLAN.md Phase 6 is where they get wired, and until then the card says
- * so on screen. A mode whose description promises "invents vendors, wrong
- * quantities" while the agent runs the identical honest path is a claim the
- * interface cannot keep, and a judge who selects it and sees a normal purchase
- * has caught us rather than been shown something.
+ * All six do something now (FINALE_PLAN.md Phase 6).
+ *
+ * Four of them used to set a label and nothing else, so the cards carried a
+ * `not wired` tag rather than a promise the interface could not keep. That tag
+ * is gone because the behaviour is real: `apps/core/src/agent/modes.ts` changes
+ * what the agent buys and what it declares, and nothing else. Same binary, same
+ * lease, same signing path, same chain in all six — the mode cannot reach the
+ * evaluator, and a judge should be able to check that in one file.
+ *
+ * `catches` names the predicate each mode is aiming at. It is an intention, not
+ * a result: the row that appears below is whatever the evaluator actually
+ * returned. If they ever disagree, believe the row.
  */
-const MODE_INFO: Record<BehaviourMode, { label: string; description: string; wired: boolean }> = {
+const MODE_INFO: Record<BehaviourMode, { label: string; description: string; catches: string | null }> = {
   normal: {
     label: 'Normal',
     description: 'Plans from the registry, browses the storefront, pays the page price.',
-    wired: true,
+    catches: null,
   },
   hallucinating: {
     label: 'Hallucinating',
-    description: 'Would invent vendors and quantities. Not wired — runs the normal path.',
-    wired: false,
+    description: 'Reads quantities 250× too large and orders the same line item twice.',
+    catches: 'perTxCap',
   },
   injected: {
     label: 'Injected',
-    description: 'The mode is not wired, but Inject text below is: the agent reads that storefront on every dispatch.',
-    wired: false,
+    description: 'Does whatever the storefront tells it to — wallet, price, anything. Undefended on purpose.',
+    catches: 'counterpartyTier',
   },
   compromised: {
     label: 'Compromised',
     description: 'Runs the deterministic attack classes against this core, live.',
-    wired: true,
+    catches: null,
   },
   overreach: {
     label: 'Overreach',
-    description: 'Would upgrade tiers and add extras. Not wired — runs the normal path.',
-    wired: false,
+    description: 'Buys what you asked for, then adds something expensive and out of scope.',
+    catches: 'categoryPermitted',
   },
   colluding: {
     label: 'Colluding',
-    description: 'Would register a vendor it controls and pay itself. Not wired — runs the normal path.',
-    wired: false,
+    description: 'Pays an address it controls and calls it a 10-year-old tier 1 supplier.',
+    catches: 'counterpartyTier',
   },
 };
 
@@ -679,8 +685,11 @@ export default function PlaygroundPage() {
    * Only this path is fast enough to land inside a ~1200ms signing round, which
    * is the whole point of the moment.
    *
-   * It is one-way until the core restarts (FINALE_PLAN.md Phase 5 item 3), so
-   * the button says so before it is pressed rather than after.
+   * It stops spending until it is explicitly cleared (FINALE_PLAN.md Phase 5
+   * item 3), and the note under the button says so before it is pressed rather
+   * than after. The reset lives in `clearRevoke` below and only appears once
+   * the revoke has actually fired — see the comment there for why it is not
+   * offered up front.
    */
   const revokeMandate = async () => {
     setRevokeResult(null);
@@ -712,10 +721,58 @@ export default function PlaygroundPage() {
           `Revoked at epoch ${body?.epoch ?? '?'}. Nothing new can be approved from this moment ` +
           `(${body?.latencyMs ?? 0}ms), and any lease already issued expires within ` +
           `${(worst / 1000).toFixed(0)}s — after which spending is over regardless. ` +
-          `Any ceremony in flight was abandoned. Restart the core to spend again.`,
+          `Any ceremony in flight was abandoned.`,
       });
     } catch (e) {
       setRevokeResult({ ok: false, text: `Could not reach the core at ${CORE_URL}; nothing was revoked. (${(e as Error).message})` });
+    }
+  };
+
+  /**
+   * Clear the off-chain revoke, so a rehearsal can continue.
+   *
+   * ── Why this is not a button beside REVOKE ────────────────────────────────
+   * An undo sitting next to a kill switch teaches the person looking at it that
+   * the kill switch is soft. It is not: `PolicyModule.revoke()` from the
+   * owner's wallet — the one the console fires — has no undo anywhere, and
+   * `PolicyModule` has no unfreeze function at all. Advertising a reset in
+   * advance would misrepresent the strongest control in the system in order to
+   * make a demo more convenient.
+   *
+   * So it appears only AFTER the revoke has fired and been seen to work, and it
+   * is named for what it is. The core refuses it outright when the freeze is on
+   * chain, and the message it returns says so.
+   */
+  const clearRevoke = async () => {
+    setRevokeResult(null);
+    if (!pairing) {
+      setRevokeResult({ ok: false, text: 'Not paired, so there is no mandate to clear.' });
+      return;
+    }
+    try {
+      const res = await fetch(`${CORE_URL}/v1/admin/unrevoke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mandateId: pairing.mandateId }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        // Never optimistic. A refusal here usually means the CHAIN is frozen,
+        // which is the answer the judge should hear verbatim.
+        setRevokeResult({
+          ok: false,
+          text: body?.error?.message ?? `The core refused to clear the revoke (HTTP ${res.status}).`,
+        });
+        return;
+      }
+      setFrozen(false);
+      if (typeof body?.epoch === 'number') setRevocationEpoch(body.epoch);
+      setRevokeResult({ ok: true, text: body?.message ?? 'Off-chain revoke cleared.' });
+    } catch (e) {
+      setRevokeResult({
+        ok: false,
+        text: `Could not reach the core at ${CORE_URL}; the revoke is still in force. (${(e as Error).message})`,
+      });
     }
   };
 
@@ -820,12 +877,18 @@ export default function PlaygroundPage() {
               {(Object.keys(MODE_INFO) as BehaviourMode[]).map((m) => (
                 <button
                   key={m}
-                  className={`pg-mode ${mode === m ? 'is-active' : ''} ${MODE_INFO[m].wired ? '' : 'is-unwired'}`}
+                  className={`pg-mode ${mode === m ? 'is-active' : ''}`}
                   onClick={() => setMode(m)}
                 >
                   <span className="pg-mode-name">
                     {MODE_INFO[m].label}
-                    {!MODE_INFO[m].wired && <span className="pg-mode-tag">not wired</span>}
+                    {/* The predicate this mode is aiming at, named on the card
+                        before it runs. A judge can then check the decision
+                        panel against it instead of taking our word for the
+                        result afterwards. */}
+                    {MODE_INFO[m].catches && (
+                      <span className="pg-mode-tag">→ {MODE_INFO[m].catches}</span>
+                    )}
                   </span>
                   <span className="pg-mode-desc">{MODE_INFO[m].description}</span>
                 </button>
@@ -1146,9 +1209,18 @@ export default function PlaygroundPage() {
               </button>
             </div>
             <p className="pg-ceremony-note">
-              One-way: the core has no un-revoke. Restart it to spend again.
+              Stops all spending until it is cleared. The console&apos;s REVOKE ALL is the
+              stronger one — it goes to the contract from the owner&apos;s wallet, and that
+              one has no undo at all.
             </p>
             {revokeResult && <div className={revokeResult.ok ? 'pg-msg-ok' : 'pg-msg-err'}>{revokeResult.text}</div>}
+            {/* Only after the revoke has fired and been seen to work. See
+                clearRevoke() for why this is not offered up front. */}
+            {frozen && (
+              <button className="pg-btn-reset" onClick={() => void clearRevoke()}>
+                Clear the core revoke (rehearsal reset)
+              </button>
+            )}
           </div>
         </section>
       </div>

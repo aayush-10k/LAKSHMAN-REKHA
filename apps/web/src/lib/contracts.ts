@@ -45,6 +45,34 @@ export const SETTLED_TX: readonly { hash: string; detail: string }[] = [
   },
 ];
 
+/**
+ * The agent-alone probe, as the deployed contract answered it.
+ *
+ * The landing page is a static server-rendered file — it makes no request to
+ * the core, on purpose, so that it still stands when everything else is down.
+ * That means this string is typed into the source, and a string typed into the
+ * source is exactly the failure `library.py` had: a hardcoded
+ * `InvalidCoreSignature` presented as a chain result it never obtained.
+ *
+ * So it is labelled as what it is — a RECORDED result, with the date, the
+ * method and the command that reproduces it — and the page says so on screen
+ * next to it. `/playground` runs the same probe live; that is the page to
+ * believe. The rule: a measured fact may be recorded here, never a predicted
+ * one, and it must arrive with the means to re-measure it.
+ *
+ * Re-measure with:
+ *   curl -X POST $AGENT_URL/rail-bypass -d '{}' -H 'content-type: application/json'
+ */
+export const RECORDED_PROBE = {
+  revert: 'InvalidCoreSignature',
+  predicate: 'coreSignature',
+  /** `eth_call`, not a transaction — the agent address holds 0 ETH for gas. */
+  method: 'eth_call against the deployed RekhaAccount',
+  agent: '0x6E19cA2B53986EAEeE638412A4051651a64a00d5',
+  amountMinor: 2500000,
+  recordedOn: '4 Aug 2026',
+} as const;
+
 const EXPLORER = 'https://sepolia.basescan.org';
 
 export const basescanAddress = (address: string) => `${EXPLORER}/address/${address}`;

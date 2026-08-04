@@ -170,6 +170,60 @@ export function revokeMandate(mandateId: string): void {
   mandates.set(mandateId, { ...m, revocationEpoch: m.revocationEpoch + 1, frozen: true });
 }
 
+/**
+ * Clear an OFF-CHAIN revoke. Rehearsal control, not a product feature.
+ *
+ * FINALE_PLAN.md Phase 5 item 3: the core's revoke needed a process restart to
+ * undo, so a judge who pressed "Revoke" mid-demo bricked the rest of it. The
+ * button is now labelled one-way, and this is the other half — a way to reset
+ * between rehearsals without `pkill`.
+ *
+ * ── Two guards, and both are the point ────────────────────────────────────
+ *
+ *  1. **It refuses if the CHAIN is frozen.** A `PolicyModule.revoke()` from the
+ *     owner's wallet, or a lapsed dead-man switch, is not ours to undo — the
+ *     whole claim of the on-chain kill switch is that it runs through none of
+ *     our services. An endpoint that appeared to reverse it would be a lie
+ *     about the strongest control in the system. Caller passes what it read
+ *     from the chain; a caller that cannot read the chain gets a refusal, not
+ *     an optimistic clear.
+ *
+ *  2. **It restores the epoch to the chain's value rather than decrementing.**
+ *     `revokeMandate` bumps the local epoch, and leases carry it. Un-freezing
+ *     while leaving the epoch ahead of the chain would issue leases that pass
+ *     every core predicate and then revert `StaleRevocationEpoch` on
+ *     settlement — a demo that looks fixed and fails at the last step, which is
+ *     the worst possible failure mode to introduce while fixing a demo hazard.
+ */
+export function unrevokeMandate(
+  mandateId: string,
+  chain: { frozen: boolean; revocationEpoch: number } | null,
+): { ok: boolean; reason: string } {
+  const m = mandates.get(mandateId);
+  if (!m) return { ok: false, reason: 'No such mandate.' };
+
+  if (chain === null) {
+    return {
+      ok: false,
+      reason:
+        'PolicyModule could not be read, so there is no way to tell whether the freeze is on chain. Refusing to clear it.',
+    };
+  }
+  if (chain.frozen) {
+    return {
+      ok: false,
+      reason:
+        'The mandate is frozen ON CHAIN. That freeze belongs to the owner key and the dead-man switch, and nothing in this service can lift it — there is no unfreeze function in PolicyModule.',
+    };
+  }
+
+  mandates.set(mandateId, { ...m, frozen: false, revocationEpoch: chain.revocationEpoch });
+  return {
+    ok: true,
+    reason: `Off-chain revoke cleared. Epoch restored to the chain's ${chain.revocationEpoch}; leases are being issued again.`,
+  };
+}
+
 export function heartbeat(mandateId: string): void {
   updateMandate(mandateId, { lastHeartbeatMs: Date.now() });
 }

@@ -727,7 +727,7 @@ class PromptInjectionAttack:
                     stage=stage,
                     revert_reason=reason,
                 )
-            else:
+            elif status == "through":
                 # Approved, and nothing injected survived. The boundary held.
                 result = AttackResult(
                     technique="prompt injection via FactSheet field",
@@ -736,6 +736,26 @@ class PromptInjectionAttack:
                     status="blocked",
                     stage="input",
                     revert_reason="injected text stripped; decision made on facts only",
+                )
+            else:
+                # `errored`. The core was never reached, so nothing was stripped
+                # and nothing was proven.
+                #
+                # This branch used to be the `else` above, which meant an
+                # unreachable core produced "injected text stripped; decision
+                # made on facts only" — a defence claimed for a request that was
+                # never evaluated. It is the same fabrication as the old
+                # hardcoded InvalidCoreSignature, in the one class the pitch
+                # leans on hardest, and it survived the first pass at fixing
+                # exactly this. Caught by test_a_result_is_blocked_only_when_
+                # we_got_a_verdict.
+                result = AttackResult(
+                    technique="prompt injection via FactSheet field",
+                    class_number=self.class_number,
+                    blocked=False,
+                    status="errored",
+                    stage=None,
+                    revert_reason=f"NOT TESTED — {reason}",
                 )
             _emit_attempt(emit, result)
             results.append(result)

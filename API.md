@@ -377,7 +377,7 @@ type ApiError = {
 | 409 | `NONCE_USED` | Replay |
 | 409 | `DECISION_NOT_APPROVED` | Settle attempted on a HELD/REFUSED decision |
 | 422 | `POLICY_REFUSED` | Evaluator returned REFUSED — `predicate` names which |
-| 429 | `RATE_LIMITED` | Lease-renewal griefing defence |
+| 429 | `RATE_LIMITED` | ~~Lease-renewal griefing defence~~ — **NOT IMPLEMENTED.** No rate limiting exists anywhere in the core, so nothing can currently return this. Attack class 12 is stopped by the fail-closed property only (no leases → spending stops), which is a different and weaker claim. Documented here rather than deleted so the gap is visible instead of merely absent |
 | 503 | `CORE_UNAVAILABLE` | Fail-closed. **Never retried into an approval.** |
 
 ---
