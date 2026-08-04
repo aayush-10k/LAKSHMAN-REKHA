@@ -25,6 +25,20 @@ proxy** — Vercel functions have a maximum duration, and the SSE stream that
 drives the entire UI would be cut mid-demo and silently lose events. CORS is
 already open on all three services.
 
+> ### You do not need Docker installed to do any of this
+>
+> Railway builds the image **on its own servers** from the Dockerfile in the
+> repo. Docker locally would only let you rehearse that build before pushing —
+> useful, not required, and it needs `sudo` to install.
+>
+> The cost of not having it: **Railway's build is the first real test of these
+> Dockerfiles.** They have been checked as far as is possible without Docker —
+> the `pnpm install` copy set was reproduced outside a container, both start
+> commands were run directly, and the missing `pnpm-lock.yaml` COPY that would
+> have failed the build was found that way. But no image has ever been built.
+> Expect the first Railway build to be where a Dockerfile problem surfaces, and
+> read the build log rather than assuming a failure is your env vars.
+
 ---
 
 ## 0. Push the branch
@@ -33,14 +47,15 @@ Railway and Vercel build from GitHub, so anything uncommitted is invisible to
 them.
 
 ```bash
-git status --short          # expect: the Dockerfiles, runner.ts, LIMITATIONS.md, the two new .md files
-git add -A && git commit -m "deploy: build-correct Dockerfiles, agent PORT fallback, deploy runbook"
-git push origin finale/frontend
+git status --short                         # expect clean
+git log --oneline origin/main..HEAD | wc -l   # what is waiting
+git push -u origin finale/frontend         # -u: the branch has no upstream yet
 ```
 
-The remote is `aayush-10k/LAKSHMAN-REKHA` — confirm you have write access before
-relying on this step. `origin/main` and `finale/frontend` were identical as of
-2026-08-04, so nothing else is outstanding.
+**`finale/frontend` does not exist on the remote** — `git branch -r | grep
+finale` returns nothing — so the first push needs `-u`. The remote is
+`aayush-10k/LAKSHMAN-REKHA`; confirm you have write access before relying on
+this step.
 
 ---
 
