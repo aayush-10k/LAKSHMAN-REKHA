@@ -17,11 +17,44 @@
 | Fail-closed lease TTL | ✅ **15-second** TTL (`LEASE_TTL_MS=15000`), not 5 — see below. Core unreachable, or `POST /v1/admin/kill`, = no new leases = spending stops within that window |
 | 2-of-2 ECDSA co-signing | ✅ Agent sig + core sig both required. The agent share lives in a separate process (`pnpm dev:agent`); the core never calls `agentSign()` on a request path |
 | Dead-man switch | ✅ Heartbeat lapse auto-freezes |
-| 12-class adversary attack library | ✅ All 12 classes run against the live core via `pnpm dev:adversary`. Last measured run: **147 attempts, 147 blocked, 0 novel, ₹0 lost** — see FIXLOG3.md for the revert-reason breakdown |
+| 12-class adversary attack library | ✅ All 12 classes run against the live core via `pnpm dev:adversary`, and classes 5 and 7 now `eth_call` the deployed contract rather than asserting a revert. **The old "147 attempts, 147 blocked" is withdrawn** — that suite never reached the policy evaluator and counted its own errors as defences. Current measured run and the two weaknesses it exposed: `HONESTY_PLAN.md` Part II |
+| Typed-schema injection boundary | ✅ And now actually tested for: class 8 searches every response for the injected markers instead of treating "payment refused" as success. Measured: zero leaked |
 | Signing ceremony | ✅ 3 rounds, revocation re-checked between each. `CEREMONY_ROUND_MS` (default 1200) makes it ~3.6s so the mid-ceremony revoke is performable by hand |
 | Audit export | ✅ Signed by the core key. `digest` is keccak256 of the serialised body; recompute it and recover the signer. Unsigned exports say so in `signatureStatus` rather than carrying a zero signature |
-| Typed-schema injection boundary | ✅ Extractor converts prose → FactSheet; no strings egress |
 | SSE event stream | ✅ All events real-time, no polling |
+
+---
+
+## The off-chain core is an optimistic pre-filter. The chain is the enforcer.
+
+Measured 4 Aug 2026, once the adversary suite was fixed so its attacks actually
+reached the policy evaluator (`HONESTY_PLAN.md` Part II). Two things follow, and
+both are architecture rather than bugs — but the ship checklist described a core
+that is stronger than it is, so they are stated here plainly.
+
+**The core will co-sign past its own window cap.** `windowSpentMinor` advances on
+settlement, so 12 requests of ₹8,579 each — ₹1,02,948 against a ₹1,00,000 window
+cap — are all APPROVED, because none of them has settled yet and each looks fine
+alone. Nothing can move: `PolicyModule.validate` reverts `WindowCapExceeded`
+against the authoritative **on-chain** counter (`PolicyModule.sol:253`).
+
+**The core is not concurrency-safe on nonces.** 50 parallel requests carrying the
+same nonce get most threads approved — the check and the write are not atomic.
+On chain `usedNonces` is enforced in the contract, so **exactly one could ever
+settle**, which is what `BUILD.md`'s INV5 actually guarantees. The off-chain
+figure in `BUILD.md:793` ("50 parallel same-nonce payments → exactly one
+settles") is true of settlement, not of core approvals.
+
+What this means for the product claim: unchanged. The agent cannot pay without
+the chain agreeing, and the chain enforces caps, nonces and both signatures. What
+it means for the scoreboard: an approval is not a breach, and the board now
+labels those separately — `core-approved, unsettled` in amber, with `₹0 lost`
+reserved for money that actually moved.
+
+Fixing the core to refuse these itself is real work (reserve-on-approve
+accounting, and a lock or atomic reservation around the nonce) and is not
+attempted before the demo. It would make the pre-filter agree with the chain; it
+would not change what is enforceable.
 
 ---
 
@@ -33,7 +66,7 @@
 | Vendor registry | Vendors are simulated (VendorSim); real GST/MCA registry integration is not implemented | Demo scope |
 | Agent "web browsing" | Agent reads vendor pages served by our own VendorSim; it does not browse the live internet | Scope + rate-limit safety |
 | FROST Schnorr 2-of-3 | Currently ships as 2-of-2 ECDSA. FROST upgrade is behind a feature flag | FROST Schnorr library stability; the 2-of-2 path always works |
-| Nitro Enclave attestation | We use reproducible-build image digest registered on-chain | Nitro Enclave hardware was not available in our environment |
+| Nitro Enclave attestation | The attestation **mechanism** is real — predicate 3 compares the request's `coreImageDigest` to the value registered on-chain, and a mismatch reverts `CoreImageMismatch`. The registered **value** is a placeholder: `0x01` followed by 31 zero bytes. It is not the hash of anything, so it currently attests nothing. Do not present it as evidence | Nitro Enclave hardware was unavailable, and Docker is not installed on the build machine, so no image digest could be produced. Fix pending: a source-tree digest over the exact file set `apps/core/Dockerfile` copies, registered with `attestCoreImage()` |
 | LLM adversary variants | LLM generator requires an API key; deterministic library always runs | API key may not be set in your environment |
 | Category allow-list on the live deployment | `SOFTWARE` is the one category the deployed PolicyModule does not permit, so a `SOFTWARE` line item is refused by predicate 7. Every other category settles | Deliberate, and it matches the core's pinned fallback in `apps/core/src/api/store.ts`. It is the live `CategoryNotPermitted` demo case, not a gap |
 | Gas payer | Settlement transactions are broadcast and paid for by `DEPLOYER_PRIVATE_KEY`, not by the core signer | The deployed core signer `0xB18D…` holds 0 ETH on Base Sepolia. `execute` is authorized by the two signatures inside the request, never by `msg.sender`, so the broadcaster only has to be funded — but this does mean the demo spends the deployer's testnet ETH |
@@ -187,6 +220,25 @@ tier-2 counterparty.
 - [ ] Set `PERMITTED_CATEGORIES` on the live PolicyModule so categories other than `OTHER` can settle
 - [ ] Halmos symbolic proofs (Foundry fuzzing is in CI; Halmos is a stretch goal)
 - [ ] Mobile-responsive layout for the three-panel playground
+- [ ] Register a real core image digest — the on-chain value is a placeholder
+- [ ] Reserve-on-approve window accounting, and an atomic nonce reservation, so
+      the off-chain core refuses what the chain would refuse
+- [ ] No authentication on `/console`. `BUILD.md:45` specifies email + password
+      and `:806` promises demo credentials in the README; neither exists. Anyone
+      with the URL is the owner. REVOKE ALL is wallet-gated, so the strongest
+      control is not open
+- [ ] No policy editor (`BUILD.md:52`). `setPolicy` is owner-only and called by
+      script
+- [ ] No per-agent revoke (`BUILD.md:51`). Global REVOKE ALL and per-hold Cancel
+      only
+- [ ] No mock deposit or credit line (`BUILD.md:46`)
+- [ ] Simulation-speed slider removed — it was wired to nothing. The task
+      engine's fast clock is real but has no HTTP control
+- [ ] `novel` counter removed from the scoreboard. The LLM generator needs an API
+      key, was never invoked by the UI, and derived its "novel" attempts from
+      four hardcoded probes regardless of what the model returned
+- [ ] Deck slide 5 cites Halmos output; there are no Halmos proofs. What exists
+      is Foundry invariant fuzzing plus 10,000/10,000 differential agreement
 
 ---
 

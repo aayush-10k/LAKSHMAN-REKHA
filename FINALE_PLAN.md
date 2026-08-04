@@ -285,7 +285,18 @@ is the SSE contract.
 
 ---
 
-## Phase 4 — `/playground` and the three moments
+## Phase 4 — `/playground` and the three moments ✅ DONE 4 Aug 2026
+
+> Built and verified against the live stack; **not yet seen in a browser**. See
+> `FINALE_PROGRESS.md` for the evidence and what is still open.
+>
+> **One item below was wrong.** "Surface the existing rail-bypass attack result"
+> pointed at `library.py:272`, which never touches the chain — its
+> `InvalidCoreSignature` is a hardcoded Python string, so it could not carry the
+> revert reason or the Basescan link this plan asks for. M1 is now a real
+> `eth_call` from the agent runner against the deployed RekhaAccount, which
+> returns the contract's own revert. `library.py` is untouched and still
+> simulated; fixing it is Phase 5's business.
 
 Rebuild `apps/web/src/app/playground/page.tsx`. Three columns plus a bottom
 scoreboard strip, per FINALE.md's ASCII layout.

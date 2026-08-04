@@ -18,7 +18,7 @@ Phase 0  verify the chain            ██████████ DONE
 Phase 1  host it                     ██████░░░░ code ready — BLOCKED on accounts
 Phase 2  design primitives           ██████████ DONE — review /kitchen-sink
 Phase 3  /console                    ██████████ DONE — verified in Chrome against live data
-Phase 4  /playground + 3 moments     ░░░░░░░░░░ not started
+Phase 4  /playground + 3 moments     █████████░ DONE — verified against the live stack, NOT in a browser
 Phase 5  honesty fixes               ░░░░░░░░░░ not started
 Phase 6  wire the 4 dead modes       ░░░░░░░░░░ not started
 Phase 7  landing page                ░░░░░░░░░░ not started
@@ -73,11 +73,32 @@ six semantic tokens    absent     all six present
 
 ## NEXT ACTION
 
-Follow `DEPLOY.md` top to bottom. It needs a Railway account (free $5 trial, no
-card) and a Vercel account (free). Step 0 is `git push` — nothing below is
-committed yet.
+1. **Open `/playground` in a browser at 1600×950.** Phase 4 is code-complete and
+   verified against the live stack, but never rendered. See "Still open" below.
+2. Follow `DEPLOY.md` top to bottom for Phase 1. It needs a Railway account
+   (free $5 trial, no card) and a Vercel account (free). Step 0 is `git push` —
+   nothing below is committed yet.
+3. Then Phase 5 (honesty fixes) in `FINALE_PLAN.md`. Item 1, the 147 breakdown,
+   is already measured — see the Phase 4 evidence.
 
-Then continue with Phase 2 in `FINALE_PLAN.md`.
+### Running the stack
+
+`pnpm` is not on `PATH` in a non-interactive shell, so launch the services
+directly. **Do not run `next build` while `next dev` is serving** — they share
+`.next` and the result is `MODULE_NOT_FOUND` on `_document.js`; recover with
+`rm -rf apps/web/.next`.
+
+```
+node apps/vendorsim/src/server.js            # :4100
+python3 -u apps/agents/adversary/runner.py   # :4300
+cd apps/core && npx tsx watch src/api/index.ts      # :4000
+cd apps/core && npx tsx watch src/agent/runner.ts   # :4200
+cd apps/web  && npx next dev -p 3000                # :3000
+```
+
+To stop them, match the entry script — `pkill -f "src/api/index.ts"`.
+`pkill -f "tsx watch"` matches **nothing**; see Phase 4 below for what that
+cost.
 
 ---
 
@@ -256,7 +277,185 @@ Confirmed visually — red boundary, clean gap at top-centre, both ends recoiled
 
 ---
 
-## DONE — Phase 3: `/console`
+## DONE — Phase 4: `/playground` and the three moments
+
+Files: `app/playground/page.tsx` (rewritten), `globals.css` (playground block
+replaced, plus a dead-CSS sweep), `app/kitchen-sink/page.tsx` (ceremony bar now
+uses the shipped classes), `core/src/agent/runner.ts` (**new** `POST
+/rail-bypass`), `core/src/api/chain.ts` (one export).
+
+Three columns and a bottom strip, per FINALE.md's ASCII. `<Rekha>` wraps the
+centre column, so everything the agent touches is literally inside the line.
+`attack.attempt{blocked}` → flare, `ceremony.aborted` → snap, `payment.settled`
+→ nothing. The line does not celebrate.
+
+### M1 is now real, and it was not before
+
+`FINALE_PLAN.md:309` asks for "the revert reason and a Basescan link". The
+rail-bypass it points at could not honestly carry either —
+`apps/agents/adversary/library.py:272`:
+
+```python
+# The agent doesn't have keyB, so this will always fail with InvalidCoreSignature on-chain.
+# We simulate the attempt here — the on-chain revert is the real defence.
+blocked = True
+reason = "InvalidCoreSignature"
+```
+
+It never touches the chain. `"InvalidCoreSignature"` is a hardcoded Python
+string, and hanging a Basescan link on it is exactly what FIXLOG3 exists to stop.
+
+`POST /rail-bypass` on the **agent runner** replaces it. The runner is the right
+home: it already holds `AGENT_SIGNER_PRIVATE_KEY`, so the attack is mounted from
+the position an attacker actually occupies. If the core ran it, the core would be
+holding the agent's key and the demonstration would be theatre.
+
+It reads the live policy first (so the epoch and image digest are current and the
+*only* wrong thing is the signature), builds a PaymentRequest paying the agent's
+own address the full `perTxCap`, signs it, and puts **its own signature in the
+core's slot** — not 65 zero bytes, which would revert inside OpenZeppelin's ECDSA
+with a malformed-signature error and prove something much weaker. `ECDSA.recover`
+succeeds and returns a real address; it simply is not `coreSigner`.
+
+Measured against the deployed contract:
+
+```
+outcome   reverted
+revert    InvalidCoreSignature
+predicate coreSignature
+agent     0x6E19cA2B53986EAEeE638412A4051651a64a00d5   keyShare A of 2
+request   amountMinor 2500000  counterparty 0x6E19…00d5 (itself)
+```
+
+Predicate 1 is `agentSignature` and the agent **passes it** — it dies on
+predicate 2, the one thing it cannot forge. That is the whole claim in one line.
+
+**It is an `eth_call`, not a transaction, and the panel says so.** There is no tx
+hash and the UI never offers one; the link goes to RekhaAccount. A broadcast
+version needs the agent address funded, and it holds **0 ETH** (measured 4 Aug
+2026: agent `0x6E19…00d5` 0.000000, core `0xB18D…df6B` 0.000000, deployer
+`0xA514…bFD2` 0.029963). Fund the agent and this upgrades to a real failed tx
+with a clickable Basescan link — that is the only thing standing between here and
+the strongest form of M1.
+
+Nothing asserts the outcome. An `executed` answer renders as
+*"The chain ACCEPTED a payment signed by one key share. The 2-of-2 claim is
+false."* — the product being wrong has to be visible, not swallowed.
+
+### M3 fires, measured on the live stream
+
+```
+decision.made     APPROVED
+revocation        epoch=1 source=owner
+ceremony.round    round 1 of 3
+ceremony.aborted  atRound=1 reason=revoked
+```
+
+The bar and REVOKE sit side by side, one gesture. On abort the segments shatter
+(`pg-shatter` skews and recoils them, and it survives `prefers-reduced-motion` as
+a static broken state — the break is information, not decoration) and the Rekha
+snaps.
+
+**The REVOKE button is the core's off-chain revoke, deliberately.** Only it is
+fast enough to land inside a ~1200 ms signing round; `PolicyModule.revoke()` from
+the owner's wallet needs a wallet popup and seconds, and the console already owns
+that stronger claim. Labelled one-way, per Phase 5 item 3.
+
+**A real core restart does clear it** — verified, `frozen=False
+revocationEpoch=0`, leases issuing again. The button's label is accurate.
+
+### Things measurement caught that reading would not
+
+- **`pkill -f "tsx watch"` matches nothing.** tsx runs as
+  `node …/tsx/dist/cli.mjs watch src/api/index.ts` — no literal `"tsx watch"`
+  substring. Every "restart" left the old core running while the new one failed
+  to bind 4000 and died, so a revoked mandate appeared to **survive a restart**
+  and I nearly wrote that down as a finding. Match `src/api/index.ts` instead.
+- **`next build` while `next dev` serves corrupts `.next`.** FINALE_PROGRESS
+  already warned about this and I did it anyway — a dev server was running on
+  **3999**, not 3000, so the port probe missed it. Symptom is
+  `MODULE_NOT_FOUND: .next/dev/server/pages/_document.js`; fix is `rm -rf .next`.
+- **The old `fundsLost` counter was wrong by a factor of 100** — and the fix
+  needed two passes. It incremented by **1 per unblocked attack** and was then
+  rendered through a paise formatter, so a single ₹9,400 breach would have
+  displayed as **₹0.01 lost**. My first correction simply froze it at ₹0, which
+  is worse: `attack.attempt` carries no amount, so the largest figure on the page
+  would have kept announcing **₹0 lost** while something was getting through.
+  It now counts attacks that got **through** (which the event does report) and
+  the strip claims ₹0 only while that is zero; the moment it is not, the figure
+  becomes `unknown · N got through` and `--clear` is withdrawn for `--breach`.
+  Verified at rest: the page renders `₹0` once, `unknown` zero times.
+- **The sim-speed slider did nothing.** `speed` was set by the slider and read by
+  nothing — the task-engine's `SimClock` is constructed with a hardcoded 40000
+  and has no HTTP path to change it. Removed rather than left as a control that
+  moves and means nothing.
+- **Four of six mode buttons still only set a label** (Phase 6). Their old
+  descriptions promised behaviour that does not happen — "invents vendors, wrong
+  quantities" while the agent ran the identical honest path. Each unwired card
+  now says `not wired` on its face. A judge who picks Hallucinating and watches a
+  normal purchase has caught us; one who reads "not wired" has been told.
+- **A leftover counterfeit poisons the normal path.** The counterfeit clones
+  *every* product of its target at 40%, and the planner breaks ties toward the
+  lower price, so after one Spawn a plain "buy 200 black tamper caps" routed to
+  `ven_counterfeit1` and was REFUSED on `counterpartyTier`. That is enforcement
+  working and it is a good moment — but restart vendorsim before a clean run.
+
+### Evidence
+
+```
+tsc --noEmit (web)                  TSC_EXIT=0
+tsc --noEmit (core)                 TSC_EXIT=0
+next build (clean .next)            BUILD_EXIT=0, 5 routes
+built CSS                           31,233 -> 32,279 bytes
+six semantic tokens                 all present
+banned blue 5B8DEF / gradient /
+  backdrop-filter                   absent
+dead CSS removed (0 occurrences)    .playground-layout .scoreboard .attack-row
+                                    .li-outcome .mode-card .lease-panel
+                                    .btn-judge .control-msg-ok .balance-amount
+                                    .ceremony-bar .lease-ring-large .task-item
+                                    .btn-dispatch .core-dot
+console/kitchen-sink untouched      .con-balance .rekha-line .ttl-ring
+                                    .predicate-table .core-offline present
+empty catch blocks in web/src       none (the one grep hit is a comment)
+CORS on browser-facing endpoints    access-control-allow-origin: *
+storefront iframe headers           no X-Frame-Options, no frame-ancestors
+/ /console /playground /kitchen-sink  all HTTP 200
+```
+
+Live stack, one run:
+
+```
+dispatch "buy 200 black tamper caps"
+  APPROVED  ven_meridian  tx 0x1653c62fee4df442f1a6e1e2ceb2e9f7b0fde333922072249ca6c64490ac48e4
+                          block 45013837
+rail-bypass   reverted · InvalidCoreSignature · coreSignature
+adversary     147 total, 147 blocked, 0 novel, fundsLostMinor 0
+SSE received  attack.attempt 147 · ceremony.round 3 · decision.made 1
+              payment.settled 1 · agent.thought 12 · lease.tick 1
+```
+
+The 147 break down exactly as Phase 5 item 1 predicts — 124 `FACTSHEET_INVALID`
++ 20 `AGENT_NOT_FOUND` at the input boundary, 3 past it. **Not rendered yet;**
+that split is Phase 5's job and the strip still shows one `blocked` figure.
+
+### Still open on `/playground`
+
+- **Not seen in a browser.** Two Chrome profiles are connected to this machine
+  and the tooling requires picking one interactively, which was not possible in
+  this session. Everything above is HTTP, SSE and built-CSS evidence. The
+  console's own Phase 3 notes are the warning here: the predicate table
+  overflowing and `allowedDevOrigins` were both invisible until a real browser
+  rendered the page. **Open `/playground` at 1600×950 before trusting the
+  layout** — particularly the three-column grid at `340px 1fr 320px`, the
+  storefront iframe filling the centre, and `₹0` reading as the largest figure.
+- **`novel` will always show 0.** Nothing in the deterministic library is marked
+  novel, so the counter is honest and reads as an empty box. FINALE.md's mock
+  shows `9 novel`. Either mark the classes that genuinely are novel, or drop the
+  counter — do not invent a number.
+- **A held payment still has no exercise here**, same gap the console has.
+- The `is-critical` M1 branch (chain accepts a single-share signature) has never
+  rendered, because it has never happened.
 
 Rebuilt to FINALE.md Part 2. Files: `app/console/page.tsx` (rewritten),
 `lib/contracts.ts` (new), `globals.css` (console block rewritten),
