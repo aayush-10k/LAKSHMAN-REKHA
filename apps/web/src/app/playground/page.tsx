@@ -912,11 +912,44 @@ export default function PlaygroundPage() {
 
                   {task.plan.map((item) => {
                     const result = task.results.find((r) => r.lineItemId === item.lineItemId);
+
+                    /**
+                     * The amount ASKED FOR, not the amount planned.
+                     *
+                     * This row used to render `item.estimatedAmountMinor` even
+                     * after the result came back — the planner's
+                     * `units × registry price`, computed before the agent ever
+                     * opened the storefront. Caught in a browser: an `injected`
+                     * dispatch where the page talked the agent into paying
+                     * ₹9,99,800 to `0xdeadbeef…` displayed as **₹480**. The one
+                     * number on screen was the one number the agent did not use.
+                     *
+                     * It is wrong in every mode, not just that one. Reading the
+                     * price off a live page is the entire point of browsing —
+                     * so estimate and actual are *expected* to differ, and the
+                     * difference is the story rather than a detail.
+                     *
+                     * Estimate is still shown while the dispatch is in flight,
+                     * because until a result exists it is the only figure there
+                     * is, and it is labelled `est` so it cannot be misread as
+                     * settled.
+                     */
+                    const asked = result?.amountMinor ?? item.estimatedAmountMinor;
+                    const movedPrice = result != null && result.amountMinor !== item.estimatedAmountMinor;
+                    // Likewise the payee. In `injected` and `colluding` the
+                    // agent submits a counterparty that is not the vendor whose
+                    // page it read, and naming only the vendor would hide it.
+                    const movedPayee =
+                      result != null && result.vendorId !== item.vendorId;
+
                     return (
                       <div key={item.lineItemId} className="pg-line">
                         <div className="pg-line-row">
-                          <span className="pg-line-vendor">{item.vendorId}</span>
-                          <Amount minor={item.estimatedAmountMinor} compact className="pg-line-amount" />
+                          <span className="pg-line-vendor">
+                            {item.vendorId}
+                            {movedPayee && <> → {result.vendorId}</>}
+                          </span>
+                          <Amount minor={asked} compact className="pg-line-amount" />
                           {result && (
                             <button
                               className={`pg-outcome pg-outcome-${result.outcome.toLowerCase()}`}
@@ -927,7 +960,22 @@ export default function PlaygroundPage() {
                               {result.bindingPredicate ? ` · ${result.bindingPredicate}` : ''}
                             </button>
                           )}
+                          {!result && <span className="pg-line-est">est</span>}
                         </div>
+
+                        {/* Only when the page moved it. Silent on an ordinary
+                            purchase, loud on the demo that depends on it. */}
+                        {movedPrice && (
+                          <div className="pg-line-moved">
+                            the storefront moved this off the registry&apos;s{' '}
+                            <Amount minor={item.estimatedAmountMinor} compact />
+                          </div>
+                        )}
+                        {result && result.counterparty !== undefined && (
+                          <div className="pg-line-payee">
+                            paid to <span className="pg-mono">{shortHex(result.counterparty, 10, 6)}</span>
+                          </div>
+                        )}
 
                         {result?.settlement && (
                           <div className="pg-line-meta">

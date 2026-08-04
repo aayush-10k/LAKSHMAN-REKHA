@@ -839,6 +839,21 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 .pg-line-link { font-family: var(--font-mono); color: var(--muted); text-decoration: underline; }
 .pg-line-link:hover { color: var(--chalk); }
 .pg-line-reverted { margin-top: 3px; font-size: 10px; color: var(--breach); }
+/* The row used to show the planner's estimate even after the result came back,
+   so an injected dispatch that tried to pay ₹9,99,800 read as ₹480. The amount
+   is now what was asked for; these two lines carry what the page changed.
+   --lien is wrong here (nothing is held) and --breach is wrong too (the refusal
+   already carries that), so both stay --muted: this is context, not a state. */
+.pg-line-moved { margin-top: 3px; font-size: 10px; color: var(--muted); }
+.pg-line-payee { margin-top: 2px; font-size: 10px; color: var(--muted); }
+/* Marks a figure as the estimate, while the dispatch is still in flight. */
+.pg-line-est {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
 
 .pg-decision {
   flex: none;
