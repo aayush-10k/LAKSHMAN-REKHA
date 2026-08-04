@@ -47,6 +47,9 @@ python3 scripts/verify-hold.py
 rule "revoke / unrevoke"
 python3 scripts/verify-unrevoke.py
 
+rule "guardian"
+python3 scripts/verify-guardian.py
+
 rule "hallucination sizing"
 python3 scripts/verify-hallucination-sizing.py
 

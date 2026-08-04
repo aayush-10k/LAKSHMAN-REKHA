@@ -413,9 +413,23 @@ These are not lies. They are untested, and `BUILD.md` Part 12 asks for proof.
   counterfeit storefront already creates exactly that shape. One dispatch, then
   cancel it. Do this before the demo regardless of anything else on this page.
 - **3.2 Guardian can revoke but cannot spend** (`BUILD.md:787`). Backend accepts
-  `source:'guardian'`; nothing proves the negative half. Already an open item in
-  `LIMITATIONS.md:185`. Either add a one-line test asserting a guardian cannot
-  obtain a lease, or drop the claim.
+  `source:'guardian'`; nothing proves the negative half.
+  **Investigated 4 Aug 2026 (`scripts/verify-guardian.py`), and it split in
+  two.**
+  - The **CAN** half is real and chain-enforced: `PolicyModule.sol:331` is
+    owner-or-guardian for `revoke()` and every other state-changing function is
+    `onlyOwner`. `contracts/test/PolicyModule.t.sol:160` exercises it.
+  - The **CANNOT** half is true by construction and **still untested**. Foundry
+    is not installed on this machine, so the assertion could not be written
+    *and run*, and an unrun test is worse than none. Install `forge` and add it,
+    or say only what `PolicyModule.sol:331` shows.
+  - **A separate finding fell out of it**: the core does not authenticate the
+    revoke source at all. `source` is free text on the request body, so anyone
+    who can reach `/v1/revoke` can pass `"guardian"` and the SSE stream and the
+    audit export will carry it. Measured: accepted with no credential. That does
+    not weaken the guardian claim, which is about the chain — but **never
+    present the `source` on a revocation event as evidence of who revoked**.
+    Now disclosed in `LIMITATIONS.md`.
 - **3.3 Halmos.** `BUILD.md:842` (deck slide 5) says *"the Halmos invariant
   output. Not tested. Proven."* There are no Halmos proofs —
   `contracts/test/Invariants.t.sol` is Foundry. `LIMITATIONS.md:188` already

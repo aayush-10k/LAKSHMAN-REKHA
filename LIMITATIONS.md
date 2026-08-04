@@ -287,6 +287,26 @@ tier-2 counterparty.
       and `:806` promises demo credentials in the README; neither exists. Anyone
       with the URL is the owner. REVOKE ALL is wallet-gated, so the strongest
       control is not open
+- [ ] **The core does not authenticate who revoked.** `source` is a free-text
+      field on `POST /v1/revoke` (`api/routes/revoke.ts:19`), so anyone who can
+      reach the endpoint can pass `"guardian"` or `"owner"` and the SSE stream
+      and the audit export will carry it. Measured
+      (`scripts/verify-guardian.py`): a guardian-sourced revoke is accepted with
+      no credential of any kind. **This is not a hole in the guardian claim** —
+      the guardian is a chain-level role and `PolicyModule.sol:331` enforces it
+      properly, `revoke()` being owner-or-guardian while every other
+      state-changing function is `onlyOwner`. It is a hole in *attribution*:
+      never present the `source` on a revocation event as evidence of who did it
+- [ ] **"Guardian can revoke but cannot spend" is only half proven.**
+      `contracts/test/PolicyModule.t.sol:160` pranks the guardian through
+      `revoke()`, so the CAN half is real. Nothing asserts the negative — that a
+      guardian cannot call `setPolicy`, `setSigners`, `setAccount`,
+      `attestCoreImage` or `heartbeat`, and cannot produce either required
+      signature. `onlyOwner` makes all of that true by construction, but true by
+      construction is not the same as tested. Foundry is not installed on the
+      current build machine, so the test could not be written *and run*, and an
+      unrun test is worse than none. Install `forge` and add it, or say only
+      what `PolicyModule.sol:331` shows
 - [ ] No policy editor (`BUILD.md:52`). `setPolicy` is owner-only and called by
       script
 - [ ] No per-agent revoke (`BUILD.md:51`). Global REVOKE ALL and per-hold Cancel
