@@ -120,26 +120,31 @@ six semantic tokens    absent     all six present
 ## CHAIN STATE — measured at the end of this session
 
 `set -a; . ./.env; set +a; node apps/core/scripts/chain-state.mjs`, block
-45036836:
+45038083:
 
 ```
 frozen               false          revocationEpoch 0
 permittedCategories  223            everything except SOFTWARE
-windowSpentMinor     3376800        ₹33,768 of ₹1,00,000
-windowStart          1785787540     vs block 1785841960 -> 54,420s of 86,400
-cumulativeSpentMinor 6166600        of ₹10,00,000
-_inrxAccountBalance  43833400       ₹4,38,334
-_deployerEth         29958422473820901   0.02996 ETH
+windowSpentMinor     4508800        ₹45,088 of ₹1,00,000 — ₹54,912 left
+windowStart          1785787540     vs block 1785844454 -> 56,914s of 86,400
+                                    the window rolls in about 8.2 hours
+cumulativeSpentMinor 7298600        of ₹10,00,000
+_inrxAccountBalance  42701400       ₹4,27,014
+_deployerEth         29954377077518526   0.029954 ETH
 lastHeartbeat        1785792590     lapses ≈ 10 Aug 2026, 2 days after the demo
 coreImageDigest      0x0100…00      still the placeholder
 ```
 
-**Verification is not free, and this session spent ₹33,768 of the window.** Each
-`overreach` run settles a real ₹480 payment plus gas, and `normal` runs settle
-too. The window had **not** rolled at the time of this reading — about 8.9 hours
-to go — so **check `windowSpentMinor` before rehearsing**, not just on demo day.
-A `windowCap` refusal mid-demo is the policy working, but it is not the moment
-you planned.
+**Verification is not free. This session spent ₹45,088 of the window** — nearly
+half — across the shell runs and the browser pass. Every `normal` and
+`overreach` dispatch settles a real payment plus gas. The window had **not**
+rolled at this reading.
+
+> **Check `windowSpentMinor` before every rehearsal, not just on demo day.** A
+> `windowCap` refusal mid-demo is the policy working correctly and it is not the
+> moment you planned. If it is high and the demo is soon, either wait for the
+> roll or rehearse with modes that refuse — `hallucinating`, `injected`,
+> `colluding` all settle nothing.
 
 Both key addresses still match their on-chain signers, which is the thing that
 must never drift.
