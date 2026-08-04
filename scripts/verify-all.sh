@@ -7,8 +7,10 @@
 #
 # What this does NOT cover, and no amount of running it will:
 #   - how any page LOOKS. Nothing here renders anything
-#   - the Claude reader in extract.ts against the real API (no key set)
-#   - the Docker images (Docker is not installed)
+#   - the Docker images (Docker is not installed; Railway builds them)
+#
+# The Claude page reader IS covered, by scripts/verify-injection-resistance.sh —
+# run that separately, it costs API calls.
 set -u
 cd "$(dirname "$0")/.."
 
@@ -68,5 +70,6 @@ rule "adversary suite"
 python3 scripts/verify-adversary.py
 
 printf '\n══ done %s\n' "$(printf '─%.0s' $(seq 1 55))"
-echo "NOT covered: how anything looks, the model reader, the Docker images."
+echo "NOT covered: how anything looks, and the Docker images."
+echo "The model reader has its own run: scripts/verify-injection-resistance.sh"
 echo "See FINALE_PROGRESS.md 'Still open'."

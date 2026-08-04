@@ -87,11 +87,19 @@ revocation event is unverified, and nothing should be presented as proof of who
 revoked. The same is already disclosed for /console having no authentication at
 all.
 
-The on-chain negative half — a guardian cannot call setPolicy, setSigners,
-setAccount, attestCoreImage or heartbeat, and cannot produce either required
-signature — is NOT asserted by any test in this repo, and forge is not installed
-here to add one. Either install Foundry and write it, or drop "cannot spend"
-from the claim and say only what PolicyModule.sol:331 shows.
+The on-chain negative half IS tested now — nine tests in
+contracts/test/PolicyModule.t.sol, all passing:
+
+    canRevoke                              cannotAttestACoreImage
+    cannotChangePolicy                     cannotPromoteACounterparty
+    cannotRepointSigners   <- the sharpest cannotHeartbeat
+    cannotMoveTheAccount                   cannotSpend
+                                           cannotSpend_evenWithTheAgentsSignature
+
+Run them with `forge test --match-contract PolicyModuleTest` in contracts/.
+An earlier version of this note said forge was not installed and the test could
+not be written. That was wrong: forge and anvil live in ~/.foundry/bin, which is
+not on PATH in a non-interactive shell, so `command -v forge` found nothing.
 """)
     return 0
 

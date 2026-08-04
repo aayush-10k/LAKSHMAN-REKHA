@@ -341,6 +341,43 @@ describe('operational guard (ahead of the 14)', () => {
   });
 });
 
+describe('amount boundaries — pinned, including one that is arguably wrong', () => {
+  // Found 4 Aug 2026 by scripts/verify-boundaries.py, once the LLM generator's
+  // dead probes were made to run. These pin CURRENT behaviour so it cannot
+  // change silently, not behaviour anyone should be happy with.
+
+  it('approves exactly at the per-tx cap, and refuses one paisa over', () => {
+    // The cap is `<=`, deliberately. This is the test that makes the off-by-one
+    // correct rather than lucky — it is the single most load-bearing boundary
+    // in the whole evaluator and nothing covered it.
+    const mandate = baseMandate();
+
+    const atCap = run({ ...baseFactSheet(), amountMinor: mandate.perTxCapMinor }, mandate);
+    expect(atCap.outcome).toBe('APPROVED');
+
+    const overCap = run({ ...baseFactSheet(), amountMinor: mandate.perTxCapMinor + 1 }, mandate);
+    expect(overCap.outcome).toBe('REFUSED');
+    expect(overCap.bindingPredicate).toBe('perTxCap');
+  });
+
+  it('APPROVES a zero-amount payment — there is no minimum-amount predicate', () => {
+    // This is a real gap, and it is asserted here rather than fixed.
+    //
+    // A zero-amount request passes all 14 predicates and gets the core's
+    // signature. No money moves, but it consumes a nonce and a lease.
+    //
+    // DO NOT "fix" this by adding a minimum to the evaluator alone. The
+    // evaluator is checked against Solidity `PolicyModule.validate` over 10,000
+    // differential inputs, and PolicyModule is already deployed AND
+    // source-verified on Base Sepolia. A minimum here and not there breaks that
+    // agreement, which is a far more valuable property than this is a bug.
+    // Change both, or neither. See LIMITATIONS.md.
+    const t = run({ ...baseFactSheet(), amountMinor: 0 }, baseMandate());
+    expect(t.outcome).toBe('APPROVED');
+    expect(t.bindingPredicate).toBeNull();
+  });
+});
+
 describe('fail closed', () => {
   it('an exception inside evaluation yields REFUSED, never an approval', () => {
     // Corrupt input (bypassing the type system as a hostile caller would) makes

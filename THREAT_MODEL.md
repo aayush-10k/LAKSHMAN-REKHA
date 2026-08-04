@@ -184,13 +184,13 @@ INV4 noBlockedCounterpartyTransfer  runs 64, calls 4096, reverts 10   PASS
 INV5 noNonceConsumedTwice           runs 64, calls 4096, reverts 10   PASS
      valueConservation              runs 64, calls 4096, reverts 10   PASS
 
-forge test   48 passed, 0 failed, 0 skipped
+forge test   57 passed, 0 failed, 0 skipped
 ```
 
 Separately, the TypeScript evaluator is checked against Solidity
 `PolicyModule.validate` over 10 000 differential inputs
 (`apps/core/test/differential.test.ts`) — `10000/10000 agree`, same date, with
-the core suite at **147/147 and nothing skipped**.
+the core suite at **149/149 and nothing skipped**.
 
 > Reproduce with `bash scripts/dev-up.sh anvil` (two chains: a plain one on
 > 8545 for the differential test, a Base Sepolia fork on 8546 for the fork

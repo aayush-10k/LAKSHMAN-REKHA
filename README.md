@@ -82,8 +82,8 @@ prints the agent's own narration off the SSE stream.
 
 ```bash
 bash scripts/dev-up.sh anvil        # two chains the suite needs — see below
-cd apps/core   && npx vitest run    # 147 passed, 0 skipped
-cd contracts   && forge test        # 48 passed, incl. all five invariants
+cd apps/core   && npx vitest run    # 149 passed, 0 skipped
+cd contracts   && forge test        # 57 passed, incl. all five invariants
 cd apps/agents/task-engine && node --test          # 9 pass
 cd apps/agents/adversary   && python3 test_library.py   # 7 pass
 ```
@@ -140,7 +140,7 @@ short version:
 - The invariants are **fuzzed and differentially checked** — five Foundry
   stateful invariants at 64 runs × 4096 calls each, and 10,000/10,000 agreement
   between the TypeScript evaluator and Solidity `validate`. Both re-measured
-  4 Aug 2026: `forge test` 48/48, core suite 147/147 with nothing skipped.
+  4 Aug 2026: `forge test` 57/57, core suite 149/149 with nothing skipped.
   **Fuzzed, not proven.** There are no Halmos proofs
 - The core **will co-sign past its own window cap**, because its accounting
   advances on settlement. `PolicyModule` reverts `WindowCapExceeded` on chain

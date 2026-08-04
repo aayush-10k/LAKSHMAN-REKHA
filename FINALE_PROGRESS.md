@@ -671,10 +671,10 @@ INV4 noBlockedCounterpartyTransfer    runs 64, calls 4096, reverts 10   PASS
 INV5 noNonceConsumedTwice             runs 64, calls 4096, reverts 10   PASS
      valueConservation                runs 64, calls 4096, reverts 10   PASS
 
-forge test   48 passed, 0 failed, 0 skipped  (4 suites)
+forge test   57 passed, 0 failed, 0 skipped  (4 suites)
 ```
 
-**The core suite is now 147/147 — nothing skipped.** It was `140 passed /
+**The core suite is now 149/149 — nothing skipped.** It was `140 passed /
 7 skipped` because both anvil chains were missing:
 
 ```
@@ -686,7 +686,7 @@ forge test   48 passed, 0 failed, 0 skipped  (4 suites)
 
 ```
 differential.test.ts    10000/10000 agree
-core vitest             147 passed, 0 failed, 0 SKIPPED (147)
+core vitest             149 passed, 0 failed, 0 SKIPPED (149)
 ```
 
 **The 10,000/10,000 differential claim is now measured on this machine**, not

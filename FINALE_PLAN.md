@@ -13,8 +13,8 @@ Branch: `finale/frontend`. Demo: **8 Aug 2026**.
 
 ## Context
 
-The engineering is done and it is strong: ~~86/86 tests~~ **147/147 core tests
-plus 48/48 contract tests, nothing skipped** (measured 4 Aug 2026 — the suite
+The engineering is done and it is strong: ~~86/86 tests~~ **149/149 core tests
+plus 57/57 contract tests, nothing skipped** (measured 4 Aug 2026 — the suite
 grew; see `FINALE_PROGRESS.md`), 10 000/10 000 differential
 agreement between the TypeScript evaluator and Solidity `PolicyModule.validate`,
 three verified contracts on Base Sepolia, a real settled transaction
@@ -418,10 +418,10 @@ Drive the deployed URL, not localhost:
 - Each of the four newly-wired modes → its `agent.thought` narrative, and the
   predicate that caught it.
 - Core suite with anvil on 8545 and a Base Sepolia fork on 8546 —
-  `bash scripts/dev-up.sh anvil` starts both — → **147/147, nothing skipped**.
+  `bash scripts/dev-up.sh anvil` starts both — → **149/149, nothing skipped**.
   Without them 140 run and 7 skip; say which you ran. Done 4 Aug 2026, including
   `10000/10000 agree` from the differential test.
-- `forge test` in `contracts/` → **48/48**, including all five invariants at
+- `forge test` in `contracts/` → **57/57**, including all five invariants and nine guardian tests at
   64 runs × 4096 calls. Done 4 Aug 2026.
   > `forge` and `anvil` are in `~/.foundry/bin`, which is **not on `PATH` in a
   > non-interactive shell**. `command -v forge` finding nothing is not proof
