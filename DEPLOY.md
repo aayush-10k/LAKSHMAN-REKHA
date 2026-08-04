@@ -144,6 +144,15 @@ itself to produce its half of the 2-of-2 (`apps/core/src/agent/runner.ts:248`).
 If the two sides assemble different structs, the signatures recover to different
 addresses and `PolicyModule` rejects with `InvalidAgentSignature`.
 
+> **And it must also equal what the CONTRACT holds**, or predicate 3 reverts
+> `CoreImageMismatch` on every payment. Right now that value is the `0x01…00`
+> placeholder, so leaving both services on the placeholder is correct and the
+> deployment works. Do **not** set them to the real source digest from
+> `apps/core/scripts/core-image-digest.mjs` unless you are also sending the
+> `attestCoreImage()` transaction — there are three places to keep in step, not
+> two, and there is no ordering that avoids an outage. `LIMITATIONS.md` has the
+> procedure. Not something to do on demo day.
+
 Record as **`<AGENT_URL>`**. Verify:
 
 ```bash
@@ -193,11 +202,19 @@ compiled in 2.6 s, 4 routes, all prerendered, TypeScript clean.
 
 With **nothing running locally** — ideally on a phone, on cellular:
 
-1. Open the Vercel URL. It should land on the console, not the offline panel.
-2. Go to Playground, dispatch `Order 100 bottles of Himalayan water`.
+1. Open the Vercel URL. **It lands on `/`, which is a Server Component with no
+   data fetching**, so it renders identically whether or not Railway is awake.
+   That is deliberate and it means `/` proves nothing about the backend — go to
+   `/console`, which should show a live balance rather than the offline panel.
+2. Go to Playground, dispatch `order 100 amber glass bottles`. Use the specific
+   phrase: with cheapest-wins routing, a vague "order 100 bottles" goes to
+   FlashCart (tier 3) and is refused, which is a good demo of a different thing.
 3. Watch the decision trace appear, then the settlement.
 4. Click through to Basescan and confirm the transaction.
-5. Re-check headroom afterwards:
+5. **Run one corrupted mode too.** `Overreach` is the best single check that the
+   whole chain is wired: the requested item settles on chain and the extra one
+   is refused on `categoryPermitted`, so one dispatch exercises both outcomes.
+6. Re-check headroom afterwards:
 
 ```bash
 cd <repo> && set -a && . ./.env && set +a && node apps/core/scripts/chain-state.mjs
@@ -218,6 +235,8 @@ fail-closed window is a product claim, so it gets corrected, not hidden.
 | Console shows "enforcement core is not reachable" | A `NEXT_PUBLIC_*` is missing or wrong. They are baked at build time — **redeploy** after fixing |
 | `/health` shows `coreKey:false` | `CORE_SIGNER_PRIVATE_KEY` unset or malformed. Every payment 503s |
 | `/health` shows `issuanceKilledAtMs` non-null | Kill switch still on from a rehearsal. `POST <CORE_URL>/v1/admin/revive` |
+| Every lease 409s `REVOKED` | A revoke left over from a rehearsal. `POST <CORE_URL>/v1/admin/unrevoke {"mandateId":…}`, or the "rehearsal reset" button that appears on `/playground` after a revoke. It **refuses if the freeze is on chain** and says so — that one has no undo, and no restart clears it either |
+| Settlement reverts `CoreImageMismatch` | `CORE_IMAGE_DIGEST` does not equal what `PolicyModule` holds. Three places must agree — core service, agent service, contract. Check with `node apps/core/scripts/core-image-digest.mjs` |
 | Settlement reverts `InvalidCoreSignature` | Core key is not `0xB18D31…dAdf6B` |
 | Settlement reverts `InvalidAgentSignature` | Agent key is not `0x6E19cA…a00d5`, **or** `CORE_IMAGE_DIGEST` differs between the two services |
 | Settlement reverts `LeaseExpired` | Hosted round trip exceeds `LEASE_TTL_MS`. Raise it, then re-measure |
