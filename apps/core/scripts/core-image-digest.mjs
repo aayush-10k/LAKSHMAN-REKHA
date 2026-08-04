@@ -73,6 +73,13 @@ const INCLUDE = [
   'apps/agents/task-engine/src',
   'apps/agents/adversary',
   'apps/core/docker-entrypoint.sh',
+  // Added 5 Aug 2026, in step with the COPY added to apps/core/Dockerfile.
+  // These are the ABIs api/chain.ts loads off disk to talk to PolicyModule and
+  // RekhaAccount. They were missing from the image entirely, and they belong in
+  // the digest for the reason the note above gives: swap an ABI and the core
+  // encodes a different call to the same contract, without one line of our
+  // source changing.
+  'packages/contracts-abi',
 ];
 
 /** Never hashed: not copied into the image, or not deterministic. */

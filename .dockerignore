@@ -1,0 +1,53 @@
+# The build context was 963M, 810M of it node_modules that no Dockerfile copies.
+# Every image installs its own deps from pnpm-lock.yaml inside the build, so
+# shipping the host's tree is pure waste — and worse than waste: node_modules
+# here is linux-x64 built against the host's glibc, and node:20-alpine is musl.
+# A stray copy would produce an image that builds and then dies on a native
+# module it cannot load.
+
+node_modules
+**/node_modules
+
+.git
+.gitignore
+
+# Secrets. No Dockerfile copies .env, but the context is sent to the daemon in
+# full, so an image built with `COPY . .` by anyone later would bake the signing
+# keys in. Excluded here so that mistake cannot be made silently.
+.env
+.env.*
+!.env.example
+
+# Build output — rebuilt inside the image, and .next in particular is large.
+.next
+**/.next
+dist
+**/dist
+out
+**/out
+
+# Foundry
+contracts/out
+contracts/cache
+contracts/broadcast
+contracts/lib
+
+# Python
+__pycache__
+**/__pycache__
+*.pyc
+.venv
+**/.venv
+
+# Local run state: logs and pids from scripts/dev-up.sh, and scratch output
+# from the verify-* scripts. None of it belongs in an image.
+*.log
+**/*.log
+.pids
+.run
+tmp
+
+# Editor / OS
+.DS_Store
+.vscode
+.idea

@@ -1654,8 +1654,24 @@ vendor age would silently do nothing. Now `VENDORSIM_URL`.
   `wsl -d Ubuntu -- bash -lc "cd /home/ranvir/projects/lakshman-rekha && …"`.
   Prefer the **PowerShell** tool: Git Bash mangles `/home/...` arguments into
   Windows paths and silently drops shell variables through the `wsl.exe` layer.
-- **Docker is not installed in WSL**, so no Dockerfile has been built. The
-  Railway build is the first real test of them.
+- **Docker IS installed in WSL** — 29.1.3, with compose 2.40.3. An earlier note
+  here said it was absent; that was wrong, and it came from probing
+  `apt-cache policy docker.io` for the *candidate* version, which prints
+  regardless of whether the package is installed. Check with
+  `command -v docker`, never with `apt-cache`.
+- **Compose networks need an explicit MTU on this machine.** The WSL NIC is at
+  1300 and user-defined bridges come up at 1500; the `mtu` key in
+  `/etc/docker/daemon.json` only covers `docker0`. The symptom is not a network
+  error — TCP connects and the first full-size frame vanishes, so you get
+  `TLS: unspecified error` during `apk add` at build time and
+  `download timed out` against a healthy RPC at run time. `docker-compose.yml`
+  sets `com.docker.network.driver.mtu` per network; override with
+  `DOCKER_MTU=1500` on a normal host.
+- **`docker compose up` after a failed `up` can leave a half-attached
+  container.** A first attempt that died on a port conflict left `rekha-core`
+  joined to only one of its two networks, and the retry started that stale
+  container rather than fixing it. `ip route` inside showed no default route at
+  all. Use `--force-recreate` when networking looks impossible.
 - **Windows cannot reach WSL on `127.0.0.1`** — localhost forwarding is off on
   this machine. To drive the app with Playwright, start the server in WSL and
   browse the VM's address instead:
@@ -1681,9 +1697,16 @@ vendor age would silently do nothing. Now `VENDORSIM_URL`.
 
 ## UNVERIFIED / OUTSTANDING
 
-- **No Dockerfile has been built.** Docker is absent locally. The install step
-  was reproduced outside Docker and both start commands were run directly, but
-  the images themselves are unproven until Railway builds them.
+- ~~**No Dockerfile has been built.**~~ **Done, 5 Aug 2026.** All three images
+  build, `docker compose up` reaches healthy on all three services, and one
+  dispatch driven through the containers settled on Base Sepolia:
+  `0x03445f1a43c0d10663b20b94e7a804efaf22219247329ae3925cb3f45ba7eb24`,
+  block 45055708, status `0x1`, ₹282.00, 11/11 predicates passed.
+  Five defects were found and fixed doing it — see DEPLOY.md. Three of them
+  (`packages/contracts-abi` missing from both images, `VENDORSIM_URL` unset on
+  the core, no funded broadcaster key) apply to Railway too and are now in the
+  env tables there. The `shopper` and `adversary` Dockerfiles are orphans: no
+  compose service builds them, and the adversary runs inside the core image.
 - **Nothing is committed.** All of the above is working-tree only.
 - **The end-to-end hosted settlement has not happened** — that is the Phase 1
   exit criterion and it needs the deployment to exist.

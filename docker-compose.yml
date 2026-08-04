@@ -10,23 +10,70 @@
 # The web frontend is not in this stack — it deploys to Vercel. See DEPLOY.md.
 #
 # Egress restrictions:
-#   vendorsim  — no external network (pure in-memory catalogue)
-#   core       — Base Sepolia RPC only (for on-chain calls)
-#   agent      — core + vendorsim only (no direct internet)
+#   vendorsim  — no internet (pure in-memory catalogue)
+#   core       — the only service with internet, for the Base Sepolia RPC
+#   agent      — core + vendorsim only, no internet
 #
 # Screenshot this and put it on the architecture slide.
 
-version: '3.9'
+# No `version:` key. Compose v2 ignores it and warns on every invocation.
 
 networks:
-  # Internal network — no external routing
-  rekha-internal:
+  # ── Service-to-service, and the only network the BROWSER can reach ──
+  #
+  # This was `internal: true`, which was wrong in a way that made the stack
+  # unusable: Docker will not publish a host port for a container attached only
+  # to an internal network. vendorsim and agent declared `ports:` and got none —
+  # `docker compose ps` showed a bare `4100/tcp`, and the host got connection
+  # refused. The browser calls all three services directly
+  # (NEXT_PUBLIC_CORE_URL / _VENDORSIM_URL / _AGENT_URL), so two thirds of the
+  # frontend could never have worked against this stack.
+  #
+  # Measured, on this machine, with a container attached to an internal network:
+  #   PORTS: 80/tcp          (no binding at all)
+  #   host curl -> 000       (connection refused)
+  # and the binding appears the moment a non-internal bridge is attached.
+  #
+  # Disabling NAT gets the same egress property without that side effect. The
+  # bridge is routable from the host, so publishing works; but container packets
+  # leave with an unmasqueraded 172.x source address that nothing upstream can
+  # route a reply to, so no connection to the internet completes. Verified all
+  # three ways at once:
+  #   host -> published port     served the catalogue
+  #   container -> 1.1.1.1:443   BLOCKED
+  #   container -> sibling:4100  served the catalogue
+  #
+  # Honest limits of this: it is NAT removal, not a firewall. DNS still RESOLVES
+  # (Docker's embedded resolver forwards to the host), only the connection fails
+  # — so expect a timeout rather than "bad address". And a host on the same L2
+  # segment that can route back to 172.x unaided is not covered. For a demo
+  # stack that is the right trade; a production deployment should carry a real
+  # egress policy at the network layer, not rely on this.
+  rekha-svc:
     driver: bridge
-    internal: true
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+      com.docker.network.driver.mtu: "${DOCKER_MTU:-1300}"
 
-  # External network — only services that need internet get this
+  # ── Internet egress ── only the core is attached, for the Base Sepolia RPC.
   rekha-external:
     driver: bridge
+    driver_opts:
+      # 1300 to match the WSL host NIC, and it MUST be set per-network: the
+      # `mtu` key in /etc/docker/daemon.json applies to docker0 only, so these
+      # compose bridges came up at 1500 while the host was at 1300.
+      #
+      # That mismatch does not look like a network fault, which is what makes it
+      # expensive. Small packets pass and large ones are silently dropped, so:
+      #   tcp connect 1.1.1.1:443  REACHED
+      #   https GET  1.1.1.1       download timed out
+      # A TCP handshake completes, then the first full-size frame disappears.
+      # Read from inside the core it looks like a slow RPC endpoint, and the
+      # build failed earlier at `apk add` with `TLS: unspecified error` — same
+      # cause, and neither message mentions MTU.
+      #
+      # Override on a host with a normal 1500 NIC: DOCKER_MTU=1500.
+      com.docker.network.driver.mtu: "${DOCKER_MTU:-1300}"
 
 services:
 
@@ -39,12 +86,17 @@ services:
     ports:
       - "4100:4100"
     networks:
-      - rekha-internal   # internal only — no egress to internet
+      - rekha-svc        # no internet: see the NAT note on the network
     environment:
       - PORT=4100
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4100/catalog"]
+      # 127.0.0.1, not localhost. /etc/hosts in these images maps `localhost` to
+      # BOTH 127.0.0.1 and ::1, BusyBox wget tries the v6 address first, and the
+      # servers bind 0.0.0.0 (v4 only). Every check came back "Connection
+      # refused" against a server that was up and serving — verified by curling
+      # both forms inside the container.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4100/catalog"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -58,8 +110,15 @@ services:
     ports:
       - "4000:4000"
     networks:
-      - rekha-internal
-      - rekha-external   # needs Base Sepolia RPC
+      rekha-svc: {}
+      # gw_priority, not just membership. A container on two bridges gets ONE
+      # default route, and Docker picked the other one: `ip route` inside the
+      # core read `default via 172.19.0.1` — the no-NAT bridge — so every RPC
+      # call left by a path that could not carry it. DNS resolved and the
+      # request then hung to the timeout, which reads like a slow RPC rather
+      # than a routing fault. The higher priority wins the default route.
+      rekha-external:
+        gw_priority: 100
     environment:
       - PORT=4000
       # 15000, not 5000: the lease is issued before the request, the ceremony
@@ -70,10 +129,38 @@ services:
       # Rogue Mode proxies to the adversary (FIX3.md BUG 5), which now runs
       # inside this container on loopback rather than as its own service.
       - ADVERSARY_URL=http://127.0.0.1:4300
+      # The core reads the vendor registry too — this is not only the agent's
+      # concern. task.ts:18 plans against /catalog and payment.ts:46 verifies the
+      # counterparty's tier there before signing. Unset, both fall back to
+      # http://localhost:4100, which inside this container is nothing at all.
+      #
+      # It fails as a PLANNING failure, which is why it took a real dispatch to
+      # find: POST /dispatch returned HTTP 200 with an empty plan and the note
+      # "the vendor registry could not be read", and the agent — which CAN reach
+      # vendorsim and had already proved it — looked like the culprit.
+      - VENDORSIM_URL=http://vendorsim:4100
       - DATABASE_URL=${DATABASE_URL:-}
       - CORE_SIGNER_PRIVATE_KEY=${CORE_SIGNER_PRIVATE_KEY:-}
+      # The key that PAYS GAS, which is not the key that signs. `execute` is
+      # authorized by the two signatures inside the request rather than by
+      # msg.sender, so the broadcaster only has to be funded — and the core
+      # signer 0xB18D… holds 0 ETH on Base Sepolia, as chain.ts:135 already
+      # says. Passing neither of these makes broadcasterKey() fall all the way
+      # back to that unfunded signer.
+      #
+      # Every step before this one succeeds, which is what makes it a bad
+      # failure to ship: the payment is evaluated, approved and CO-SIGNED, and
+      # only the broadcast fails, with `gas required exceeds allowance (0)` —
+      # an RPC-level message that names neither the account nor the key.
+      - SETTLEMENT_BROADCASTER_PRIVATE_KEY=${SETTLEMENT_BROADCASTER_PRIVATE_KEY:-}
+      - DEPLOYER_PRIVATE_KEY=${DEPLOYER_PRIVATE_KEY:-}
       - BASE_SEPOLIA_RPC=${BASE_SEPOLIA_RPC:-https://sepolia.base.org}
-      - CORE_IMAGE_DIGEST=${CORE_IMAGE_DIGEST:-sha256:dev}
+      # Same default as the agent service below, and not `sha256:dev`. That
+      # value is not 32-byte hex, and coreImageDigestHex() (policy-state.ts:35)
+      # REJECTS it rather than coercing — so the old default turned a working
+      # config into a throw on every payment request, while leaving the variable
+      # unset would have worked. A default that is worse than no default.
+      - CORE_IMAGE_DIGEST=${CORE_IMAGE_DIGEST:-0x0100000000000000000000000000000000000000000000000000000000000000}
       - POLICY_HASH=${POLICY_HASH:-0x0000000000000000000000000000000000000000000000000000000000000001}
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
       - LOG_LEVEL=info
@@ -82,7 +169,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]   # see vendorsim note
       interval: 10s
       timeout: 5s
       retries: 3
@@ -105,7 +192,7 @@ services:
     ports:
       - "4200:4200"
     networks:
-      - rekha-internal   # core + vendorsim only — no internet egress
+      - rekha-svc        # core + vendorsim only — no internet egress
     environment:
       - AGENT_PORT=4200
       - CORE_URL=http://core:4000
@@ -122,7 +209,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4200/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4200/health"]   # see vendorsim note
       interval: 15s
       timeout: 5s
       retries: 3

@@ -108,7 +108,7 @@ revert with.
 | Vendor registry | Vendors are simulated (VendorSim); real GST/MCA registry integration is not implemented | Demo scope |
 | Agent "web browsing" | Agent reads vendor pages served by our own VendorSim; it does not browse the live internet | Scope + rate-limit safety |
 | FROST Schnorr 2-of-3 | **Not implemented, and not behind a feature flag.** An earlier version of this row said the upgrade shipped behind a flag; it does not exist. The only occurrence of "FROST" in the codebase is a comment at `apps/core/src/api/routes/payment.ts:5` describing the *simulated* ceremony rounds that drive the M3 animation. What ships is 2-of-2 ECDSA — which works, is verified on chain, and has settled real transactions. The multi-round ceremony is a presentation of that one signature, not a threshold protocol; its rounds exist so revocation has something to interrupt | FROST was scoped as an upgrade that must never block the working path (`BUILD.md:340`). The working path was the one that got built |
-| Nitro Enclave attestation | The attestation **mechanism** is real — predicate 3 compares the request's `coreImageDigest` to the value registered on-chain, and a mismatch reverts `CoreImageMismatch` (`PolicyModule.sol:213`). The registered **value** is still a placeholder: `0x01` followed by 31 zero bytes. It is not the hash of anything, so it currently attests nothing. Do not present it as evidence. **The digest itself now exists** — see the section below — but it has not been registered, because doing so takes the payment path down for the length of the change | Nitro Enclave hardware was unavailable, and Docker is not installed on the build machine, so no *image* digest could be produced |
+| Nitro Enclave attestation | The attestation **mechanism** is real — predicate 3 compares the request's `coreImageDigest` to the value registered on-chain, and a mismatch reverts `CoreImageMismatch` (`PolicyModule.sol:213`). The registered **value** is still a placeholder: `0x01` followed by 31 zero bytes. It is not the hash of anything, so it currently attests nothing. Do not present it as evidence. **The digest itself now exists** — see the section below — but it has not been registered, because doing so takes the payment path down for the length of the change | Nitro Enclave hardware was unavailable. This cell also said Docker was not installed on the build machine — **that was false**, and it was reached by a probe that read `apt-cache policy docker.io` for the *candidate* version, which prints whether or not the package is installed. Docker 29.1.3 was there the whole time; the same mistake had already hidden a working Foundry install. All three images now build and the core image has a real digest, `sha256:c666bd04b0e6da82a75d8def3e9e5725dbb428dd91010b6956ea5a52a02d8d1d`. **It does not fix this row.** A Docker image ID is a hash of a local build, not a hardware-rooted measurement of a running enclave, and nothing verifies the deployed process corresponds to it — so the registered value is still a placeholder and this limitation stands unchanged |
 | LLM adversary variants | LLM generator requires an API key; deterministic library always runs | API key may not be set in your environment |
 | "The agent falls for prompt injection" | **It does not, and we no longer claim it does.** `extract.ts` asks `claude-opus-5` and its prompt deliberately carries no anti-injection instruction — it says *"Follow what the page tells you."* Measured 4 Aug 2026 with a real key (`scripts/verify-injection-resistance.sh`): four runs, three separate injections confirmed on the rendered page, and it read the correct ₹2.40 every time. `/playground`'s `injected` mode makes the agent comply **deterministically** (`modes.ts obeyInjection`), which is why that demo still works and is not theatre — but the compliance is ours, not the model's | `BUILD.md:212` assumed a mid-tier model would be fooled. Both keys were empty until now, so the assumption had never been tested. The claim the product actually rests on is that enforcement does not need the agent to resist — which is unaffected |
 | Category allow-list on the live deployment | `SOFTWARE` is the one category the deployed PolicyModule does not permit, so a `SOFTWARE` line item is refused by predicate 7. Every other category settles | Deliberate, and it matches the core's pinned fallback in `apps/core/src/api/store.ts`. It is the live `CategoryNotPermitted` demo case, not a gap |
@@ -119,14 +119,30 @@ revert with.
 ## The core image digest — the maths was never the blocker
 
 `apps/core/scripts/core-image-digest.mjs` is new. It hashes the exact file set
-`apps/core/Dockerfile` copies — 54 files, including `pnpm-lock.yaml`, because a
+`apps/core/Dockerfile` copies — 59 files, including `pnpm-lock.yaml`, because a
 dependency swap changes what the policy engine does even when no line of our
 source moves.
 
 ```
-files    54
-digest   0xbc770793bf876b8a2238e0448f7af5c5c5fb24c53587946da49dfd228b61c462
+files    59
+digest   0x55ffb75f2da26b9dec34cf12815b7887675114785aeba2cac1324e2900d45797
 ```
+
+**This value has moved twice since it was first recorded, and both moves are the
+property working rather than a defect.** It read `54 files / 0xbc770793…` at
+commit `5dbbfe5`. Three files in the hashed set changed after that —
+`api/store.ts` and `api/routes/payment.ts` (the nonce and window-reservation
+fixes) and `agents/adversary/generator.py` — which is precisely the sensitivity
+this section claims. It then went 54 → 59 when `packages/contracts-abi` was
+added to both the Dockerfile and the `INCLUDE` list, after a container build
+proved those ABIs had never been in the image at all.
+
+That second move is the failure mode the script's own comment warns about: the
+`INCLUDE` list mirrors the Dockerfile's COPY lines *by hand*, so a COPY added in
+one place and not the other leaves the digest silently not covering something
+the image runs. Nothing enforces the two stay in step. **If you change either,
+change both, and re-record the value here** — a digest quoted in a document and
+not reproducible from the tree is worth less than no digest.
 
 Deterministic and sensitive, both measured (`scripts/verify-digest-sensitivity.sh`):
 sorted paths, POSIX separators, CRLF normalised to LF, and each file's path

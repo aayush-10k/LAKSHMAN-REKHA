@@ -29,6 +29,10 @@ RUN corepack enable && corepack pnpm install --frozen-lockfile
 # The runner imports ../env.js, ../keys.js, ../signing/request.js,
 # ../lease/types.js and ../types.js, so it needs the core source tree even
 # though it runs none of the core's routes.
+# Same omission as apps/core/Dockerfile, and needed here for the same reason:
+# runner.ts imports executeAbi from ../api/chain.js (line 50) and calls it in
+# the rail-bypass probe (line 685), which reads these JSON files off disk.
+COPY packages/contracts-abi/ packages/contracts-abi/
 COPY apps/core/src/ apps/core/src/
 
 # After the install: tsx is a devDependency and pnpm drops devDependencies when

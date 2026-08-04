@@ -35,6 +35,20 @@ COPY apps/agents/task-engine/package.json apps/agents/task-engine/
 RUN corepack enable && corepack pnpm install --frozen-lockfile
 
 # ── Source ──────────────────────────────────────────────────
+#
+# packages/contracts-abi is NOT optional, and it is not a workspace dependency
+# that pnpm would pull in — api/chain.ts reads the JSON off disk by relative
+# path (`resolve(here, '../../../../packages/contracts-abi')`), so pnpm has no
+# way to know it is needed and the image built happily without it.
+#
+# chain.ts is the only place in the core that broadcasts a transaction, so an
+# image missing this cannot settle anything. It does not fail loudly either:
+# loadAbi throws ENOENT inside seedPolicyFromChain, which catches, logs
+# "could not read PolicyModule", and serves on the pinned fallback. The core
+# comes up healthy, answers /health with ok:true, and only fails at the moment
+# a payment tries to reach the chain. Found by reading that warning in a
+# container whose RPC was verified reachable.
+COPY packages/contracts-abi/ packages/contracts-abi/
 COPY apps/core/src/ apps/core/src/
 COPY apps/agents/task-engine/src/ apps/agents/task-engine/src/
 COPY apps/agents/adversary/ apps/agents/adversary/
