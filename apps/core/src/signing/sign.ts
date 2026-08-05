@@ -78,7 +78,16 @@ export async function coreSign(
   // only direction that matters: PolicyModule re-recovers both signatures itself,
   // so an assertion that turns out false produces a request the chain rejects.
   // It can never move money that the chain would not have moved anyway.
+  //
+  // Timed here because this is the only caller that runs the evaluator against a
+  // real request. `evaluate` sets latencyMs to 0 and documents that a caller
+  // measures it; nothing did, so every decision reported 0ms and both UIs were
+  // left inferring "sub-millisecond" from a number that had never been taken.
+  // performance.now() rather than Date.now(): the evaluation is well under a
+  // millisecond, which an integer clock cannot distinguish from unmeasured.
+  const startedAt = performance.now();
   const trace = evaluate(factSheet, mandateState, { agent: true, core: true }, nowMs);
+  trace.latencyMs = Math.round((performance.now() - startedAt) * 1000) / 1000;
 
   if (trace.outcome !== 'APPROVED') {
     return { trace, partialSig: null, request: null, digest: null };

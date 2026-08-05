@@ -6,6 +6,7 @@ import { injected } from 'wagmi/connectors';
 import type { DecisionTrace, RekhaEvent } from '../../types';
 import { CORE_URL, ensurePaired, renewLease, type Pairing } from '../../lib/pairing';
 import { CONTRACTS, POLICY_MODULE_ADDRESS, basescanAddress, basescanTx, isPlaceholderDigest, shortHex } from '../../lib/contracts';
+import { formatLatency } from '../../lib/format';
 import { Amount, formatInrMinor } from '../../components/Amount';
 import { TTLRing } from '../../components/TTLRing';
 import { PredicateTable } from '../../components/PredicateTable';
@@ -44,25 +45,6 @@ type FeedRow = {
   /** Only for rows that are not payments (revocation). */
   note?: string;
 };
-
-/**
- * Evaluation latency, without overstating the precision we have.
- *
- * `trace.latencyMs` is genuinely 0 for almost every decision — the evaluator is
- * sub-millisecond — but rendering a literal `0ms` on every row reads as
- * *not measured* rather than *fast*, which is the opposite of what it means and
- * the first thing a judge squints at. Seen on a real console: every row said
- * `0ms`.
- *
- * `<1ms` is the honest statement of what a millisecond-resolution clock can
- * tell us. It is deliberately NOT a fabricated figure — FINALE.md's mock shows
- * `380ms` and inventing something like it would be exactly the kind of thing
- * FIXLOG3 exists to stop. If a real number is wanted, measure in microseconds
- * in the core; do not make one up here.
- */
-function formatLatency(ms: number): string {
-  return ms > 0 ? `${ms}ms` : '<1ms';
-}
 
 type MandateSnapshot = {
   frozen: boolean;
@@ -104,7 +86,7 @@ export default function ConsolePage() {
 
   const [coreUp, setCoreUp] = useState(false);
   /**
-   * Tri-state on purpose (FIX3.md BUG 3). 'checking' is not 'down': a boolean
+   * Tri-state on purpose. 'checking' is not 'down': a boolean
    * would flash the offline panel on every load before the health probe returns,
    * and an offline warning that cries wolf gets ignored when it is real.
    */
@@ -558,7 +540,7 @@ export default function ConsolePage() {
     return vendorNames[id] ?? vendorNames[id.toLowerCase()] ?? (id.startsWith('0x') ? shortHex(id, 8, 6) : id);
   };
 
-  // FIX3.md BUG 3: an unreachable core replaces the console rather than
+  // an unreachable core replaces the console rather than
   // decorating it. Every panel below reads from the core, so leaving them on
   // screen would render an interface whose numbers are all absent or stale while
   // still looking operational.

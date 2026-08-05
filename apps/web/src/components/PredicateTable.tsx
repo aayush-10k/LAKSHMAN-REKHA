@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { DecisionTrace } from '../types';
 import { Amount } from './Amount';
+import { formatLatency } from '../lib/format';
 
 /**
  * The decision panel — every predicate, and which one bound.
@@ -90,7 +91,7 @@ export function PredicateTable({ trace, hideOutcome = false }: Props) {
       <p className="decision-summary">{trace.summary}</p>
 
       <div className="decision-meta">
-        <span>{trace.latencyMs}ms</span>
+        <span title="Time the core spent evaluating all 14 predicates">{formatLatency(trace.latencyMs)}</span>
         <Amount minor={trace.amountMinor} />
       </div>
 
