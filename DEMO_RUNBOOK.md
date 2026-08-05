@@ -6,6 +6,42 @@ and the output pasted is real. Where something is untested, it says so.
 The three moments are `FINALE.md:34`: **M1** agent alone, **M2** Rogue Mode
 scoreboard, **M3** ceremony bar broken by REVOKE.
 
+### The four task chips, and why the order matters
+
+`/playground` carries four suggested tasks under the command box. **Left to right
+is the demo order**, and the wording is load-bearing — the planner breaks ties
+toward the cheapest price, so the phrase decides the supplier. Measured with
+`scripts/probe-plans.sh`:
+
+| Chip | Supplier | Outcome |
+|---|---|---|
+| **3 amber glass bottles** | `ven_meridian` tier 1 | APPROVED, settles, **₹282** |
+| **12 national parcels** | `ven_northstar` tier 1 | APPROVED, settles, **₹624** |
+| **100 bottles, any seller** | `ven_flashcart` tier 3 | REFUSED · `counterpartyTier` |
+| **Renew the creative suite** | `ven_pixelvault` SOFTWARE | REFUSED · `categoryPermitted` |
+
+Start with the first. `BUILD.md`'s fifth non-negotiable is *happy path first* —
+a system that only ever blocks is a nuisance rather than a product.
+
+**The third chip is the one worth narrating.** Nothing is corrupted and no attack
+is mounted. Say "bottles" without saying which, and the agent does the correct,
+boring thing a buying agent does — takes the cheapest match — and walks into a
+12-day-old seller at 70% off. That is ordinary shopping-on-price, and the
+counterparty predicate is what stops it. It also costs nothing on chain, so it is
+the safe one to repeat.
+
+`scripts/probe-plans.sh` re-measures all of this against a running core without
+spending anything; run it if you change any vendor or product name.
+
+### Sound
+
+Both surfaces have a sound layer (synthesised, no audio files) and a **mute
+toggle in the top bar**. It defaults on, remembers the choice, and starts muted
+for anyone whose OS asks for reduced motion. Audio needs one click anywhere on
+the page before the browser will allow it — switching tabs at the top counts, so
+it is unlocked before anything audible matters. **If the room has no sound, mute
+it; nothing on screen depends on audio.**
+
 ### Where things are on `/playground`
 
 The header carries three tabs — **Let it buy**, **M1 · Agent alone**, **M2 ·

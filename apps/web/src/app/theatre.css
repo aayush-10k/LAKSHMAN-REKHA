@@ -1,0 +1,671 @@
+/* ═══════════════════════════════════════════════════════════
+   LAKSHMAN REKHA — the theatre layer
+   ═══════════════════════════════════════════════════════════
+
+   globals.css is the design system: six semantic colours, the type scale, and
+   every .con-* / .pg-* / .lp-* class the pages are built from. It is correct and
+   this file does not argue with it. What it lacked was DEPTH and RESPONSE — the
+   surfaces were flat, controls barely acknowledged the pointer, and outside the
+   three sanctioned animations nothing moved. On a projector that reads as a
+   wireframe of a product rather than the product.
+
+   ── The rule this file obeys ──────────────────────────────────────────────
+   --lien, --clear and --breach still mean held / settled / stopped and NOTHING
+   else. No new hue is introduced anywhere. The new vocabulary is entirely
+   neutral: elevation, gradient, glow radius, and motion. Where one of the three
+   state colours appears below it is inside a rule that already means that state
+   (a settled row's wash, the breach vignette on an aborted ceremony).
+
+   ── Why a separate file, loaded after ─────────────────────────────────────
+   NOT @layer. Un-layered rules beat layered ones regardless of specificity, so
+   every rule in globals.css (1,898 lines of them, all un-layered) would win
+   against a layered utility here — silently, and only on the ties that matter.
+   Plain source order after globals.css wins ties at equal specificity, which is
+   exactly what an additive layer needs.
+
+   ── The trap this file has to close itself ────────────────────────────────
+   globals.css ends with its own @media (prefers-reduced-motion: reduce) block.
+   Loading after it means everything here escapes those guards, so this file
+   carries its OWN reduce block at the bottom covering every fx- animation it
+   introduces. If you add a keyframe here, add its still equivalent there in the
+   same edit. A moving thing with no still equivalent is a bug.                */
+
+:root {
+  /* Elevation. The inset hairline is what sells a raised surface on a near-black
+     background — without it a shadow alone just looks like a darker patch. */
+  --elev-1: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 4px 14px rgba(0, 0, 0, 0.35);
+  --elev-2: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 12px 32px rgba(0, 0, 0, 0.45);
+  --elev-3: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 24px 64px rgba(0, 0, 0, 0.55);
+
+  --surface-raised: linear-gradient(180deg, #202538, #1a1f30);
+  --surface-rail:   linear-gradient(180deg, #181d2b, #141824);
+
+  /* One focus treatment for the whole product. Two rings so it reads on both a
+     dark surface and a solid --chalk button: the inner ring punches a hole in
+     --ink, the outer draws the chalk. */
+  --glow-focus: 0 0 0 2px var(--ink), 0 0 0 4px var(--chalk);
+
+  --ease-out:   cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-stamp: cubic-bezier(0.18, 1.4, 0.4, 1);
+}
+
+/* ── Atmosphere ───────────────────────────────────────────
+   Two fixed radials over --ink: a warm chalk glow at the top where the eye
+   starts, and a corner vignette. Both under 5% — the page should feel lit, not
+   decorated, and nobody should be able to point at the gradient. `fixed` so it
+   does not travel with scrolled content and read as a moving object. */
+body {
+  background-color: var(--ink);
+  background-image:
+    radial-gradient(1200px 620px at 50% -8%, rgba(237, 234, 227, 0.045), transparent 70%),
+    radial-gradient(900px 700px at 50% 118%, rgba(0, 0, 0, 0.55), transparent 65%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+/* ── Elevation utilities ──────────────────────────────────
+   Added ALONGSIDE the existing class, never in place of it:
+   className="pg-web fx-raised". Nothing here sets layout. */
+.fx-raised { background-image: var(--surface-raised); box-shadow: var(--elev-1); }
+.fx-float  { box-shadow: var(--elev-2); }
+.fx-rail   { background-image: var(--surface-rail); }
+
+/* ═══════════════════════════════════════════════════════════
+   AFFORDANCE
+   ═══════════════════════════════════════════════════════════
+   Every interactive thing in the product, in one place, so the response is
+   identical everywhere. Attribute selectors on the existing class names rather
+   than a new utility, because the alternative is touching ~40 JSX call sites to
+   add a class that would be on every single one of them.
+
+   Specificity is deliberately kept at one class so globals.css's own :hover
+   rules — which set border-color and colour — still apply and compose. This
+   file adds the MOVEMENT and the SHADOW; the colour change stays where it was
+   written and reasoned about. */
+
+.con-btn-ghost, .con-btn-revoke, .con-btn-cancel, .con-btn-audit,
+.pg-btn-primary, .pg-btn-ghost, .pg-btn-ghost-wide, .pg-btn-attack,
+.pg-btn-attack-wide, .pg-btn-danger, .pg-btn-revoke, .pg-btn-reset,
+.pg-modechip, .pg-stage-tab, .btn-ghost-sm, .copy-btn, .fx-chip, .pg-outcome {
+  transition:
+    transform 120ms var(--ease-out),
+    box-shadow 150ms var(--ease-out),
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.con-btn-ghost:hover, .con-btn-revoke:hover:not(:disabled), .con-btn-cancel:hover,
+.con-btn-audit:hover, .pg-btn-primary:hover:not(:disabled), .pg-btn-ghost:hover,
+.pg-btn-ghost-wide:hover:not(:disabled), .pg-btn-attack:hover,
+.pg-btn-attack-wide:hover:not(:disabled), .pg-btn-danger:hover,
+.pg-btn-revoke:hover:not(:disabled), .pg-btn-reset:hover,
+.pg-modechip:hover, .btn-ghost-sm:hover, .copy-btn:hover, .fx-chip:hover {
+  transform: translateY(-1px);
+}
+
+/* The outcome chip opens the predicate table — the single most important click
+   in the product, and it looked like a label. It brightens to its own state
+   colour rather than to chalk: the row it belongs to is already that colour, and
+   the click leads to the reason for exactly that outcome. */
+.pg-outcome { cursor: pointer; }
+.pg-outcome:hover { transform: translateY(-1px); box-shadow: var(--elev-1); }
+.pg-outcome-approved:hover { background: rgba(61, 214, 140, 0.14); }
+.pg-outcome-held:hover     { background: rgba(240, 162, 2, 0.14); }
+.pg-outcome-refused:hover  { background: rgba(255, 77, 77, 0.14); }
+
+/* The press. Without it a click on a dark button gives no confirmation at all
+   until the network answers, and a judge clicks twice. */
+.con-btn-ghost:active, .con-btn-revoke:active:not(:disabled), .con-btn-cancel:active,
+.con-btn-audit:active, .pg-btn-primary:active:not(:disabled), .pg-btn-ghost:active,
+.pg-btn-ghost-wide:active:not(:disabled), .pg-btn-attack:active,
+.pg-btn-attack-wide:active:not(:disabled), .pg-btn-danger:active,
+.pg-btn-revoke:active:not(:disabled), .pg-btn-reset:active,
+.pg-modechip:active, .btn-ghost-sm:active, .copy-btn:active, .fx-chip:active {
+  transform: translateY(0) scale(0.975);
+}
+
+/* One focus ring, everywhere, including links and the rows that behave as
+   buttons. globals.css had focus-visible on four elements out of forty. */
+.con-btn-ghost:focus-visible, .con-btn-revoke:focus-visible, .con-btn-cancel:focus-visible,
+.con-btn-audit:focus-visible, .pg-btn-primary:focus-visible, .pg-btn-ghost:focus-visible,
+.pg-btn-ghost-wide:focus-visible, .pg-btn-attack:focus-visible,
+.pg-btn-attack-wide:focus-visible, .pg-btn-danger:focus-visible,
+.pg-btn-revoke:focus-visible, .pg-modechip:focus-visible, .pg-stage-tab:focus-visible,
+.btn-ghost-sm:focus-visible, .copy-btn:focus-visible, .pg-outcome:focus-visible,
+.fx-chip:focus-visible, .pg-input:focus-visible, .pg-select:focus-visible,
+.con-row.is-clickable:focus-visible, .fx-sound:focus-visible {
+  outline: none;
+  box-shadow: var(--glow-focus);
+}
+
+/* Hierarchy. These four are the ones that DO something consequential, and they
+   are the only ones carrying a resting shadow — that is the whole signal. */
+.pg-btn-primary, .con-btn-revoke, .pg-btn-revoke, .pg-btn-danger {
+  box-shadow: var(--elev-1);
+}
+.pg-btn-primary:hover:not(:disabled) { background: #fbf9f4; box-shadow: var(--elev-2); }
+.con-btn-revoke:hover:not(:disabled) { background: #ff6363; box-shadow: var(--elev-2); }
+.pg-btn-revoke:hover:not(:disabled),
+.pg-btn-danger:hover                 { box-shadow: var(--elev-2); }
+
+/* A disabled control must not pretend to be pressable. */
+.pg-btn-primary:disabled, .con-btn-revoke:disabled, .pg-btn-revoke:disabled,
+.pg-btn-attack-wide:disabled, .pg-btn-ghost-wide:disabled {
+  transform: none;
+  box-shadow: none;
+}
+
+/* Surfaces that were flat panels. `position` on .pg-web is load-bearing, not
+   cosmetic: the discovery overlay is absolutely positioned against it. */
+.pg-web       { box-shadow: var(--elev-1); position: relative; }
+.pg-drawer-col,
+.pg-m1-result { box-shadow: var(--elev-1); }
+.pg-decision  { box-shadow: var(--elev-3); }
+.pg-rail      { background-image: var(--surface-rail); }
+.con-strip    { background-image: var(--surface-rail); }
+.pg-topbar    { background-image: var(--surface-rail); }
+
+/* ── Tooltips ─────────────────────────────────────────────
+   CSS only, on [data-tip]. Where this replaces a `title`, the title attribute
+   is removed in the same edit — two tooltips on one control is worse than none.
+   pointer-events: none throughout so a tip can never eat the click it explains. */
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(3px);
+  z-index: 80;
+  width: max-content;
+  max-width: 240px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  box-shadow: var(--elev-2);
+  color: var(--chalk);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease 220ms, transform 140ms var(--ease-out) 220ms;
+}
+[data-tip]:hover::after,
+[data-tip]:focus-visible::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* Against the right edge of the 264px rail a centred tip overflows the viewport. */
+[data-tip].fx-tip-left::after  { left: auto; right: 0; transform: translateX(0) translateY(3px); }
+[data-tip].fx-tip-left:hover::after { transform: translateX(0) translateY(0); }
+[data-tip].fx-tip-below::after { bottom: auto; top: calc(100% + 8px); }
+
+/* ═══════════════════════════════════════════════════════════
+   REVEAL
+   ═══════════════════════════════════════════════════════════
+   CSS-only, staggered by an inline --fx-i. No JS orchestration: React 19 runs
+   effects twice in development, and both pages have a documented history of an
+   effect churn reconnecting the SSE stream and losing events. The safest
+   animation system here is one that has no JavaScript in it at all.
+
+   `both` fill so the element is hidden before its delay elapses and stays put
+   after. Never used on anything that must be readable if animations fail. */
+/* ── THE RULE FOR THIS CLASS ───────────────────────────────────────────────
+   Never put `fx-reveal` on something that is the ONLY copy of information on
+   screen.
+
+   Every entrance animation begins from an invisible state and depends on the
+   document timeline to leave it. Chrome freezes that timeline in a background
+   tab — measured on the landing page: `document.timeline.currentTime: 0`, every
+   revealed element pinned at `opacity: 0`, and forcing `getAnimations().finish()`
+   restored all of them. It heals as soon as the tab is looked at, so it is not a
+   permanent failure; it is still not a risk worth taking on a hero, an empty
+   state, or an error. Those are static, and this class is for content that has
+   somewhere else to be read.                                                  */
+.fx-reveal {
+  animation: fx-rise 480ms var(--ease-out) both;
+  animation-delay: calc(var(--fx-i, 0) * 70ms);
+}
+@keyframes fx-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.fx-fade { animation: fx-fade 320ms ease both; animation-delay: calc(var(--fx-i, 0) * 70ms); }
+@keyframes fx-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* ═══════════════════════════════════════════════════════════
+   STATE TRANSITIONS — the feed
+   ═══════════════════════════════════════════════════════════
+   One wash per money state, each in its own colour and nothing else's. The row
+   is re-keyed on `${id}:${state}` in the console so a transition remounts the
+   row and replays this; CSS cannot re-fire an animation on an attribute change.
+   Short and low-alpha: this is a nudge toward the row that changed, not a
+   celebration. */
+.fx-flash-settled  { animation: fx-wash-settled 700ms ease-out; }
+.fx-flash-held     { animation: fx-wash-held    700ms ease-out; }
+.fx-flash-refused  { animation: fx-wash-refused 700ms ease-out; }
+
+@keyframes fx-wash-settled {
+  0%   { background-color: rgba(61, 214, 140, 0.16); }
+  100% { background-color: transparent; }
+}
+@keyframes fx-wash-held {
+  0%   { background-color: rgba(240, 162, 2, 0.16); }
+  100% { background-color: transparent; }
+}
+@keyframes fx-wash-refused {
+  0%   { background-color: rgba(255, 77, 77, 0.16); }
+  100% { background-color: transparent; }
+}
+
+/* The balance figure acknowledges a change without bouncing. Keyed on the value
+   in JSX, so it plays when the number changes and never on a re-render. */
+.fx-pop { animation: fx-pop 300ms var(--ease-out); }
+@keyframes fx-pop {
+  0%   { transform: scale(1.025); }
+  100% { transform: scale(1); }
+}
+
+/* The lease ring at the end of its life. Ambient, and only while critical —
+   an always-pulsing ring is a nervous tic, one that starts pulsing is a warning. */
+.ttl-ring.is-critical { animation: fx-breathe-dim 1s ease-in-out infinite; }
+@keyframes fx-breathe-dim {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.72; }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   M1 — the chain's answer
+   ═══════════════════════════════════════════════════════════
+   The revert lands like a stamp. Keyed on the run counter so a second press
+   plays it again, which matters: a judge who asks "do that again" must see the
+   same thing happen, not a static panel. */
+.fx-stamp { animation: fx-stamp 300ms var(--ease-stamp) both; }
+@keyframes fx-stamp {
+  0%   { opacity: 0; transform: scale(1.14); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* The impact, on the panel around it. ±2px, three times, 240ms — felt rather
+   than watched. Anything larger reads as a page error. */
+.fx-shake { animation: fx-shake 240ms ease-out; }
+@keyframes fx-shake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-3px); }
+  50%      { transform: translateX(3px); }
+  80%      { transform: translateX(-2px); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   M2 — Rogue Mode
+   ═══════════════════════════════════════════════════════════
+   The ₹0 breathes while the claim holds. --clear is correct here and only here:
+   it is the figure that means no money moved. The instant `is-breached` goes on
+   (lostMinor > 0) this stops — the halo must never outlive the claim. */
+.pg-score-lost.fx-alive .pg-score-lost-value {
+  animation: fx-halo 2.8s ease-in-out infinite;
+}
+.pg-score-lost.is-breached .pg-score-lost-value { animation: none; }
+@keyframes fx-halo {
+  0%, 100% { text-shadow: 0 0 0 rgba(61, 214, 140, 0); }
+  50%      { text-shadow: 0 0 26px rgba(61, 214, 140, 0.22); }
+}
+
+/* The suite takes two to four minutes. Silence for that long reads as a dead
+   button, and the shimmer is the cheapest honest way to say "still working" —
+   it is indeterminate on purpose, because we do not know the remaining count. */
+.fx-shimmer {
+  position: relative;
+  height: 2px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--border);
+}
+.fx-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 38%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, rgba(237, 234, 227, 0.55), transparent);
+  animation: fx-shimmer 1.6s linear infinite;
+}
+@keyframes fx-shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(320%); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   M3 — the break
+   ═══════════════════════════════════════════════════════════
+   The bar shattering is in globals.css and stays there. What is added is the
+   room reacting: one --breach flash across the whole stage at the moment the
+   ceremony dies.
+
+   It is an absolutely-positioned, pointer-events:none overlay INSIDE
+   .rekha-content, animating opacity only. The Rekha measures its host with a
+   ResizeObserver and redraws the boundary path from that box — anything that
+   changes the host's size, padding or transform mid-animation makes the line
+   fight the redraw. */
+.fx-stage-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 140px 24px rgba(255, 77, 77, 0.32);
+}
+.fx-stage-vignette.is-firing { animation: fx-vignette 620ms ease-out; }
+@keyframes fx-vignette {
+  0%   { opacity: 0; }
+  18%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Each round's segment fills from the left as it completes. */
+.pg-seg.is-done { animation: fx-seg-fill 200ms var(--ease-out); transform-origin: left center; }
+@keyframes fx-seg-fill {
+  from { transform: scaleX(0.55); }
+  to   { transform: scaleX(1); }
+}
+
+/* The Rekha, made visible from the back of a room. A 1px stroke at 40% opacity
+   is right in the hand and invisible on a projector; the glow appears only
+   while the line is reacting, so the idle state is unchanged. */
+.rekha-flare .rekha-flare-path { filter: drop-shadow(0 0 7px var(--breach)); }
+.rekha-snap  .rekha-line       { filter: drop-shadow(0 0 6px var(--breach)); }
+
+/* ═══════════════════════════════════════════════════════════
+   GUIDANCE
+   ═══════════════════════════════════════════════════════════ */
+
+/* Suggested tasks. Deliberately not --chalk-filled: they are shortcuts to
+   typing, not the primary action. Dispatch stays the only filled button. */
+.fx-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }
+.fx-chips-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+}
+.fx-chip {
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px dashed var(--border);
+  background: none;
+  color: var(--muted);
+  font-family: var(--font-body);
+  font-size: 11.5px;
+}
+.fx-chip:hover { color: var(--chalk); border-color: var(--chalk); border-style: solid; }
+
+/* The three steps, until something has run. */
+.fx-steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex: none;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  box-shadow: var(--elev-1);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.fx-step { display: inline-flex; align-items: center; gap: 7px; }
+.fx-step-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  color: var(--chalk);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+.fx-step-arrow { color: var(--border); }
+
+/* Console empty state: the copy that was there, plus a way in and the legend
+   that teaches the colour system before any row exists to demonstrate it. */
+.fx-empty-card {
+  max-width: 42ch;
+  margin: 40px 24px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: var(--elev-1);
+}
+.fx-empty-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; margin-bottom: 7px; }
+.fx-empty-body  { font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+.fx-empty-cta {
+  display: inline-block;
+  margin-top: 14px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--chalk);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: var(--elev-1);
+  transition: transform 120ms var(--ease-out), box-shadow 150ms var(--ease-out);
+}
+.fx-empty-cta:hover { transform: translateY(-1px); box-shadow: var(--elev-2); }
+.fx-empty-cta:focus-visible { outline: none; box-shadow: var(--glow-focus); }
+.fx-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.fx-legend-row { display: flex; align-items: center; gap: 9px; font-size: 11.5px; color: var(--muted); }
+.fx-legend-key { width: 3px; height: 13px; border-radius: 2px; flex: none; }
+.fx-legend-held    { background: var(--lien); }
+.fx-legend-settled { background: var(--clear); }
+.fx-legend-refused { background: var(--breach); }
+
+/* ── Sound toggle ─────────────────────────────────────────
+   A control, not a decoration: same treatment as every other ghost button. */
+.fx-sound {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 30px;
+  height: 26px;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+  transition: color 150ms ease, border-color 150ms ease, transform 120ms var(--ease-out);
+}
+.fx-sound:hover { color: var(--chalk); border-color: var(--chalk); transform: translateY(-1px); }
+.fx-sound[aria-pressed='false'] { opacity: 0.6; }
+/* The playground topbar is a 44px stretch row, and the REVOKED chip normally
+   takes the auto margin. With nothing frozen, the toggle takes it instead. */
+.pg-topbar .fx-sound { align-self: center; margin-left: 10px; }
+.pg-topbar .fx-sound-end { margin-left: auto; }
+
+/* ═══════════════════════════════════════════════════════════
+   THE AGENT'S DISCOVERY — the search sequence
+   ═══════════════════════════════════════════════════════════
+   What the agent does here is real: it reads the vendor registry, picks a
+   supplier, opens that supplier's page and reads the price off it. That
+   sequence used to happen in under a second behind a static iframe, so the most
+   interesting thing the agent does was invisible.
+
+   This is that sequence, drawn. Every row is a real catalogue entry from
+   vendorsim — nothing is invented for the animation, and the panel names the
+   registry as simulated so it can never be mistaken for a live web search. */
+.fx-discover {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  /* Near-solid. At 0.94 the storefront underneath is a bright white page, and
+     6% of that washed straight through the rows — legible in the hand, muddy on
+     a projector. */
+  background: rgba(11, 13, 20, 0.985);
+  animation: fx-fade 180ms ease both;
+  overflow: hidden;
+}
+.fx-discover-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: none;
+  padding: 9px 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: var(--elev-1);
+}
+.fx-discover-glyph { color: var(--muted); font-size: 13px; flex: none; }
+.fx-discover-query {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--chalk);
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* The caret. Steps, so it blinks rather than fades — a fading caret reads as a
+   loading spinner. */
+.fx-discover-caret {
+  display: inline-block;
+  width: 1px;
+  height: 14px;
+  margin-left: 1px;
+  background: var(--chalk);
+  vertical-align: text-bottom;
+  animation: fx-caret 900ms step-end infinite;
+}
+@keyframes fx-caret { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+.fx-discover-label {
+  flex: none;
+  font-size: 9.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+}
+.fx-discover-list { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; }
+.fx-discover-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  animation: fx-rise 260ms var(--ease-out) both;
+  animation-delay: calc(var(--fx-i, 0) * 90ms);
+}
+.fx-discover-name { font-size: 12.5px; color: var(--chalk); }
+.fx-discover-meta { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+.fx-discover-tier { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--muted); flex: none; }
+/* The one it opens. --chalk, because "selected" is not a money state. */
+.fx-discover-row.is-chosen { border-color: var(--chalk); background: rgba(237, 234, 227, 0.06); }
+.fx-discover-row.is-chosen .fx-discover-name { font-weight: 600; }
+.fx-discover-foot { flex: none; font-size: 10.5px; color: var(--muted); font-style: italic; }
+
+/* ── The reasoning stream ─────────────────────────────────
+   Was dimmed monospace with no structure. Now each line arrives with its own
+   entrance and the working cursor sits under the last one, so a judge can see
+   the agent is mid-thought rather than finished. */
+.pg-thought {
+  animation: fx-thought-in 220ms var(--ease-out) both;
+  padding: 1px 0;
+}
+@keyframes fx-thought-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 0.82; transform: none; }
+}
+.fx-thought-cursor {
+  display: inline-block;
+  width: 6px;
+  height: 11px;
+  background: var(--chalk);
+  opacity: 0.7;
+  animation: fx-caret 900ms step-end infinite;
+}
+.fx-thinking { display: flex; align-items: center; gap: 7px; margin-top: 4px; font-size: 10px; color: var(--muted); }
+
+/* ═══════════════════════════════════════════════════════════
+   LANDING
+   ═══════════════════════════════════════════════════════════ */
+/* A typing animation on the revert string was built here and removed. It is the
+   single most important string on the page and it was animating from `width: 0`,
+   so a background tab rendered the hero blank. See the note in app/page.tsx.
+   The landing page keeps only motion that starts from the visible state. */
+
+.lp-door { box-shadow: var(--elev-1); }
+.lp-door:hover { transform: translateY(-2px); box-shadow: var(--elev-2); }
+.lp-door { transition: transform 150ms var(--ease-out), box-shadow 150ms var(--ease-out), border-color 0.15s, background 0.15s; }
+
+/* ═══════════════════════════════════════════════════════════
+   REDUCED MOTION
+   ═══════════════════════════════════════════════════════════
+   globals.css's own reduce block runs BEFORE this file, so it cannot cover
+   anything above. This block is the guard for everything this file introduced.
+
+   The rule for each: keep the information, drop the movement. Nothing may be
+   left at opacity 0 — a reveal that does not run must still reveal. */
+@media (prefers-reduced-motion: reduce) {
+  .fx-reveal, .fx-fade, .fx-discover, .fx-discover-row, .pg-thought {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .pg-thought { opacity: 0.82; }
+
+  .fx-flash-settled, .fx-flash-held, .fx-flash-refused,
+  .fx-pop, .fx-shake, .pg-seg.is-done, .ttl-ring.is-critical {
+    animation: none;
+  }
+
+  /* The stamp still appears — it just does not spring. */
+  .fx-stamp { animation: none; opacity: 1; transform: none; }
+
+  /* The halo is pure decoration; the figure is already the largest thing on the
+     page and --clear already carries the claim. */
+  .pg-score-lost.fx-alive .pg-score-lost-value { animation: none; }
+
+  /* Indeterminate progress has to survive: it is the only thing saying the run
+     is alive. Held at a static partial fill rather than animated. */
+  .fx-shimmer::after { animation: none; width: 100%; opacity: 0.35; }
+
+  /* The break is information, not decoration, so it stays visible — held on one
+     frame instead of flashing. Same reasoning as the Rekha's own reduce rule. */
+  .fx-stage-vignette.is-firing { animation: none; opacity: 0.55; }
+
+  .fx-discover-caret, .fx-thought-cursor { animation: none; opacity: 1; }
+  .lp-door:hover { transform: none; }
+
+  [data-tip]::after { transition: none; }
+}

@@ -18,6 +18,20 @@ import { Providers } from "./providers";
  */
 import "./globals.css";
 
+/**
+ * The theatre layer — depth, affordance and motion, added on top.
+ *
+ * Order matters and is the whole design of the file: globals.css is entirely
+ * un-layered, so a CSS @layer here would LOSE every specificity tie against it.
+ * Loaded plainly afterwards, theatre.css wins ties at equal specificity, which
+ * is what an additive layer needs. It introduces no new colour — the six
+ * semantic tokens are untouched — only elevation, gradient and movement.
+ *
+ * It also carries its own prefers-reduced-motion block, because globals.css's
+ * one has already run by this point and cannot guard anything here.
+ */
+import "./theatre.css";
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],

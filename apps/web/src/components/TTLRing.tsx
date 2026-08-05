@@ -3,10 +3,13 @@
 /**
  * The lease TTL ring.
  *
- * One of the three things on this interface allowed to move (BUILD.md Part 11's
- * motion budget: this, the Rekha, and the ceremony bar). It drains continuously
- * and refills on renewal, which is what gives the UI a pulse without anything
- * decorative happening.
+ * One of the three things BUILD.md Part 11's motion budget originally allowed to
+ * move (this, the Rekha, and the ceremony bar). That budget has since been
+ * widened — see theatre.css — but the principle it was protecting has not: every
+ * animation in the product is a load reveal, a state change, or one of the three
+ * moments. This ring is the second kind. It drains continuously and refills on
+ * renewal, which is what gives the UI a pulse without anything decorative
+ * happening.
  *
  * It is also the fail-closed guarantee made visible: no new lease means no new
  * payment, so killing the core empties this ring and spending stops when it hits
@@ -49,7 +52,11 @@ export function TTLRing({ ttlMs, maxMs, size = 36, showLabel = false, className 
 
   return (
     <div
-      className={`ttl-ring ${className ?? ''}`}
+      // `is-critical` drives a slow dim-pulse in theatre.css. Deliberately only
+      // in the last fifth: a ring that always pulses is a nervous tic nobody
+      // reads, one that STARTS pulsing is the fail-closed guarantee becoming
+      // visible — which is the entire point of the kill-switch beat.
+      className={`ttl-ring ${critical ? 'is-critical' : ''} ${className ?? ''}`}
       style={{ width: size, height: size }}
       title={`Lease TTL: ${ttlMs}ms of ${maxMs}ms`}
       role="img"

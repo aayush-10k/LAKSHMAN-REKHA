@@ -85,12 +85,17 @@ export async function registerAdversaryRoutes(app: FastifyInstance): Promise<voi
 
     // Replay onto the SSE bus. The events already carry the shape types.ts
     // declares for attack.attempt, so they are forwarded rather than rebuilt.
+    // Logged, not swallowed. The replay drives the M2 scoreboard, so a throw
+    // partway through leaves the counters frozen at whatever they had reached —
+    // and an unhandled rejection would say nothing about which attempt stopped.
     void (async () => {
       for (const event of run.events) {
         emit(event as unknown as RekhaEvent);
         await delay(REPLAY_GAP_MS);
       }
-    })();
+    })().catch((e: unknown) => {
+      request.log.error({ err: e }, 'adversary replay stopped early; the scoreboard is incomplete');
+    });
 
     return reply.code(200).send({
       summary: run.summary,

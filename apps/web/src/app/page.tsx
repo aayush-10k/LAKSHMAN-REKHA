@@ -64,6 +64,24 @@ export default function Home() {
       {/* ── The thesis, inside the line ──────────────────────────────── */}
       <Rekha pulse={null} className="lp-rekha">
         <section className="lp-hero">
+          {/* ── No entrance animation on this page. Deliberate. ──────────────
+              A typing effect on the revert and a staggered fade on the rest were
+              built here and then taken out, because they broke the one property
+              this page exists to have.
+
+              Any entrance animation starts from an invisible state and relies on
+              the document timeline to leave it. Chrome freezes that timeline in a
+              background tab: measured here at `document.timeline.currentTime: 0`
+              with every revealed element stuck at `opacity: 0` and the headline
+              at `width: 0`. It heals the moment the tab is looked at — but this
+              page is the one a judge opens cold, days later, with nothing else
+              running, and "the hero is blank until you click the tab" is not a
+              risk worth a fade.
+
+              The rule, for anyone adding motion here later: nothing that is the
+              only copy of information on screen may depend on an animation to
+              become visible. Hover lifts and elevation are fine — they start
+              from the visible state. */}
           <p className="lp-eyebrow">
             Base Sepolia · what the chain returns when the agent pays by itself
           </p>

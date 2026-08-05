@@ -1732,9 +1732,13 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 14px;
 }
-/* No hover lift, no shadow, no gradient — BUILD.md Part 11. The only thing
-   that changes on hover is the border, which is also the only thing that would
-   change if this were a real boundary. */
+/* REVISED. This rule used to read "no hover lift, no shadow, no gradient —
+   BUILD.md Part 11", on the reasoning that a border change was the only honest
+   response for a boundary. The restraint was right about colour and wrong about
+   feedback: with no lift and no shadow anywhere, these did not read as clickable
+   at all, and the two doors are the only way into the product from the landing
+   page. theatre.css gives them a resting elevation and a 2px lift. The border
+   still changes; nothing here borrows a state colour. */
 .lp-door {
   display: flex;
   flex-direction: column;

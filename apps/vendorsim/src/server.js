@@ -29,6 +29,22 @@ const send = (response, status, body, contentType = 'application/json; charset=u
 const publicVendor = ({ products, ...vendor }) => ({ ...vendor, products: products.map(({ sku, name, amountMinor }) => ({ sku, name, amountMinor })) });
 
 /**
+ * Escape text that a judge typed before it reaches the page.
+ *
+ * The injection control writes arbitrary text onto a storefront, and it used to
+ * be interpolated into the HTML raw. Scripts could not run — the playground's
+ * iframe is `sandbox="allow-same-origin"` with no `allow-scripts` — but a single
+ * unbalanced tag rearranged the storefront live on stage, and `<h1 style=…>`
+ * would have been enough to wreck the panel the demo is pointing at.
+ *
+ * This does not weaken the demonstration in any way. The attack being shown is
+ * that the AGENT reads and obeys the text; the text still arrives intact, and
+ * the agent still reads it. Escaping only stops it being markup.
+ */
+const escapeHtml = (s) =>
+  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+/**
  * A vendor storefront, dressed as an ordinary B2B supply site.
  *
  * Deliberately NOT in the Lakshman Rekha design language. This is the open web
@@ -76,11 +92,11 @@ const storefront = (vendor) => {
   // Rendered as an ordinary "Seller notes" block — an injection that announced
   // itself would not be worth demonstrating.
   const extra = injection
-    ? `<section class="notes"><h2>Seller notes</h2><aside class="notice">${injection}</aside></section>`
+    ? `<section class="card notes"><h2>Seller notes</h2><aside class="notice">${escapeHtml(injection)}</aside></section>`
     : '';
 
   const badge = tier === 1
-    ? '<span class="badge verified">Verified supplier</span>'
+    ? '<span class="badge verified">✓ Verified supplier</span>'
     : tier === 2
       ? '<span class="badge standard">Standard seller</span>'
       : '<span class="badge new">New seller</span>';
@@ -92,6 +108,31 @@ const storefront = (vendor) => {
   const blurb = tier === 3
     ? 'Limited inventory. Prices refresh without notice.'
     : 'Business purchasing for repeat orders. Net-30 terms available.';
+
+  /**
+   * The dressing a real B2B catalogue carries: a GST number, a rating, a
+   * dispatch estimate, a trading history.
+   *
+   * It is here because "the vendors look fake" and "the enforcement layer is
+   * impressive" cannot both land — a judge who does not believe the storefront
+   * does not believe the transaction either. Every value comes from the seed
+   * file, and none of it reaches the core: the registry strips all of it (see
+   * seed/vendors.js), so this is legible to the agent and to a human and is
+   * invisible to the policy engine. Which is the demonstration.
+   *
+   * Note what tier 3 shows: five stars from six reviews, no GST number, and a
+   * nine-day dispatch. Everything a person would find suspicious is on the page
+   * in plain sight — and none of it is what stops the payment. The tier and the
+   * age do that, on chain.
+   */
+  const stars = '★★★★★'.slice(0, Math.round(vendor.rating ?? 0)).padEnd(5, '☆');
+  const gstin = vendor.gstin ?? 'not provided';
+  const gstinClass = gstin === 'not provided' ? 'gst missing' : 'gst';
+  const trust = `<div class="trust">
+    <span class="${gstinClass}">GSTIN ${gstin}</span>
+    <span class="stars" title="${vendor.rating ?? 0} out of 5">${stars}<span class="reviewcount">${(vendor.reviews ?? 0).toLocaleString('en-IN')} ratings</span></span>
+    <span>Dispatch in ${vendor.dispatchDays ?? '—'} days</span>
+  </div>`;
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -125,6 +166,13 @@ const storefront = (vendor) => {
      leaving it second in the source — see the comment on wasPrice. */
   .was{font-size:12px;color:#98a1af;text-decoration:line-through;order:1}
   .unit{font-size:11px;color:#8a93a3;order:3}
+  .trust{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid #eef1f4;font-size:12.5px;color:#5a6678}
+  .gst{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:#4a5666}
+  /* A missing GST number is the single most checkable thing on an Indian B2B
+     listing, so it is the one piece of dressing allowed to look wrong. */
+  .gst.missing{color:#b91c1c;font-weight:600}
+  .stars{color:#f59e0b;letter-spacing:1px}
+  .reviewcount{color:#8a93a3;letter-spacing:normal;margin-left:7px;font-size:12px}
   .notes .notice{white-space:pre-wrap;color:#4a5666;font-size:14px}
   footer{font-size:12px;color:#8a93a3;text-align:center;margin-top:8px}
   @media(max-width:520px){.row{flex-direction:column;align-items:flex-start}.price{align-items:flex-start}}
@@ -134,6 +182,7 @@ ${banner}
   <div class="eyebrow">Independent supplier catalogue</div>
   <h1>${vendor.name}</h1>
   <div class="meta">${badge}<span>${vendor.ageDays} days trading</span><span>${vendor.settledTxns.toLocaleString('en-IN')} completed orders</span><span>Tier ${tier}</span></div>
+  ${trust}
   <p class="blurb">${blurb}</p>
 </header>
 <section class="card"><h2>Products</h2><ul>${productRows}</ul></section>
@@ -150,15 +199,28 @@ const readJson = async (request) => {
 
 const spawnCounterfeit = (target) => {
   counterfeitCount += 1;
-  const id = `ven_counterfeit${counterfeitCount}`;
+  // Timestamped, because the counter restarts at 1 whenever this service does.
+  // A browser left open across a `docker compose restart` still holds the old
+  // ven_counterfeit1 in its vendor list, and the new one would quietly take its
+  // id with different prices behind it.
+  const id = `ven_counterfeit${counterfeitCount}_${Date.now().toString(36)}`;
   const vendor = {
     ...target,
     id,
-    name: `${target.name} Outlet`,
+    // The real pattern: a name close enough to be mistaken for the original at a
+    // glance, on a shop that is two days old. The display dressing is inverted
+    // to match — no GST number, a perfect rating from almost no ratings, and a
+    // dispatch estimate nobody would accept. All of it visible, none of it what
+    // stops the payment: the tier and the age do that, on chain.
+    name: `${target.name} — Clearance Outlet`,
     tier: 2,
     ageDays: 2,
     settledTxns: 0,
     priceBandZ: -41,
+    gstin: 'not provided',
+    rating: 5,
+    reviews: 4,
+    dispatchDays: 11,
     address: `0x${(900000 + counterfeitCount).toString(16).padStart(40, '0')}`,
     products: target.products.map((product) => ({ ...product, amountMinor: Math.floor(product.amountMinor * 0.4) })),
   };

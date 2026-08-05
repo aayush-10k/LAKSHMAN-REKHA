@@ -11,6 +11,10 @@ import { Amount, formatInrMinor } from '../../components/Amount';
 import { TTLRing } from '../../components/TTLRing';
 import { PredicateTable } from '../../components/PredicateTable';
 import { CoreOffline } from '../../components/CoreOffline';
+import { SoundToggle } from '../../components/SoundToggle';
+// A module import for the same reason as the playground: `processEvent`'s
+// dependency array drives the EventSource, and nothing may be added to it.
+import { sound } from '../../lib/sound';
 
 const VENDORSIM_URL = process.env['NEXT_PUBLIC_VENDORSIM_URL'] ?? 'http://localhost:4100';
 
@@ -60,6 +64,19 @@ const STATE_LABEL: Record<RowState, string> = {
   held: 'held',
   refused: 'refused',
   revocation: 'revoked',
+};
+
+/**
+ * The wash a row plays when it arrives or changes outcome, in that row's own
+ * state colour and no other. `approved` has none on purpose: it is a waypoint,
+ * not an outcome, and flashing it green would say money moved a second or two
+ * before any did.
+ */
+const FLASH: Partial<Record<RowState, string>> = {
+  settled: 'fx-flash-settled',
+  held: 'fx-flash-held',
+  refused: 'fx-flash-refused',
+  revocation: 'fx-flash-refused',
 };
 
 function timeAgo(ts: number, now: number) {
@@ -402,6 +419,7 @@ export default function ConsolePage() {
 
         case 'revocation':
           setFrozen(true);
+          sound.play('snap');
           setRows((prev) =>
             [
               {
@@ -419,6 +437,11 @@ export default function ConsolePage() {
           const { trace } = event;
           const state: RowState =
             trace.outcome === 'APPROVED' ? 'approved' : trace.outcome === 'HELD' ? 'held' : 'refused';
+          // Approved is deliberately silent here: it is not finished yet, and
+          // the settlement chime is the sound that means money moved. Held and
+          // refused are terminal for the owner, so they are heard immediately.
+          if (state === 'refused') sound.play('refused');
+          else if (state === 'held') sound.play('held');
           upsert(trace.decisionId, {
             state,
             ts,
@@ -431,6 +454,7 @@ export default function ConsolePage() {
         }
 
         case 'payment.settled':
+          sound.play('settle');
           // Only ever the chain-read balance. null means the post-settlement read
           // failed — the payment happened, the figure is unknown, and showing the
           // last known number would present a stale value as current.
@@ -557,7 +581,9 @@ export default function ConsolePage() {
       {/* ── Top bar: the hero figure, the lease, the kill ── */}
       <header className="con-topbar">
         <div className="con-hero">
-          <Amount minor={balance} className="con-balance" />
+          {/* Keyed on the value so the pop plays when the balance CHANGES and
+              never on an unrelated re-render. */}
+          <Amount key={balance ?? 'unavailable'} minor={balance} className="con-balance fx-pop" />
           <div className="con-hero-meta">
             <span className="con-hero-label">available</span>
             {balanceError && <span className="con-hero-err">balance unreadable — {balanceError}</span>}
@@ -579,7 +605,10 @@ export default function ConsolePage() {
         </div>
 
         <div className="con-topbar-right">
-          <div className="con-lease" title={pairError ?? `Lease TTL ${leaseTtl}ms of ${leaseTtlMax}ms`}>
+          <div
+            className="con-lease"
+            data-tip={pairError ?? 'Every payment needs an unexpired lease. No core, no lease, no spending.'}
+          >
             <TTLRing ttlMs={leaseTtl} maxMs={leaseTtlMax} size={36} />
             <div className="con-lease-text">
               <span className="con-lease-value">{(Math.max(0, leaseTtl) / 1000).toFixed(1)}s</span>
@@ -592,7 +621,9 @@ export default function ConsolePage() {
             <span>{coreUp ? 'core up' : 'core stopped'}</span>
           </div>
 
-          {frozen && <span className="con-frozen">REVOKED</span>}
+          {frozen && <span className="con-frozen fx-stamp">REVOKED</span>}
+
+          <SoundToggle />
 
           <div className="con-wallet">
             {isConnected ? (
@@ -600,7 +631,12 @@ export default function ConsolePage() {
                 {shortHex(address ?? '')} ✕
               </button>
             ) : null}
-            <button className="con-btn-revoke" onClick={handleRevokeAll} disabled={revokePending}>
+            <button
+              className="con-btn-revoke fx-tip-left"
+              onClick={handleRevokeAll}
+              disabled={revokePending}
+              data-tip="Calls PolicyModule.revoke() from your own wallet. It does not go through our servers, and it has no undo."
+            >
               {revokePending ? 'Revoking…' : isConnected ? 'REVOKE ALL' : 'Connect wallet to revoke'}
             </button>
           </div>
@@ -623,15 +659,63 @@ export default function ConsolePage() {
 
           <div className="feed-list">
             {rows.length === 0 ? (
-              <div className="feed-empty">No payments yet. Give your agent a task in the Playground.</div>
+              /**
+               * An empty screen is an invitation to act, so this one carries a
+               * way in and the legend. The three colours are the whole reading
+               * system for this page and there is nothing on screen to
+               * demonstrate them with until a payment arrives — which is
+               * exactly when a cold visitor most needs to know what they mean.
+               *
+               * Deliberately no `fx-reveal`: with no payments this card is the
+               * only thing on the panel, and an entrance animation frozen by a
+               * background tab would leave it blank. Same rule as the landing
+               * page — see the note in app/page.tsx.
+               */
+              <div className="fx-empty-card">
+                <div className="fx-empty-title">No payments yet</div>
+                <p className="fx-empty-body">
+                  Give your agent a task in the Playground. Every request it makes lands here with
+                  the rule that decided it.
+                </p>
+                <a className="fx-empty-cta" href="/playground">
+                  Open the Playground →
+                </a>
+                <div className="fx-legend">
+                  <span className="fx-legend-row">
+                    <span className="fx-legend-key fx-legend-settled" />
+                    settled — the money moved, on chain
+                  </span>
+                  <span className="fx-legend-row">
+                    <span className="fx-legend-key fx-legend-held" />
+                    held — waiting for you, nothing charged
+                  </span>
+                  <span className="fx-legend-row">
+                    <span className="fx-legend-key fx-legend-refused" />
+                    refused — a rule stopped it, nothing charged
+                  </span>
+                </div>
+              </div>
             ) : (
               rows.map((row) => {
                 const holdLive = row.expiresAtMs !== undefined && row.expiresAtMs > now;
                 const isSelected = !!row.trace && selected?.decisionId === row.trace.decisionId;
                 return (
                   <div
-                    key={row.id}
-                    className={`con-row con-row-${row.state} ${isSelected ? 'is-selected' : ''} ${row.trace ? 'is-clickable' : ''}`}
+                    /**
+                     * Keyed on id AND state, so a row that changes outcome
+                     * remounts and replays its wash. CSS cannot re-fire an
+                     * animation when a class swaps on a live element, and these
+                     * rows are upserted in place — held → settled happens
+                     * without React ever unmounting anything.
+                     *
+                     * Safe because the row holds no internal state: <Amount> and
+                     * <TTLRing> are pure functions of their props, and the hold
+                     * countdown is driven by the page's own `now` tick rather
+                     * than by anything inside the row. Verified in a browser
+                     * that the countdown and Cancel survive the transition.
+                     */
+                    key={`${row.id}:${row.state}`}
+                    className={`con-row con-row-${row.state} ${isSelected ? 'is-selected' : ''} ${row.trace ? 'is-clickable' : ''} ${FLASH[row.state] ?? ''}`}
                     onClick={() => row.trace && setSelected(row.trace)}
                     role={row.trace ? 'button' : undefined}
                     tabIndex={row.trace ? 0 : undefined}
@@ -765,10 +849,11 @@ export default function ConsolePage() {
                 cannot verify is a text file with opinions in it. */}
             <div className="con-audit">
               <a
-                className="con-btn-audit"
+                className="con-btn-audit fx-tip-left"
                 href={`${CORE_URL}/v1/audit/export`}
                 target="_blank"
                 rel="noopener noreferrer"
+                data-tip="Every decision and settlement, signed by the core key. Verifiable offline."
               >
                 Download signed audit log
               </a>

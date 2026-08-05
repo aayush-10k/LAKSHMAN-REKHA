@@ -9,7 +9,11 @@ import { CoreOffline } from '../../components/CoreOffline';
 import { Counter } from '../../components/Counter';
 import { PredicateTable } from '../../components/PredicateTable';
 import { Rekha, type RekhaPulse } from '../../components/Rekha';
+import { SoundToggle } from '../../components/SoundToggle';
 import { TTLRing } from '../../components/TTLRing';
+// A module import, not a hook and not a context: `sound` must never appear in
+// processEvent's dependency array, because that array drives the EventSource.
+import { sound } from '../../lib/sound';
 
 /**
  * The agent runs in its own process holding the other half of the 2-of-2, so
@@ -63,6 +67,45 @@ const STAGES: ReadonlyArray<{ id: Stage; tag: string; label: string }> = [
  * did something entirely different depending on a selection made elsewhere.
  */
 const SHOP_MODES: readonly BehaviourMode[] = ['normal', 'hallucinating', 'injected', 'overreach', 'colluding'];
+
+/**
+ * Things a judge can buy without having to invent an errand.
+ *
+ * A blank box asking for a natural-language task is the single most common place
+ * a cold visitor stalls: they cannot know what this shop sells, so they type
+ * nothing and the demo never starts.
+ *
+ * ── The order is the demo, and it is not arbitrary ────────────────────────
+ * BUILD.md's fifth non-negotiable is "happy path first, always" — a system that
+ * only ever blocks is a nuisance rather than a product. So the first two settle,
+ * and the two that get stopped come after, for two different reasons.
+ *
+ * Every phrase below was MEASURED against the planner rather than guessed
+ * (scripts/probe-plans.sh), because the wording decides the vendor and the
+ * planner breaks ties toward the cheapest price:
+ *
+ *   3 amber glass bottles    ven_meridian    tier 1   ₹282     settles
+ *   12 national parcels      ven_northstar   tier 1   ₹624     settles
+ *   100 bottles              ven_flashcart   tier 3   ₹2,800   refused, counterpartyTier
+ *   creative suite           ven_pixelvault  SOFTWARE ₹8,990   refused, categoryPermitted
+ *
+ * "order 100 bottles" is the interesting one and it is deliberately kept. Say
+ * "bottles" without saying which, and the agent does the correct, boring thing a
+ * buying agent should do — it takes the cheapest match — and walks straight into
+ * a twelve-day-old seller at 70% off. Nothing is corrupted and no attack is
+ * mounted; that is just what shopping on price looks like, and the counterparty
+ * predicate is what stops it.
+ *
+ * The labels describe the purchase and nothing else. Announcing "this one will
+ * be refused" before the evaluator has answered would put a claim on screen
+ * ahead of its evidence, which is the one thing this interface does not do.
+ */
+const SUGGESTED_TASKS: readonly { label: string; task: string }[] = [
+  { label: '3 amber glass bottles', task: 'order 3 amber glass bottles' },
+  { label: '12 national parcels', task: 'ship 12 national parcels' },
+  { label: '100 bottles, any seller', task: 'order 100 bottles' },
+  { label: 'Renew the creative suite', task: 'renew our creative suite subscription' },
+];
 
 /** One line item's whole journey, as the agent runner reports it. */
 type LineItemResult = {
@@ -163,10 +206,37 @@ export default function PlaygroundPage() {
   const [rogueStats, setRogueStats] = useState({ attempts: 0, input: 0, policy: 0, chain: 0, errored: 0, approved: 0 });
   const [ceremony, setCeremony] = useState<CeremonyState | null>(null);
 
+  /**
+   * Money that actually LEFT the account while the attack suite was running.
+   *
+   * "Lost" can only honestly mean settlement, so this counts `payment.settled`
+   * and nothing else — not approvals, not co-signatures. It is expected to stay
+   * at zero, and the whole value of the figure is that it is measured rather
+   * than asserted: if an attack ever does settle, the biggest number on the page
+   * turns --breach by itself and stops claiming a win we did not have.
+   *
+   * A ref gates it instead of state because `processEvent` must not gain deps —
+   * its identity drives the EventSource effect, and churning it reconnects the
+   * stream mid-run and drops attempts.
+   */
+  const [lostMinor, setLostMinor] = useState(0);
+  const rogueActiveRef = useRef(false);
+
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [pairError, setPairError] = useState<string | null>(null);
   const [leaseTtl, setLeaseTtl] = useState(0);
   const [leaseTtlMax, setLeaseTtlMax] = useState(15000);
+  /**
+   * A mirror of leaseTtlMax that `processEvent` can read.
+   *
+   * It cannot read the state value: doing so would put leaseTtlMax in
+   * processEvent's dependency array, and that array is what the EventSource
+   * effect keys on — so the first lease renewal that changed the configured TTL
+   * would silently reconnect the stream. Written during render rather than in an
+   * effect because it is only ever read from an event handler.
+   */
+  const leaseTtlMaxRef = useRef(15000);
+  leaseTtlMaxRef.current = leaseTtlMax;
   const [coreUp, setCoreUp] = useState(false);
   const [imageDigest, setImageDigest] = useState<string | null>(null);
   const [revocationEpoch, setRevocationEpoch] = useState<number | null>(null);
@@ -206,12 +276,66 @@ export default function PlaygroundPage() {
   const pulseIdRef = useRef(0);
   const attackIdRef = useRef(0);
   const thoughtsRef = useRef<HTMLDivElement>(null);
+  const taskInputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * The agent's discovery step, drawn.
+   *
+   * The agent genuinely reads the vendor registry, chooses a supplier, opens its
+   * page and reads the price off the HTML — but all of that happened behind a
+   * static iframe in well under a second, so the most interesting thing it does
+   * was invisible. This shows it: the task as a query, the real catalogue as
+   * results, and the one it opens.
+   *
+   * Nothing here is invented. `chosenVendorId` comes from the plan the runner
+   * actually returned, the rows are the live catalogue, and the panel names the
+   * registry as simulated so it can never be read as a live web search.
+   */
+  const [discovery, setDiscovery] = useState<{ query: string; chosenVendorId: string | null } | null>(null);
+  /**
+   * When the current discovery began, so it can be held on screen long enough to
+   * read.
+   *
+   * Measured in a browser: the registry read and the page fetch complete in
+   * under a second, so clearing on `quote.received` alone made the panel flash
+   * past unseen — which is the same as not having built it. The floor below
+   * keeps it up for ~2.2s total. It is a legibility floor and not a fiction: the
+   * caption tracks the real state throughout ("reading the registry" until the
+   * plan names a supplier, "supplier chosen" after), so nothing on it claims to
+   * still be happening once it is not.
+   */
+  const discoveryStartRef = useRef(0);
+
+  /** Bumped per M1 run so the stamp replays when a judge asks to see it again. */
+  const [railBypassRun, setRailBypassRun] = useState(0);
+
+  /** Fires the breach flash across the stage when a ceremony is broken. */
+  const [vignette, setVignette] = useState(0);
 
 
   /** The line does not celebrate. Only 'flare' and 'snap' ever reach it. */
   const firePulse = useCallback((kind: 'flare' | 'snap') => {
     pulseIdRef.current += 1;
     setPulse({ kind, id: pulseIdRef.current });
+  }, []);
+
+  /**
+   * Take the discovery panel down, but never before it has been readable.
+   *
+   * Every path that ends a browse comes through here, because they do not all
+   * take the same time and one of them is very fast: a REFUSED dispatch has no
+   * ceremony and no settlement, so the runner replies almost immediately and
+   * `dispatchTask`'s finally used to clear the panel within half a second.
+   * Measured in a browser — it appeared and vanished at 447ms, having never
+   * reached full opacity.
+   *
+   * Stable identity (no deps), so it can be called from processEvent without
+   * joining the dependency array that drives the EventSource.
+   */
+  const DISCOVERY_MIN_MS = 2200;
+  const endDiscovery = useCallback(() => {
+    const elapsed = Date.now() - discoveryStartRef.current;
+    setTimeout(() => setDiscovery(null), Math.max(0, DISCOVERY_MIN_MS - elapsed));
   }, []);
 
   // ── Boot: probe the core, pair, load the registry ──────────────────────
@@ -263,7 +387,17 @@ export default function PlaygroundPage() {
       .then((list: Vendor[]) => {
         if (!Array.isArray(list)) return;
         setVendors(list);
-        if (list.length > 0) setTargetVendorId((prev) => prev || list[0]!.id);
+        // Open on a tier-3 seller rather than the first in the list.
+        //
+        // Two reasons. It is the more interesting page — the one with no GST
+        // number and five stars from six ratings — so the storefront panel is
+        // showing something worth reading before anything is dispatched. And it
+        // keeps "Spawn counterfeit", whose target is whatever is selected, off
+        // the real-brand tier-1 vendors by default: cloning one of those would
+        // put "<Brand> — Clearance Outlet" on screen, which is a claim about a
+        // real company we have no business making.
+        const opening = list.find((v) => v.tier === 3) ?? list[0];
+        if (opening) setTargetVendorId((prev) => prev || opening.id);
       })
       .catch((e: Error) => {
         // Leave the list empty: the controls then say vendorsim is unreachable
@@ -314,11 +448,18 @@ export default function PlaygroundPage() {
 
         case 'lease.tick':
           setLeaseTtl(event.ttlMs);
+          // Audible only in the last fifth, where the ring is already --breach.
+          // A lease ticking all day is a metronome nobody hears; one that starts
+          // ticking is the fail-closed guarantee arriving.
+          if (event.ttlMs > 0 && event.ttlMs < leaseTtlMaxRef.current * 0.2) sound.play('leaseTick');
           return;
 
         case 'revocation':
           setFrozen(true);
           setRevocationEpoch(event.epoch);
+          // De-duplicated inside the engine: one REVOKE press emits both this
+          // and ceremony.aborted, and that is one gesture, so one snap.
+          sound.play('snap');
           return;
 
         case 'task.started':
@@ -335,6 +476,20 @@ export default function PlaygroundPage() {
             },
             ...prev,
           ]);
+          // The plan names the supplier the agent settled on, so the discovery
+          // panel can mark it. Functional update — no new dependency.
+          setDiscovery((d) => {
+            if (d === null) return d;
+            const first = (event.plan as PlanItem[])[0];
+            return first ? { ...d, chosenVendorId: first.vendorId } : d;
+          });
+          return;
+
+        case 'quote.received':
+          // A price has been read off the page, so the browse is over and the
+          // storefront itself takes the stage — but not before the panel has
+          // been up long enough to read.
+          endDiscovery();
           return;
 
         case 'agent.thought':
@@ -357,6 +512,15 @@ export default function PlaygroundPage() {
           // dispatchTask opens the panel from the runner's reply instead, which
           // arrives after the ceremony and after settlement. A dispatch that was
           // revoked mid-ceremony returns an error and correctly opens nothing.
+          //
+          // It IS worth hearing, though — the outcome is decided here, a beat
+          // before the ceremony and two before settlement. Suppressed during the
+          // attack suite, where every attempt is a decision and the geiger is
+          // already carrying the rate.
+          if (!rogueActiveRef.current) {
+            if (event.trace.outcome === 'REFUSED') sound.play('refused');
+            else if (event.trace.outcome === 'HELD') sound.play('held');
+          }
           return;
 
         case 'attack.attempt': {
@@ -395,11 +559,33 @@ export default function PlaygroundPage() {
           }));
           // The line reacts to being tested, and only to that.
           if (status === 'blocked') firePulse('flare');
+          // Blocked attempts are a geiger crackle — rate-limited in the engine,
+          // because ninety-nine chimes is a fire alarm and the interesting
+          // quantity is how FAST they are arriving, not each one. Anything that
+          // got through gets the only alarming sound in the product.
+          sound.play(status === 'through' ? 'alarm' : 'geiger');
           return;
         }
 
         case 'ceremony.round':
           setCeremony({ decisionId: event.decisionId, round: event.round, of: event.of, aborted: false, abortedAt: null });
+          // Rising whole tones, so the ceremony audibly climbs and REVOKE has
+          // something to cut off mid-phrase.
+          sound.play('ceremonyRound', { round: event.round });
+
+          // The last round is the end of the ceremony whether or not anything
+          // settles — and during the attack suite nothing does: those approvals
+          // are void, so `payment.settled` never arrives to clear the bar and the
+          // rail sat on "round 3 of 3" for the rest of the session. Observed
+          // after a full M2 run. Held first so the completed bar is seen.
+          if (event.round === event.of) {
+            const finished = event.decisionId;
+            setTimeout(() => {
+              setCeremony((prev) =>
+                prev && prev.decisionId === finished && !prev.aborted ? null : prev,
+              );
+            }, 4000);
+          }
           return;
 
         case 'ceremony.aborted':
@@ -407,18 +593,46 @@ export default function PlaygroundPage() {
             prev ? { ...prev, aborted: true, abortedAt: event.atRound } : null,
           );
           firePulse('snap');
+          sound.play('snap');
+          // The room reacts, not just the bar. This is the highest-value moment
+          // in the demo and it gets the only screen-wide effect in the product.
+          setVignette((v) => v + 1);
           setTimeout(() => setCeremony(null), 4000);
           return;
 
+        case 'payment.settled':
+          // Two jobs, both of them corrections.
+          //
+          // 1. A ceremony that COMPLETED had nothing to clear it. Only the abort
+          //    path reset the bar, so after a successful dispatch it sat on
+          //    "round 3 of 3" indefinitely and the idle caption never came back —
+          //    which reads, on the next rehearsal, as a ceremony still running.
+          //    Held for a beat first so the full bar is seen before it goes.
+          // 2. Settlement during an attack run is the only thing that can make
+          //    the "lost" figure non-zero. See lostMinor.
+          setCeremony((prev) =>
+            prev && prev.decisionId === event.decisionId && !prev.aborted ? { ...prev, round: prev.of } : prev,
+          );
+          setTimeout(() => {
+            setCeremony((prev) => (prev && prev.decisionId === event.decisionId && !prev.aborted ? null : prev));
+          }, 2500);
+          if (rogueActiveRef.current) setLostMinor((v) => v + event.amountMinor);
+          sound.play('settle');
+          return;
+
         default:
-          // quote.received, payment.requested, payment.settled, payment.held,
-          // hold.released — the owner's money, which is the console's feed. A
-          // settled payment deliberately produces nothing here: the Rekha does
-          // not celebrate.
+          // quote.received, payment.requested, payment.held, hold.released —
+          // the owner's money, which is the console's feed. A settled payment
+          // deliberately produces no Rekha pulse: the line does not celebrate.
           return;
       }
     },
-    [firePulse],
+    // Both are useCallback(..., []) — their identity never changes, so this
+    // array never changes, so the EventSource effect below never re-runs. That
+    // is the property being protected here, not the list itself: anything added
+    // to it that CAN change identity reconnects the stream mid-demo and drops
+    // whatever arrives in the gap.
+    [firePulse, endDiscovery],
   );
 
   // Escape closes the decision. It covers the stage, and during a demo the
@@ -459,6 +673,8 @@ export default function PlaygroundPage() {
     ]);
     setAttackLog([]);
     setRogueStats({ attempts: 0, input: 0, policy: 0, chain: 0, errored: 0, approved: 0 });
+    setLostMinor(0);
+    rogueActiveRef.current = true;
 
     try {
       const res = await fetch(`${CORE_URL}/v1/adversary/run`, {
@@ -534,6 +750,18 @@ export default function PlaygroundPage() {
       return;
     }
 
+    // Close the attack window. The suite's HTTP reply lands well before its SSE
+    // replay finishes, so the flag cannot be cleared when the call returns —
+    // it is cleared here instead, by the next ordinary purchase, which is the
+    // first settlement that must NOT be counted as money an attacker took.
+    rogueActiveRef.current = false;
+
+    // The agent is about to read the registry and open a storefront. Show that
+    // happening; `task.started` marks which supplier it chose and
+    // `quote.received` ends it.
+    discoveryStartRef.current = Date.now();
+    setDiscovery({ query: description, chosenVendorId: null });
+
     try {
       const res = await fetch(`${AGENT_URL}/dispatch`, {
         method: 'POST',
@@ -606,6 +834,11 @@ export default function PlaygroundPage() {
       ]);
     } finally {
       setDispatching(false);
+      // Whatever happened, the browse is over. A dispatch that failed before any
+      // quote would otherwise leave the discovery panel covering the storefront.
+      // Through the same floor as every other exit — a refusal comes back fast
+      // enough that clearing it directly made the panel unreadable.
+      endDiscovery();
     }
   };
 
@@ -708,6 +941,7 @@ export default function PlaygroundPage() {
         return;
       }
       setCoreUp(false);
+      sound.play('kill');
       setKillResult({ ok: true, text: body?.message ?? 'Approval service killed. No new leases are being issued.' });
     } catch (e) {
       // Nothing was killed, so the UI must not claim it was.
@@ -724,6 +958,7 @@ export default function PlaygroundPage() {
         return;
       }
       setCoreUp(true);
+      sound.play('revive');
       setKillResult({ ok: true, text: 'Approval service resumed. Leases are being issued again.' });
     } catch (e) {
       setKillResult({ ok: false, text: `Could not reach the core at ${CORE_URL}. (${(e as Error).message})` });
@@ -863,9 +1098,19 @@ export default function PlaygroundPage() {
         method: body.method,
         accountUrl: body.explorer.account,
       });
+      // Bumped so the stamp animation replays. A judge who says "do that again"
+      // has to see it happen again, not a panel that was already there.
+      setRailBypassRun((n) => n + 1);
       // A refused attack is the line being tested, so it flares — the same
       // reaction any other blocked attempt gets, for the same reason.
-      if (body.outcome === 'reverted') firePulse('flare');
+      if (body.outcome === 'reverted') {
+        firePulse('flare');
+        sound.play('refused');
+      } else {
+        // The chain accepted a single-share signature. The product's central
+        // claim would be false, and it gets the alarm.
+        sound.play('alarm');
+      }
     } catch (e) {
       setRailBypass(null);
       setRailBypassError(
@@ -878,6 +1123,19 @@ export default function PlaygroundPage() {
 
   const storefrontUrl = targetVendorId ? `${VENDORSIM_URL}/vendor/${targetVendorId}` : null;
   const targetVendor = vendors.find((v) => v.id === targetVendorId) ?? null;
+
+  /**
+   * The suppliers the discovery panel lists — always including the one the agent
+   * actually chose, whatever its position in the catalogue.
+   */
+  const DISCOVERY_ROWS = 5;
+  const discoveryRows = (() => {
+    const head = vendors.slice(0, DISCOVERY_ROWS);
+    const chosenId = discovery?.chosenVendorId;
+    if (!chosenId || head.some((v) => v.id === chosenId)) return head;
+    const chosen = vendors.find((v) => v.id === chosenId);
+    return chosen ? [...head.slice(0, DISCOVERY_ROWS - 1), chosen] : head;
+  })();
 
   // An unreachable core replaces the playground rather than decorating it. Every
   // panel here reads from the core, so leaving them on screen would render an
@@ -909,7 +1167,10 @@ export default function PlaygroundPage() {
             <button
               key={s.id}
               className={`pg-stage-tab ${stage === s.id ? 'is-active' : ''}`}
-              onClick={() => setStage(s.id)}
+              onClick={() => {
+                setStage(s.id);
+                sound.play('select');
+              }}
               aria-current={stage === s.id ? 'page' : undefined}
             >
               {/* M1 and M2 are FINALE.md's own names for these two moments, not
@@ -921,7 +1182,10 @@ export default function PlaygroundPage() {
           ))}
         </nav>
 
-        {frozen && <span className="pg-frozen">REVOKED · epoch {revocationEpoch ?? '?'}</span>}
+        {frozen && <span className="pg-frozen fx-stamp">REVOKED · epoch {revocationEpoch ?? '?'}</span>}
+        {/* Pushed to the right edge when nothing is frozen; the chip takes the
+            margin when it appears. */}
+        <SoundToggle className={frozen ? '' : 'fx-sound-end'} />
       </header>
 
       {pairError && <div className="pg-banner">Agent not paired — {pairError}</div>}
@@ -930,11 +1194,19 @@ export default function PlaygroundPage() {
         {/* The line is drawn around the whole stage, not around one panel inside
             it. Whatever the agent is doing, it is doing it in here. */}
         <Rekha pulse={pulse} className="pg-stage-area">
+        {/* The room reacting to a broken ceremony. Keyed so it replays on every
+            abort, and deliberately an opacity-only overlay INSIDE the Rekha's
+            content box: the boundary redraws itself from a ResizeObserver, so
+            anything that changes the host's size or transform mid-animation
+            makes the line fight the redraw. */}
+        {vignette > 0 && <div key={vignette} className="fx-stage-vignette is-firing" aria-hidden="true" />}
+
         {/* ══ SHOP ═══════════════════════════════════════════════════════ */}
         {stage === 'shop' && (
           <section className="pg-shop">
             <div className="pg-command">
               <input
+                ref={taskInputRef}
                 className="pg-input pg-task-input"
                 placeholder='Tell the agent what to buy — e.g. "order 100 bottles"'
                 value={taskInput}
@@ -943,10 +1215,48 @@ export default function PlaygroundPage() {
                   if (e.key === 'Enter') void dispatchTask();
                 }}
               />
-              <button className="pg-btn-primary" onClick={() => void dispatchTask()} disabled={dispatching}>
+              <button
+                className="pg-btn-primary"
+                onClick={() => void dispatchTask()}
+                disabled={dispatching}
+                data-tip="Hand the task to the agent and watch it spend"
+              >
                 {dispatching ? 'Working…' : 'Dispatch'}
               </button>
             </div>
+
+            {/* A blank box asking for a natural-language task is where a cold
+                visitor stalls: they cannot know what this shop sells. These fill
+                it in. The last is SOFTWARE, the one category the deployed policy
+                forbids, so it refuses on chain with no attack needed. */}
+            <div className="fx-chips">
+              <span className="fx-chips-label">try</span>
+              {SUGGESTED_TASKS.map((s) => (
+                <button
+                  key={s.task}
+                  className="fx-chip"
+                  onClick={() => {
+                    setTaskInput(s.task);
+                    taskInputRef.current?.focus();
+                    sound.play('select');
+                  }}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Until something has run. Three steps, in the order they happen,
+                pointing at controls that are all on screen. */}
+            {!hasRun && (
+              <div className="fx-steps fx-reveal" style={{ ['--fx-i' as string]: 1 }}>
+                <span className="fx-step"><span className="fx-step-n">1</span>pick how the agent behaves</span>
+                <span className="fx-step-arrow">→</span>
+                <span className="fx-step"><span className="fx-step-n">2</span>dispatch a task</span>
+                <span className="fx-step-arrow">→</span>
+                <span className="fx-step"><span className="fx-step-n">3</span>click the outcome to see which rule decided it</span>
+              </div>
+            )}
 
             {/* Five chips on one line, rather than six stacked cards. The
                 description belongs to whichever is selected, so only one is on
@@ -956,7 +1266,15 @@ export default function PlaygroundPage() {
                 <button
                   key={m}
                   className={`pg-modechip ${mode === m ? 'is-active' : ''}`}
-                  onClick={() => setMode(m)}
+                  onClick={() => {
+                    setMode(m);
+                    sound.play('select');
+                  }}
+                  aria-pressed={mode === m}
+                  // Hoverable without selecting: the description below belongs
+                  // to whichever mode is active, so comparing two of them
+                  // otherwise means committing to one first.
+                  data-tip={MODE_INFO[m].description}
                 >
                   {MODE_INFO[m].label}
                 </button>
@@ -992,7 +1310,11 @@ export default function PlaygroundPage() {
                   )}
                 </select>
                 <span className="pg-web-spacer" />
-                <button className="pg-btn-attack" onClick={() => void spawnCounterfeit()}>
+                <button
+                  className="pg-btn-attack"
+                  onClick={() => void spawnCounterfeit()}
+                  data-tip="Clone this seller at 40% of its prices, two days old, tier 2"
+                >
                   Spawn counterfeit
                 </button>
                 <input
@@ -1004,10 +1326,57 @@ export default function PlaygroundPage() {
                     if (e.key === 'Enter') void injectIntoVendor();
                   }}
                 />
-                <button className="pg-btn-attack" onClick={() => void injectIntoVendor()}>
+                <button
+                  className="pg-btn-attack"
+                  onClick={() => void injectIntoVendor()}
+                  data-tip="Write your text onto this live storefront. The agent reads it on the next dispatch."
+                >
                   Inject
                 </button>
               </div>
+
+              {/* The discovery step, drawn over the frame it is about to reveal.
+                  It is a sibling of the iframe rather than a wrapper on purpose:
+                  the frame's key is `${vendor}-${nonce}` and remounting it
+                  reloads the storefront, so nothing may be allowed to change its
+                  position in the tree. */}
+              {discovery && (
+                <div className="fx-discover">
+                  <div className="fx-discover-bar">
+                    <span className="fx-discover-glyph" aria-hidden="true">⌕</span>
+                    <span className="fx-discover-query">
+                      {discovery.query}
+                      <span className="fx-discover-caret" aria-hidden="true" />
+                    </span>
+                  </div>
+                  <span className="fx-discover-label">
+                    {discovery.chosenVendorId ? 'supplier chosen — opening its page' : 'reading the supplier registry…'}
+                  </span>
+                  <div className="fx-discover-list">
+                    {/* The chosen supplier is always one of the rows.
+                        Measured: "order 100 bottles" plans against ven_flashcart,
+                        which is sixth in the catalogue — so a plain slice(0,5)
+                        showed the caption "supplier chosen" above five rows, none
+                        of which was highlighted. */}
+                    {discoveryRows.map((v, i) => (
+                      <div
+                        key={v.id}
+                        className={`fx-discover-row ${discovery.chosenVendorId === v.id ? 'is-chosen' : ''}`}
+                        style={{ ['--fx-i' as string]: i }}
+                      >
+                        <span className="fx-discover-name">{v.name}</span>
+                        <span className="fx-discover-meta">{v.id}</span>
+                        <span className="fx-discover-tier">tier {v.tier}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Says what it is. This is the simulated registry, not a web
+                      search, and the panel must never imply otherwise. */}
+                  <span className="fx-discover-foot">
+                    Simulated supplier registry — the same catalogue the policy engine checks tiers against.
+                  </span>
+                </div>
+              )}
 
               {storefrontUrl ? (
                 <iframe
@@ -1151,6 +1520,14 @@ export default function PlaygroundPage() {
                       </div>
                     ))
                   )}
+                  {/* A cursor while it is still working. Without it a stalled
+                      dispatch and a finished one look identical. */}
+                  {dispatching && (
+                    <div className="fx-thinking">
+                      <span className="fx-thought-cursor" aria-hidden="true" />
+                      <span>thinking</span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1173,7 +1550,13 @@ export default function PlaygroundPage() {
             {railBypassError && <div className="pg-msg-err">{railBypassError}</div>}
 
             {railBypass && (
-              <div className={`pg-m1-result ${railBypass.outcome === 'reverted' ? 'is-blocked' : 'is-critical'}`}>
+              // Keyed on the run counter so the stamp replays on every press.
+              // Without it a second run swaps the text in silently and the
+              // moment reads as a static panel that was always there.
+              <div
+                key={railBypassRun}
+                className={`pg-m1-result fx-stamp ${railBypass.outcome === 'reverted' ? 'is-blocked' : 'is-critical'}`}
+              >
                 {railBypass.outcome === 'reverted' ? (
                   <>
                     {/* The contract's own revert string, at the size of the
@@ -1234,6 +1617,10 @@ export default function PlaygroundPage() {
               <div className="pg-msg-ok">
                 Running all 12 classes against this core over HTTP. It takes two to four minutes,
                 and the board fills as each verdict comes back. Do not click again.
+                {/* Indeterminate on purpose — the remaining count is not known
+                    until the run replies. It exists so two minutes of silence
+                    does not read as a dead button. */}
+                <div className="fx-shimmer" role="presentation" />
               </div>
             )}
 
@@ -1277,10 +1664,25 @@ export default function PlaygroundPage() {
 
               {/* The largest figure on the page, and the only --clear on it. It
                   measures SETTLEMENT — money that left the account — which is
-                  the only thing "lost" can honestly mean. */}
-              <div className="pg-score pg-score-lost">
-                <span className="pg-score-lost-value">{formatInrMinor(0, true)}</span>
-                <span className="pg-score-label">lost · nothing settled</span>
+                  the only thing "lost" can honestly mean.
+                  The figure is derived, not typed. It read `formatInrMinor(0)`
+                  as a literal, and `.pg-score-lost.is-breached` — the rule that
+                  strips the green off the instant the claim stops being true —
+                  had no way to ever apply. A hardcoded zero is exactly the
+                  failure the rest of this file spends its comments avoiding. */}
+              {/* `fx-alive` breathes a green halo, but only while attacks are
+                  actually arriving and the claim still holds. It is switched off
+                  the moment anything settles — the halo must never outlive the
+                  sentence it is decorating. */}
+              <div
+                className={`pg-score pg-score-lost ${lostMinor > 0 ? 'is-breached' : ''} ${
+                  rogueStats.attempts > 0 && lostMinor === 0 ? 'fx-alive' : ''
+                }`}
+              >
+                <span className="pg-score-lost-value">{formatInrMinor(lostMinor, true)}</span>
+                <span className="pg-score-label">
+                  {lostMinor > 0 ? 'lost · money settled' : 'lost · nothing settled'}
+                </span>
               </div>
             </div>
 
@@ -1312,7 +1714,10 @@ export default function PlaygroundPage() {
             same lease, the same core, the same contract are doing the work in
             all three, and a judge can watch them while the stage changes. */}
         <aside className="pg-rail">
-          <div className="pg-lease">
+          <div
+            className="pg-lease fx-tip-left"
+            data-tip="Every payment needs an unexpired lease. No core, no lease, no spending."
+          >
             <TTLRing ttlMs={leaseTtl} maxMs={leaseTtlMax} size={64} />
             <div className="pg-lease-text">
               <span className="pg-lease-value">{(Math.max(0, leaseTtl) / 1000).toFixed(1)}s</span>
@@ -1362,7 +1767,11 @@ export default function PlaygroundPage() {
                 checking…
               </button>
             ) : coreUp ? (
-              <button className="pg-btn-danger" onClick={() => void killCoreService()}>
+              <button
+                className="pg-btn-danger fx-tip-left"
+                onClick={() => void killCoreService()}
+                data-tip={`Stops lease issuance for real. All spending halts within ${(leaseTtlMax / 1000).toFixed(0)}s.`}
+              >
                 Kill approval service
               </button>
             ) : (
@@ -1412,7 +1821,12 @@ export default function PlaygroundPage() {
                 )}
               </div>
 
-              <button className="pg-btn-revoke" onClick={() => void revokeMandate()} disabled={frozen}>
+              <button
+                className="pg-btn-revoke fx-tip-left"
+                onClick={() => void revokeMandate()}
+                disabled={frozen}
+                data-tip="Press this while the bar is filling. The signature is abandoned before it exists."
+              >
                 {frozen ? 'REVOKED' : 'REVOKE'}
               </button>
             </div>

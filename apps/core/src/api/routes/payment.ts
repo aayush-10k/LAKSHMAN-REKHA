@@ -280,6 +280,12 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
       // If it has expired underneath us the chain would revert LeaseExpired, so
       // refuse here rather than hand out a settlement context that cannot settle.
       if (lease.expiresAtMs < Date.now()) {
+        // Say so on the stream. Without this the UI's ceremony bar sits on its
+        // final round forever while the caller gets a 403 nobody watching the
+        // screen can see — the one failure mode indistinguishable from a hang.
+        // `timeout` is the second arm of ceremony.aborted's reason, and the
+        // console already renders it; it simply had no emitter.
+        emit({ t: 'ceremony.aborted', decisionId: trace.decisionId, atRound: of, reason: 'timeout' });
         return reply.code(403).send({
           error: {
             code: 'LEASE_EXPIRED',
