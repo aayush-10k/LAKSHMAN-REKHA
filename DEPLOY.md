@@ -102,11 +102,49 @@ Two things to know when picking the repo in Railway and Vercel:
 
 - Select the **fork**, and branch **`finale/frontend`**. It is not the fork's
   default branch, so neither platform will pick it for you. Every service and
-  the Vercel project must be set to it explicitly, or you will build `main`,
-  which is 25 commits behind and does not contain any of this.
-- `upstream/main` has moved on independently (`ccfa336`, "Update README.md") and
-  has diverged from the local `main` — 25 ahead, 3 behind. Do not merge it in to
-  tidy up before the demo.
+  the Vercel project must be set to it explicitly, or you will build `main` —
+  which fails as a green deployment of the wrong code, not as an error.
+
+  Measured 5 Aug: `finale/frontend` has **55 commits `main` does not**, and
+  `main` has 3 that it does not. (An earlier version of this file said "25
+  commits behind". That number came from comparing the *local* `main` against
+  `upstream/main`, which is a different question and not the one that matters.)
+
+### Do not merge `main` into `finale/frontend`
+
+Checked rather than assumed, on 5 Aug:
+
+- **The seven `a/…`, `b/…`, `c/…` branches are already contained** in
+  `finale/frontend`. Six are ancestors outright. The seventh,
+  `a/policy-evaluator` (`36d9455`), is not an ancestor by SHA but its content is
+  present and has moved on — `explain.ts` is byte-identical, and `evaluator.ts`
+  differs only because finale carries the 14-predicate version that agrees with
+  the Solidity. Merging it would **regress the evaluator**.
+- **A merge conflicts in more than ten files**, including `api/routes/payment.ts`,
+  `api/store.ts`, `api/chain.ts`, `agent/runner.ts` and `api/routes/revoke.ts` —
+  exactly the files carrying the nonce and window-reservation fixes and the
+  2-of-2 signing path.
+- **It resurrects the deleted frontend.** `apps/web/public/console.html`,
+  `public/js/app.js`, `public/js/agent.js` and `public/css/styles.css` exist on
+  `main` and are deliberately gone from finale; they are the pre-Next.js static
+  app.
+- **The gain is nothing.** The three commits are two README edits and one "bug
+  fixes" (`7a2bc87`) whose substance is *already in* `finale/frontend` — eleven
+  of its files are byte-identical there, including `policy-state.ts`, `env.ts`,
+  `keys.ts` and `chain-state.mjs`. It arrived by a different route; only the
+  commit object is absent.
+
+`finale/frontend` is the superset. Treat `main` as the old line.
+
+**If you want `main` to be the truth, do it after the demo** and do it without a
+merge:
+
+```bash
+git push origin finale/frontend:main --force     # your fork only
+```
+
+That makes `main` identical to finale with no conflict resolution at all. It
+discards the two README commits; cherry-pick them if you want them.
 
 ---
 
