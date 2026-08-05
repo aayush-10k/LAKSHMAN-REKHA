@@ -179,6 +179,19 @@ be reachable at the moment it is needed, not behind a tab switch.
 3. Hit **REVOKE** at roughly 60%.
 4. The bar **breaks** and the Rekha line snaps.
 
+Verified 5 Aug 2026 in a browser against the containerised stack, REVOKE pressed
+at round 2 of 3:
+
+```
+task row    "Revoked mid-ceremony."    amount still marked EST — never settled
+header      REVOKED · epoch 1
+rail        revocation epoch 1, REVOKE disabled
+reasoning   stops at "Submitting the FactSheet for decision"
+```
+
+The decision panel stays shut through rounds 1 and 2 and opens only once the
+runner replies, so it cannot cover the bar you are asking the room to watch.
+
 Measured animation, for reference if it looks wrong:
 
 ```
