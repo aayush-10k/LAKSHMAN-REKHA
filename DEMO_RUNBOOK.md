@@ -45,6 +45,29 @@ docker logs rekha-core 2>&1 | grep '^\[policy\]'
 will disagree with the chain. Two causes, and the message names neither —
 see DEPLOY.md §2.
 
+### Check the WSL MTU first — it resets itself
+
+```bash
+ip link show eth0 | grep -o 'mtu [0-9]*'      # want: mtu 1300
+```
+
+**If it says 1500, fix it before anything else:**
+
+```bash
+sudo ip link set dev eth0 mtu 1300            # or: wsl -d Ubuntu -u root -- ip link set dev eth0 mtu 1300
+```
+
+This happened mid-session on 5 Aug. WSL re-initialised its adapter and put eth0
+back to 1500, and everything from the WSL host stopped reaching the internet —
+`git push`, `curl https://github.com`, all of it hanging to timeout with
+`Connection reset by peer` or a `000` status. **DNS keeps working**, which sends
+you looking in the wrong place.
+
+The containers were unaffected, because compose pins them to 1300 — which is the
+clearest evidence that 1300 is the correct value for this machine and 1500 is
+not. It also means the demo itself would probably survive: the browser talks to
+the containers directly. What breaks is anything you run on the host.
+
 ### Sixty-second pre-flight
 
 ```bash
