@@ -575,27 +575,73 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   overflow: hidden;
 }
 
+/* The header carries navigation instead of an agent id. Same height, but it is
+   now the only thing on the page a judge has to steer with. */
 .pg-topbar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  height: 46px;
-  padding: 0 18px;
+  align-items: stretch;
+  height: 44px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border);
   background: var(--slate);
   flex: none;
 }
-.pg-topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.pg-brand { font-size: 12px; color: var(--muted); }
-.pg-brand:hover { color: var(--chalk); }
-.pg-page-title {
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.3px;
+.pg-brand {
+  display: flex;
+  align-items: center;
+  padding-right: 13px;
+  font-size: 16px;
+  color: var(--muted);
 }
+.pg-brand:hover { color: var(--chalk); }
+.pg-wordmark {
+  display: flex;
+  align-items: center;
+  padding-right: 24px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+}
+
+/* The three demonstrations. Picking one gives it the whole stage; nothing else
+   competes with it while it is showing. */
+.pg-stages { display: flex; align-items: stretch; }
+.pg-stage-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 15px;
+  background: none;
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  border-bottom: 2px solid transparent;
+  transition: color 120ms ease;
+}
+.pg-stage-tab:hover { color: var(--chalk); }
+.pg-stage-tab.is-active { color: var(--chalk); border-bottom-color: var(--chalk); }
+/* M1 and M2 are FINALE.md's names for these moments. The tag is a citation, not
+   a decoration, which is why `shop` does not carry one. */
+.pg-stage-tag,
+.pg-moment-tag {
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.5px;
+}
+.pg-stage-tab.is-active .pg-stage-tag { border-color: var(--chalk); color: var(--chalk); }
+.pg-moment-tag { margin-right: 7px; }
+
 .pg-frozen {
+  align-self: center;
+  margin-left: auto;
   padding: 2px 9px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--breach);
@@ -616,22 +662,33 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   flex: none;
 }
 
+/* A stage and a rail. Two regions, not three columns: the old middle column had
+   to hold the storefront, the agent's reasoning and the judge's controls in
+   620px, which is how the most important element on the page ended up 150px
+   tall. */
 .pg-body {
   display: grid;
-  grid-template-columns: 340px 1fr 320px;
+  grid-template-columns: 1fr 264px;
   flex: 1;
   min-height: 0;
 }
 
-.pg-col {
+/* `.pg-stage-area` IS the Rekha element — the component merges the class onto
+   its own root — so it already carries the column flex; only padding is needed,
+   and it goes on the content box so the line is not drawn inside its own gutter. */
+.pg-stage-area { min-width: 0; min-height: 0; overflow: hidden; }
+.pg-stage-area > .rekha-content { padding: 14px; }
+
+.pg-rail {
   display: flex;
   flex-direction: column;
+  gap: 13px;
   min-height: 0;
   overflow-y: auto;
-  border-right: 1px solid var(--border);
+  padding: 14px 16px;
+  border-left: 1px solid var(--border);
+  background: var(--slate);
 }
-.pg-col-enforce { border-right: none; gap: 14px; padding: 14px 16px; }
-.pg-col-agent   { padding: 14px; overflow: hidden; }
 
 .pg-h2 {
   font-family: var(--font-display);
@@ -759,22 +816,42 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 .pg-link { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
 .pg-link:hover { color: var(--chalk); }
 
-/* ── Left column: task and modes ───────────────────────── */
-.pg-task-input-row { display: flex; gap: 8px; margin-top: 9px; }
+/* ── Shop: command, modes, and the open web ────────────── */
+.pg-shop { display: flex; flex-direction: column; gap: 11px; min-height: 0; flex: 1; }
 
-.pg-modes { display: flex; flex-direction: column; gap: 5px; margin-top: 9px; }
-.pg-mode {
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--card);
+.pg-command { display: flex; gap: 8px; flex: none; }
+.pg-task-input { flex: 1; font-size: 13px; padding: 9px 12px; }
+
+/* Five chips on one line, and one description — the selected mode's. Six
+   stacked cards meant six paragraphs of prose arguing with the storefront for
+   the same vertical space. */
+.pg-modebar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }
+.pg-modechip {
+  padding: 4px 12px;
+  border-radius: 999px;
   border: 1px solid var(--border);
-  text-align: left;
-  transition: border-color 0.15s, background 0.15s;
+  background: none;
+  color: var(--muted);
+  font-size: 11.5px;
+  transition: color 0.13s, border-color 0.13s;
 }
-.pg-mode:hover    { background: rgba(237,234,227,0.05); }
-.pg-mode.is-active { background: rgba(237,234,227,0.09); border-color: var(--chalk); }
-.pg-mode-name { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
-.pg-mode-desc { display: block; font-size: 10.5px; color: var(--muted); line-height: 1.35; margin-top: 2px; }
+.pg-modechip:hover { color: var(--chalk); border-color: var(--chalk); }
+.pg-modechip.is-active {
+  color: var(--ink);
+  background: var(--chalk);
+  border-color: var(--chalk);
+  font-weight: 600;
+}
+.pg-mode-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 240px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
 /* Names the predicate the mode is aiming at, before it runs. See MODE_INFO.
    Mono because it is an identifier out of evaluator.ts, not prose — a judge
    should be able to match it character for character against the decision
@@ -791,9 +868,8 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   color: var(--muted);
 }
 
-.pg-tasks { flex: 1; min-height: 90px; overflow-y: auto; }
 .pg-task {
-  padding: 10px 16px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--border);
   font-size: 12px;
 }
@@ -855,37 +931,78 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   color: var(--muted);
 }
 
-.pg-decision {
-  flex: none;
-  max-height: 44%;
-  overflow-y: auto;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
+/* The decision takes the screen. A refusal nobody can read is indistinguishable
+   from a crash, and the predicate that bound is the product. */
+.pg-decision-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(11, 13, 20, 0.82);
+  animation: pg-scrim-in 0.14s ease;
 }
-.pg-decision-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+@keyframes pg-scrim-in { from { opacity: 0; } to { opacity: 1; } }
+.pg-decision {
+  width: min(880px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--slate);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+.pg-decision-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.pg-decision-head .pg-h2 { display: flex; align-items: baseline; gap: 10px; }
+.pg-decision-bound {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--breach);
+}
 
-/* ── Centre column: inside the line ────────────────────── */
-/* The Rekha is drawn around this whole column. Everything the agent touches is
-   inside it, and the boundary is the product in one visual. */
-.pg-rekha { flex: 1; min-height: 0; }
-.pg-agent-inner {
+/* ── The open web ──────────────────────────────────────── */
+/* Sized as what it is: a webpage the agent is reading, and the thing a judge
+   has to be able to read too. It was a 567×150 thumbnail — the smallest panel
+   on a screen where it carried the counterfeit and injection demonstrations.
+   The judge's own controls sit in its chrome, where a browser would put them. */
+.pg-web {
   display: flex;
   flex-direction: column;
   min-height: 0;
   flex: 1;
-  gap: 10px;
-  padding: 12px;
-}
-
-.pg-store { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.pg-store-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 7px; }
-.pg-store-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.7px; }
-.pg-store-frame {
-  flex: 1;
-  min-height: 150px;
-  width: 100%;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--card);
+}
+.pg-web-chrome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--slate);
+}
+.pg-web-label {
+  font-size: 9.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  white-space: nowrap;
+}
+.pg-web-spacer { flex: 1; }
+.pg-web-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: none;
   background: #f6f7f9;
 }
 .pg-store-missing {
@@ -901,19 +1018,31 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 }
 .pg-store-missing code { font-family: var(--font-mono); color: var(--chalk); }
 
-/* On the storefront, not in a drawer. A judge should find these without being
-   told they exist — that is the whole reason they sit here. */
-.pg-judge { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
-.pg-inject-input { font-size: 12px; }
+.pg-inject-input { font-size: 11.5px; width: 190px; flex: none; padding: 5px 9px; }
 
-.pg-thoughts {
+/* Results and reasoning, and only once there are some. An empty pair of panels
+   would cost the storefront a third of its height for nothing. */
+.pg-drawer {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 11px;
   flex: none;
-  height: 168px;
+  /* Proportional, not fixed. A fixed 176px is a fifth of a laptop viewport and
+     the storefront pays for all of it; on a large screen it is needlessly small.
+     Measured at 1280×609 with results showing: the frame keeps 232px. */
+  height: clamp(140px, 26vh, 240px);
+  min-height: 0;
+}
+.pg-drawer-col {
+  min-height: 0;
   overflow-y: auto;
-  padding: 9px 11px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--card);
+}
+
+.pg-thoughts {
+  padding: 9px 11px;
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.6;
@@ -921,7 +1050,7 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 .pg-thoughts-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 5px; }
 .pg-thought { color: var(--chalk); opacity: 0.82; }
 
-/* ── Right column: enforcement ─────────────────────────── */
+/* ── The rail: enforcement, unchanged between stages ───── */
 .pg-lease { display: flex; align-items: center; gap: 12px; }
 .pg-lease-text { display: flex; flex-direction: column; }
 .pg-lease-value { font-family: var(--font-mono); font-size: 20px; font-variant-numeric: tabular-nums; }
@@ -943,39 +1072,93 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 
 .pg-control { display: flex; flex-direction: column; }
 
-/* ── M1 ── */
-.pg-m1 { padding-top: 12px; border-top: 1px solid var(--border); }
-.pg-m1-lede { font-size: 11px; color: var(--muted); line-height: 1.45; margin-bottom: 9px; }
-.pg-m1-result {
-  margin-top: 9px;
-  padding: 9px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--card);
-  font-size: 11px;
+/* ── A moment on the stage (M1, M2) ────────────────────── */
+/* These used to be a 300px-wide panel in the right column and a 172px strip at
+   the bottom. Each now owns the stage while it is selected, which is the only
+   way the sentence a judge is supposed to leave with can be the largest thing
+   on screen. */
+.pg-moment {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  max-width: 780px;
+  /* `safe` so a result taller than the stage scrolls from its top rather than
+     being centred with the headline cut off above the fold. */
+  justify-content: safe center;
 }
-.pg-m1-result.is-blocked { border-color: var(--breach); }
+/* M2 fills the stage — its attack log is the content, and centring a list that
+   grows would move it under the reader every time a row arrives. */
+.pg-m2 { justify-content: flex-start; }
+
+/* Sized to its words. Full-width with a dashed border read as a drop target
+   rather than the most consequential control on the page. */
+.pg-moment .pg-btn-attack-wide {
+  width: auto;
+  align-self: flex-start;
+  padding: 11px 22px;
+  font-size: 13.5px;
+  border-style: solid;
+}
+.pg-moment-title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.7px;
+  line-height: 1.12;
+}
+.pg-moment-lede { font-size: 13px; color: var(--muted); line-height: 1.5; max-width: 64ch; }
+.pg-moment-lede code { font-family: var(--font-mono); font-size: 12px; color: var(--chalk); }
+
+.pg-m1-result {
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--breach);
+  background: var(--card);
+}
 /* The chain accepting a single-share signature would mean the product's central
    claim is false. It gets the loudest treatment on the page. */
-.pg-m1-result.is-critical { border-color: var(--breach); background: rgba(255,77,77,0.16); }
-.pg-m1-row { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); }
-.pg-m1-revert {
-  margin: 7px 0;
+.pg-m1-result.is-critical { background: rgba(255,77,77,0.16); }
+
+/* The contract's own revert string, at the size of the claim it settles. */
+.pg-verdict-revert {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 23px;
+  line-height: 1.25;
   color: var(--breach);
   word-break: break-word;
 }
-.pg-m1-line { margin-top: 7px; font-size: 12px; font-style: italic; color: var(--chalk); }
-.pg-m1-foot { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--border); }
-/* Says eth_call, so nobody reads this as a mined transaction. There is no tx
-   hash here and the panel must never imply one. */
-.pg-m1-method { font-size: 9.5px; color: var(--muted); line-height: 1.35; }
+.pg-verdict-line {
+  margin-top: 9px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--chalk);
+}
+.pg-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 16px 0 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.pg-facts > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pg-facts dt { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.7px; }
+/* `called` renders eth_call, so nothing here reads as a mined transaction.
+   There is no tx hash on this panel and it must never imply one. */
+.pg-facts dd { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
 
 /* ── M3: the bar and REVOKE, side by side ── */
 .pg-ceremony-block { padding-top: 12px; border-top: 1px solid var(--border); }
-.pg-ceremony-row { display: flex; align-items: center; gap: 10px; }
-.pg-ceremony { flex: 1; min-width: 0; }
+/* Stacked, not side by side. The rail is 264px wide and the idle caption is a
+   full sentence, so a row put two lines of italics next to the REVOKE button
+   and made the one control that has to be hit under time pressure the smaller
+   half of an awkward pair. */
+.pg-ceremony-row { display: flex; flex-direction: column; align-items: stretch; gap: 9px; }
+.pg-ceremony { min-width: 0; }
 .pg-ceremony-track { display: flex; gap: 5px; }
 .pg-ceremony-label { display: block; margin-top: 5px; font-size: 10px; color: var(--muted); }
 .pg-ceremony.is-aborted .pg-ceremony-label { color: var(--breach); }
@@ -1015,50 +1198,40 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   100% { transform: scaleX(0.52) skewX(-3deg);  opacity: 0.55; }
 }
 
+/* The M3 gesture. It has to be hit inside a ~3.6s ceremony, so it is a wide
+   target rather than a chip tucked beside a caption. */
 .pg-btn-revoke {
   flex: none;
-  padding: 10px 16px;
+  padding: 13px 16px;
   border-radius: var(--radius-sm);
   background: rgba(255,77,77,0.12);
   border: 1px solid var(--breach);
   color: var(--breach);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.6px;
+  letter-spacing: 1px;
 }
 .pg-btn-revoke:hover:not(:disabled) { background: rgba(255,77,77,0.22); }
 .pg-btn-revoke:disabled { opacity: 0.55; cursor: default; }
 
-/* ── M2: the strip ─────────────────────────────────────── */
-.pg-rogue {
-  flex: none;
-  height: 172px;
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid var(--border);
-  background: var(--slate);
-}
+/* ── M2 ────────────────────────────────────────────────── */
+.pg-m2 { max-width: none; }
+.pg-m2-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.pg-m2-run { width: auto; flex: none; padding: 10px 20px; font-size: 13px; }
 
-.pg-rogue-scores {
+.pg-scores {
   display: flex;
   align-items: baseline;
   gap: 34px;
-  padding: 12px 20px 10px;
+  flex-wrap: wrap;
+  flex: none;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
-}
-.pg-rogue-title {
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1.1px;
-  color: var(--muted);
-  margin-right: 6px;
 }
 .pg-score { display: flex; align-items: baseline; gap: 7px; }
 .pg-score-value {
   font-family: var(--font-display);
-  font-size: 26px;
+  font-size: 34px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -1072,7 +1245,7 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 .pg-score-lost { margin-left: auto; align-items: baseline; gap: 9px; }
 .pg-score-lost-value {
   font-family: var(--font-display);
-  font-size: 54px;
+  font-size: 72px;
   font-weight: 700;
   line-height: 1;
   letter-spacing: -1.5px;
@@ -1084,7 +1257,7 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
 .pg-score-lost.is-breached .pg-score-lost-value { color: var(--breach); font-size: 40px; }
 .pg-score-lost.is-breached .pg-score-label { color: var(--breach); }
 
-.pg-attacks { flex: 1; overflow-y: auto; padding: 4px 20px 10px; }
+.pg-attacks { flex: 1; min-height: 0; overflow-y: auto; }
 .pg-attack {
   display: flex;
   align-items: baseline;
@@ -1155,38 +1328,52 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
    removed the storefront, M1 and M3 — every moment the page exists for — and
    left the task list looking like the whole thing. */
 @media (max-width: 1100px) {
-  .console-body { grid-template-columns: 1fr; }
-  .pg-body      { grid-template-columns: 1fr; }
-  .pg-layout    { height: auto; min-height: 100vh; overflow: visible; }
-  .pg-col       { overflow: visible; border-right: none; border-bottom: 1px solid var(--border); }
-  .pg-col-agent { height: 70vh; }
-  .pg-rogue     { height: auto; }
+  .console-body   { grid-template-columns: 1fr; }
+  .pg-body        { grid-template-columns: 1fr; }
+  .pg-layout      { height: auto; min-height: 100vh; overflow: visible; }
+  /* The stage keeps a real height when the page stops being one screen tall,
+     or the storefront collapses to nothing and takes the demonstration with it. */
+  .pg-stage-area  { min-height: 72vh; }
+  .pg-rail        { border-left: none; border-top: 1px solid var(--border); }
+  .pg-drawer      { grid-template-columns: 1fr; height: auto; max-height: 320px; }
 }
 
 /* Phone width. Stacking at 1100px fixed the columns and left three fixed-width
    flex rows to overflow the viewport: the Rogue Mode scoreboard, both topbars,
    and the console's contract strip. A page that scrolls sideways reads as
    broken before anyone has read a word of it, and this URL gets opened on a
-   phone — FINALE_PLAN's own Phase 1 exit criterion is "on a phone, on
+   phone, and the Phase 1 exit criterion is "on a phone, on
    cellular".
    ── NOT SEEN IN A BROWSER. Verified as CSS only. ────────────────────────── */
 @media (max-width: 640px) {
   /* Counters wrap instead of running off the edge. */
-  .pg-rogue-scores,
+  .pg-scores,
   .con-topbar,
   .con-topbar-right,
-  .pg-topbar,
-  .pg-topbar-left,
   .con-strip { flex-wrap: wrap; gap: 14px; row-gap: 10px; }
+
+  /* The header scrolls its own tabs rather than wrapping to two rows: it is the
+     navigation, and it has to stay one predictable strip. */
+  .pg-topbar    { height: auto; min-height: 44px; padding: 0 10px; }
+  .pg-stages    { overflow-x: auto; }
+  .pg-stage-tab { padding: 8px 11px; white-space: nowrap; }
+  .pg-wordmark  { display: none; }
+
+  /* The storefront chrome carries a select, two buttons and a text field. At
+     this width they stack instead of squeezing the frame off screen. */
+  .pg-web-chrome   { flex-wrap: wrap; row-gap: 7px; }
+  .pg-inject-input { width: 100%; }
+  .pg-web-spacer   { display: none; }
+  .pg-moment-title { font-size: 21px; }
 
   /* `margin-left: auto` pushes the lost figure to the right edge, which on a
      wrapped row strands it alone on its own line at 54px. It stays the largest
      thing on the strip — FINALE.md Part 2 is explicit about that — just not
      twice the width of the screen. */
   .pg-score-lost            { margin-left: 0; }
-  .pg-score-lost-value      { font-size: 38px; }
-  .pg-score-lost.is-breached .pg-score-lost-value { font-size: 30px; }
-  .pg-score-value           { font-size: 21px; }
+  .pg-score-lost-value      { font-size: 44px; }
+  .pg-score-lost.is-breached .pg-score-lost-value { font-size: 34px; }
+  .pg-score-value           { font-size: 24px; }
 
   /* The console's hero balance already sizes itself — `.amount.con-balance` is
      clamp(40px, 6vw, 72px) — so there is deliberately no rule for it here. A
@@ -1201,7 +1388,9 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   .pg-kv                    { flex-wrap: wrap; row-gap: 2px; }
   .pg-kv > *                { min-width: 0; overflow-wrap: anywhere; }
 
-  .pg-col, .console-body    { padding-left: 12px; padding-right: 12px; }
+  .console-body             { padding-left: 12px; padding-right: 12px; }
+  .pg-stage-area > .rekha-content { padding: 10px; }
+  .pg-rail                  { padding: 12px; }
 }
 
 /* ── Core-offline panel (FIX3 BUG 3) ─────────────────────

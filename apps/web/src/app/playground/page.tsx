@@ -5,7 +5,6 @@ import type { CategoryCode, DecisionTrace, RekhaEvent } from '../../types';
 import { CORE_URL, ensurePaired, renewLease, type Pairing } from '../../lib/pairing';
 import { POLICY_MODULE_ADDRESS, basescanAddress, basescanTx, isPlaceholderDigest, shortHex } from '../../lib/contracts';
 import { Amount, formatInrMinor } from '../../components/Amount';
-import { AgentStatus } from '../../components/AgentStatus';
 import { CoreOffline } from '../../components/CoreOffline';
 import { Counter } from '../../components/Counter';
 import { PredicateTable } from '../../components/PredicateTable';
@@ -38,6 +37,32 @@ type AttackLog = { id: number; technique: string; revertReason: string; status: 
 type CeremonyState = { decisionId: string; round: number; of: number; aborted: boolean; abortedAt: number | null };
 
 type PlanItem = { lineItemId: string; vendorId: string; categoryCode: CategoryCode; estimatedAmountMinor: number; description: string };
+
+/**
+ * Which of the three demonstrations owns the stage.
+ *
+ * M3 is deliberately not one of these. Breaking a signing ceremony requires a
+ * ceremony to be running, and the only thing that starts one is a dispatch from
+ * `shop` — so a tab that replaced the dispatch controls with the REVOKE button
+ * would make the moment unperformable. It lives in the rail instead, where it is
+ * on screen at the instant it has to be pressed.
+ */
+type Stage = 'shop' | 'm1' | 'm2';
+
+const STAGES: ReadonlyArray<{ id: Stage; tag: string; label: string }> = [
+  { id: 'shop', tag: '', label: 'Let it buy' },
+  { id: 'm1', tag: 'M1', label: 'Agent alone' },
+  { id: 'm2', tag: 'M2', label: 'Rogue Mode' },
+];
+
+/**
+ * The five behaviours a judge can put the agent into from `shop`.
+ *
+ * `compromised` is absent on purpose: it does not change what the agent buys, it
+ * replays the attack suite, which is M2. Leaving it in this row meant Dispatch
+ * did something entirely different depending on a selection made elsewhere.
+ */
+const SHOP_MODES: readonly BehaviourMode[] = ['normal', 'hallucinating', 'injected', 'overreach', 'colluding'];
 
 /** One line item's whole journey, as the agent runner reports it. */
 type LineItemResult = {
@@ -79,7 +104,7 @@ type RailBypass = {
 };
 
 /**
- * All six do something now (FINALE_PLAN.md Phase 6).
+ * All six do something now.
  *
  * Four of them used to set a label and nothing else, so the cards carried a
  * `not wired` tag rather than a promise the interface could not keep. That tag
@@ -126,6 +151,7 @@ const MODE_INFO: Record<BehaviourMode, { label: string; description: string; cat
 };
 
 export default function PlaygroundPage() {
+  const [stage, setStage] = useState<Stage>('shop');
   const [mode, setMode] = useState<BehaviourMode>('normal');
   const [taskInput, setTaskInput] = useState('');
   const [tasks, setTasks] = useState<TaskRow[]>([]);
@@ -147,14 +173,14 @@ export default function PlaygroundPage() {
   const [frozen, setFrozen] = useState(false);
 
   /**
-   * Tri-state, as the console does it (FIX3.md BUG 3). 'checking' is not 'down':
+   * Tri-state, as the console does it. 'checking' is not 'down':
    * a boolean flashes the offline panel on every load before the health probe
    * returns, and a warning that cries wolf gets ignored when it is real.
    */
   const [coreReach, setCoreReach] = useState<'checking' | 'up' | 'down'>('checking');
   const [coreReachReason, setCoreReachReason] = useState<string | null>(null);
 
-  // Judge controls (FIX3.md BUG 4): the target vendor, and the last real result
+  // Judge controls: the target vendor, and the last real result
   // of each control. Both controls need a vendor — vendorsim's endpoints take a
   // vendorId, which is why calling the core for them could never have worked.
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -180,6 +206,10 @@ export default function PlaygroundPage() {
   const pulseIdRef = useRef(0);
   const attackIdRef = useRef(0);
   const thoughtsRef = useRef<HTMLDivElement>(null);
+
+  /** The live stage, readable from the SSE handler without re-subscribing. */
+  const stageRef = useRef<Stage>(stage);
+  stageRef.current = stage;
 
   /** The line does not celebrate. Only 'flare' and 'snap' ever reach it. */
   const firePulse = useCallback((kind: 'flare' | 'snap') => {
@@ -321,7 +351,14 @@ export default function PlaygroundPage() {
         case 'decision.made':
           // The decision lands on the stream before the runner's reply does, so
           // the trace fills in while the settlement is still being mined.
-          setSelectedTrace(event.trace);
+          //
+          // Only while `shop` is on stage. The decision is a full-screen panel
+          // now, and the attack suite emits one decision per attempt — during M2
+          // that buried the scoreboard under a dialog that reopened faster than
+          // it could be dismissed. Read through a ref so the stage is not a
+          // dependency of this callback: adding it would tear down and re-open
+          // the EventSource on every tab change.
+          if (stageRef.current === 'shop') setSelectedTrace(event.trace);
           return;
 
         case 'attack.attempt': {
@@ -344,7 +381,7 @@ export default function PlaygroundPage() {
             // died at the typed-schema input boundary and only 3 reached the
             // predicates — one number hiding two very different defences.
             // Defence in depth, labelled. A judge who works this out for
-            // themselves is a judge we have lost (FINALE_PLAN Phase 5 item 1).
+            // themselves is a judge we have lost.
             input: prev.input + (entry.stage === 'input' ? 1 : 0),
             policy: prev.policy + (entry.stage === 'policy' ? 1 : 0),
             chain: prev.chain + (entry.stage === 'chain' ? 1 : 0),
@@ -386,6 +423,17 @@ export default function PlaygroundPage() {
     [firePulse],
   );
 
+  // Escape closes the decision. It covers the stage, and during a demo the
+  // presenter's hand is on the keyboard, not hunting for a close button.
+  useEffect(() => {
+    if (selectedTrace === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedTrace(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedTrace]);
+
   useEffect(() => {
     const evtSource = new EventSource(`${CORE_URL}/v1/events`);
     evtSource.onmessage = (e) => processEvent(JSON.parse(e.data) as RekhaEvent);
@@ -395,7 +443,7 @@ export default function PlaygroundPage() {
 
   // ── Rogue Mode ─────────────────────────────────────────────────────────
   /**
-   * FIX3.md BUG 5. `mode` used to be threaded all the way through and then
+   * `mode` used to be threaded all the way through and then
    * ignored — every behaviour ran the same honest path and no attack.attempt
    * event existed anywhere, so the scoreboard sat at 0 · 0 · 0 · ₹0 and read as
    * "nobody tried" rather than "nothing got through".
@@ -519,20 +567,28 @@ export default function PlaygroundPage() {
         setPairing((p) => (p ? { ...p, agentId: body.agentId } : p));
       }
 
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === body.taskId
-            ? {
-                ...t,
-                status: 'done' as const,
-                plan: body.plan,
-                results: body.results as LineItemResult[],
-                error: null,
-                note: (body.note as string | null) ?? null,
-              }
-            : t,
-        ),
-      );
+      // The row normally already exists, created by the `task.started` event.
+      // If that event was missed the dispatch still succeeded, so the results
+      // get a row of their own rather than being dropped.
+      //
+      // Missing it is not hypothetical: an EventSource reconnecting across a
+      // core restart loses whatever was emitted during the gap, and the failure
+      // branch above has always handled that case while this one did not.
+      // Observed in a browser — an APPROVED ₹282.00 payment settled at block
+      // 45078382 and the page showed nothing at all.
+      setTasks((prev) => {
+        const done = {
+          status: 'done' as const,
+          plan: body.plan,
+          results: body.results as LineItemResult[],
+          error: null,
+          note: (body.note as string | null) ?? null,
+        };
+        if (!prev.some((t) => t.id === body.taskId)) {
+          return [{ id: body.taskId, description, mode, ...done }, ...prev];
+        }
+        return prev.map((t) => (t.id === body.taskId ? { ...t, ...done } : t));
+      });
 
       const last = (body.results as LineItemResult[]).at(-1);
       if (last) setSelectedTrace(last.trace);
@@ -685,8 +741,7 @@ export default function PlaygroundPage() {
    * Only this path is fast enough to land inside a ~1200ms signing round, which
    * is the whole point of the moment.
    *
-   * It stops spending until it is explicitly cleared (FINALE_PLAN.md Phase 5
-   * item 3), and the note under the button says so before it is pressed rather
+   * It stops spending until it is explicitly cleared, and the note under the button says so before it is pressed rather
    * than after. The reset lives in `clearRevoke` below and only appears once
    * the revoke has actually fired — see the comment there for why it is not
    * offered up front.
@@ -837,28 +892,52 @@ export default function PlaygroundPage() {
     );
   }
 
+  const hasRun = tasks.length > 0;
+  /** The adversary run's own row, so M2 can show its failure without the task list. */
+  const rogueRow = tasks.find((t) => t.id.startsWith('rogue-')) ?? null;
+
   return (
     <div className="pg-layout">
+      {/* One row carries the identity, the navigation and the only global state
+          a judge has to notice. The agent id that used to sit here named a
+          process nobody in the room can act on. */}
       <header className="pg-topbar">
-        <div className="pg-topbar-left">
-          <a href="/console" className="pg-brand">← Console</a>
-          <span className="pg-page-title">Playground</span>
-          <AgentStatus pairing={pairing} error={pairError} leaseTtlMs={leaseTtl} />
-        </div>
+        <a href="/console" className="pg-brand" title="Owner console">←</a>
+        <span className="pg-wordmark">Lakshman Rekha</span>
+
+        <nav className="pg-stages" aria-label="Demonstration">
+          {STAGES.map((s) => (
+            <button
+              key={s.id}
+              className={`pg-stage-tab ${stage === s.id ? 'is-active' : ''}`}
+              onClick={() => setStage(s.id)}
+              aria-current={stage === s.id ? 'page' : undefined}
+            >
+              {/* M1 and M2 are FINALE.md's own names for these two moments, not
+                  ornamental numbering. `shop` carries no tag because it is the
+                  setup, not one of the three. */}
+              {s.tag && <span className="pg-stage-tag">{s.tag}</span>}
+              {s.label}
+            </button>
+          ))}
+        </nav>
+
         {frozen && <span className="pg-frozen">REVOKED · epoch {revocationEpoch ?? '?'}</span>}
       </header>
 
       {pairError && <div className="pg-banner">Agent not paired — {pairError}</div>}
 
       <div className="pg-body">
-        {/* ── LEFT: the task ───────────────────────────────────────────── */}
-        <section className="pg-col pg-col-task">
-          <div className="pg-section">
-            <h2 className="pg-h2">Task</h2>
-            <div className="pg-task-input-row">
+        {/* The line is drawn around the whole stage, not around one panel inside
+            it. Whatever the agent is doing, it is doing it in here. */}
+        <Rekha pulse={pulse} className="pg-stage-area">
+        {/* ══ SHOP ═══════════════════════════════════════════════════════ */}
+        {stage === 'shop' && (
+          <section className="pg-shop">
+            <div className="pg-command">
               <input
-                className="pg-input"
-                placeholder='e.g. "order 100 bottles"'
+                className="pg-input pg-task-input"
+                placeholder='Tell the agent what to buy — e.g. "order 100 bottles"'
                 value={taskInput}
                 onChange={(e) => setTaskInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -869,38 +948,95 @@ export default function PlaygroundPage() {
                 {dispatching ? 'Working…' : 'Dispatch'}
               </button>
             </div>
-          </div>
 
-          <div className="pg-section">
-            <h2 className="pg-h2">Mode</h2>
-            <div className="pg-modes">
-              {(Object.keys(MODE_INFO) as BehaviourMode[]).map((m) => (
+            {/* Five chips on one line, rather than six stacked cards. The
+                description belongs to whichever is selected, so only one is on
+                screen at a time. */}
+            <div className="pg-modebar">
+              {SHOP_MODES.map((m) => (
                 <button
                   key={m}
-                  className={`pg-mode ${mode === m ? 'is-active' : ''}`}
+                  className={`pg-modechip ${mode === m ? 'is-active' : ''}`}
                   onClick={() => setMode(m)}
                 >
-                  <span className="pg-mode-name">
-                    {MODE_INFO[m].label}
-                    {/* The predicate this mode is aiming at, named on the card
-                        before it runs. A judge can then check the decision
-                        panel against it instead of taking our word for the
-                        result afterwards. */}
-                    {MODE_INFO[m].catches && (
-                      <span className="pg-mode-tag">→ {MODE_INFO[m].catches}</span>
-                    )}
-                  </span>
-                  <span className="pg-mode-desc">{MODE_INFO[m].description}</span>
+                  {MODE_INFO[m].label}
                 </button>
               ))}
+              <span className="pg-mode-current">
+                {MODE_INFO[mode].description}
+                {MODE_INFO[mode].catches && (
+                  <span className="pg-mode-tag">→ {MODE_INFO[mode].catches}</span>
+                )}
+              </span>
             </div>
-          </div>
 
-          <div className="pg-tasks">
-            {tasks.length === 0 ? (
-              <p className="pg-empty">No tasks yet. Give the agent something to buy.</p>
-            ) : (
-              tasks.map((task) => (
+            {/* The storefront, at the size of the thing it represents. The agent
+                reads this page; a judge has to be able to read it too. */}
+            <div className="pg-web">
+              <div className="pg-web-chrome">
+                <span className="pg-web-label">the open web, as the agent finds it</span>
+                <select
+                  className="pg-select"
+                  value={targetVendorId}
+                  onChange={(e) => setTargetVendorId(e.target.value)}
+                  disabled={vendors.length === 0}
+                  aria-label="Storefront"
+                >
+                  {vendors.length === 0 ? (
+                    <option value="">vendor registry unreachable</option>
+                  ) : (
+                    vendors.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} · tier {v.tier}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <span className="pg-web-spacer" />
+                <button className="pg-btn-attack" onClick={() => void spawnCounterfeit()}>
+                  Spawn counterfeit
+                </button>
+                <input
+                  className="pg-input pg-inject-input"
+                  placeholder={targetVendorId ? 'Write something onto this page…' : 'No storefront selected'}
+                  value={injectText}
+                  onChange={(e) => setInjectText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void injectIntoVendor();
+                  }}
+                />
+                <button className="pg-btn-attack" onClick={() => void injectIntoVendor()}>
+                  Inject
+                </button>
+              </div>
+
+              {storefrontUrl ? (
+                <iframe
+                  key={`${targetVendorId}-${storefrontNonce}`}
+                  className="pg-web-frame"
+                  src={storefrontUrl}
+                  title={`${targetVendor?.name ?? targetVendorId} storefront`}
+                  sandbox="allow-same-origin"
+                />
+              ) : (
+                <div className="pg-store-missing">
+                  The vendor registry at <code>{VENDORSIM_URL}</code> could not be reached, so there is no
+                  storefront to show. Start it with <code>pnpm dev:vendorsim</code>.
+                </div>
+              )}
+
+              {counterfeitResult && (
+                <div className={counterfeitResult.ok ? 'pg-msg-ok' : 'pg-msg-err'}>{counterfeitResult.text}</div>
+              )}
+              {injectResult && <div className={injectResult.ok ? 'pg-msg-ok' : 'pg-msg-err'}>{injectResult.text}</div>}
+            </div>
+
+            {/* Nothing to report until something has been dispatched, and an
+                empty panel would cost the storefront a third of its height. */}
+            {hasRun && (
+              <div className="pg-drawer">
+                <div className="pg-drawer-col pg-tasks">
+                  {tasks.map((task) => (
                 <div key={task.id} className={`pg-task pg-task-${task.status}`}>
                   <div className="pg-task-head">
                     <span className="pg-task-desc">{task.description}</span>
@@ -1002,109 +1138,170 @@ export default function PlaygroundPage() {
                     );
                   })}
                 </div>
-              ))
-            )}
-          </div>
-
-          {selectedTrace && (
-            <div className="pg-decision">
-              <div className="pg-decision-head">
-                <h2 className="pg-h2">Decision</h2>
-                <button className="pg-btn-ghost" onClick={() => setSelectedTrace(null)}>
-                  close
-                </button>
-              </div>
-              <PredicateTable trace={selectedTrace} />
-            </div>
-          )}
-        </section>
-
-        {/* ── CENTRE: inside the line ──────────────────────────────────── */}
-        <section className="pg-col pg-col-agent">
-          <Rekha pulse={pulse} className="pg-rekha">
-            <div className="pg-agent-inner">
-              <div className="pg-store">
-                <div className="pg-store-bar">
-                  <span className="pg-store-label">the open web, as the agent finds it</span>
-                  <select
-                    className="pg-select"
-                    value={targetVendorId}
-                    onChange={(e) => setTargetVendorId(e.target.value)}
-                    disabled={vendors.length === 0}
-                    aria-label="Storefront"
-                  >
-                    {vendors.length === 0 ? (
-                      <option value="">vendor registry unreachable</option>
-                    ) : (
-                      vendors.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.name} · tier {v.tier}
-                        </option>
-                      ))
-                    )}
-                  </select>
+                  ))}
                 </div>
 
-                {storefrontUrl ? (
-                  <iframe
-                    key={`${targetVendorId}-${storefrontNonce}`}
-                    className="pg-store-frame"
-                    src={storefrontUrl}
-                    title={`${targetVendor?.name ?? targetVendorId} storefront`}
-                    sandbox="allow-same-origin"
-                  />
+                <div className="pg-drawer-col pg-thoughts" ref={thoughtsRef}>
+                  <div className="pg-thoughts-label">agent reasoning</div>
+                  {agentThoughts.length === 0 ? (
+                    <div className="pg-empty">Idle.</div>
+                  ) : (
+                    agentThoughts.map((t, i) => (
+                      <div key={i} className="pg-thought">
+                        › {t}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ══ M1 ═════════════════════════════════════════════════════════ */}
+        {stage === 'm1' && (
+          <section className="pg-moment">
+            <h2 className="pg-moment-title">The agent already has everything it needs</h2>
+            <p className="pg-moment-lede">
+              It holds key share A. It has full network access. It does not need this service to reach
+              Base Sepolia, and it is about to try calling <code>RekhaAccount.execute</code> itself.
+            </p>
+
+            <button className="pg-btn-attack-wide" onClick={() => void runRailBypass()} disabled={railBypassRunning}>
+              {railBypassRunning ? 'Asking the chain…' : 'Pay itself, without the core'}
+            </button>
+
+            {railBypassError && <div className="pg-msg-err">{railBypassError}</div>}
+
+            {railBypass && (
+              <div className={`pg-m1-result ${railBypass.outcome === 'reverted' ? 'is-blocked' : 'is-critical'}`}>
+                {railBypass.outcome === 'reverted' ? (
+                  <>
+                    {/* The contract's own revert string, at the size of the
+                        claim it settles. Nothing on this page decides it. */}
+                    <div className="pg-verdict-revert">{railBypass.revert}</div>
+                    <p className="pg-verdict-line">It isn&apos;t blocked. It&apos;s incapable.</p>
+                  </>
                 ) : (
-                  <div className="pg-store-missing">
-                    The vendor registry at <code>{VENDORSIM_URL}</code> could not be reached, so there is no
-                    storefront to show. Start it with <code>pnpm dev:vendorsim</code>.
+                  <div className="pg-verdict-revert is-critical">
+                    The chain ACCEPTED a payment signed by one key share. The 2-of-2 claim is false.
                   </div>
                 )}
 
-                {/* On the page itself, not in a drawer. A judge should find
-                    these without being told they exist. */}
-                <div className="pg-judge">
-                  <button className="pg-btn-attack" onClick={() => void spawnCounterfeit()}>
-                    Spawn counterfeit
-                  </button>
-                  <input
-                    className="pg-input pg-inject-input"
-                    placeholder={targetVendorId ? `Inject text into ${targetVendorId}…` : 'No storefront selected'}
-                    value={injectText}
-                    onChange={(e) => setInjectText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void injectIntoVendor();
-                    }}
-                  />
-                  <button className="pg-btn-attack" onClick={() => void injectIntoVendor()}>
-                    Inject
-                  </button>
-                </div>
-                {counterfeitResult && (
-                  <div className={counterfeitResult.ok ? 'pg-msg-ok' : 'pg-msg-err'}>{counterfeitResult.text}</div>
-                )}
-                {injectResult && <div className={injectResult.ok ? 'pg-msg-ok' : 'pg-msg-err'}>{injectResult.text}</div>}
+                <dl className="pg-facts">
+                  <div><dt>agent</dt><dd className="pg-mono" title={railBypass.agentAddress}>{shortHex(railBypass.agentAddress, 10, 6)}</dd></div>
+                  <div><dt>tried to take</dt><dd className="pg-mono">{formatInrMinor(railBypass.amountMinor, true)}</dd></div>
+                  {railBypass.predicate && (
+                    <div><dt>bound on</dt><dd className="pg-mono">{railBypass.predicate}</dd></div>
+                  )}
+                  <div><dt>called</dt><dd className="pg-mono">{railBypass.method}</dd></div>
+                </dl>
+
+                <a href={railBypass.accountUrl} target="_blank" rel="noopener noreferrer" className="pg-link">
+                  RekhaAccount {shortHex(railBypass.rekhaAccount, 8, 4)} on Basescan ↗
+                </a>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ══ M2 ═════════════════════════════════════════════════════════ */}
+        {stage === 'm2' && (
+          <section className="pg-moment pg-m2">
+            <div className="pg-m2-head">
+              <div>
+                <h2 className="pg-moment-title">Let it attack us</h2>
+                <p className="pg-moment-lede">
+                  The deterministic attack suite, run against this core, live. Each attempt is
+                  labelled with the layer that stopped it.
+                </p>
+              </div>
+              <button
+                className="pg-btn-attack-wide pg-m2-run"
+                onClick={() => {
+                  setMode('compromised');
+                  void runAdversary('Rogue Mode — deterministic attack suite');
+                }}
+              >
+                Run the attack suite
+              </button>
+            </div>
+
+            {rogueRow?.error && <div className="pg-msg-err">{rogueRow.error}</div>}
+
+            <div className="pg-scores">
+              <div className="pg-score">
+                <Counter value={rogueStats.attempts} className="pg-score-value" />
+                <span className="pg-score-label">attempts</span>
+              </div>
+              {/* One "blocked: 147" hid that 144 died at the typed-schema
+                  boundary and 3 reached a predicate. Split, it reads as defence
+                  in depth; conflated, as something we hoped nobody would check. */}
+              <div className="pg-score">
+                <Counter value={rogueStats.input} className="pg-score-value" />
+                <span className="pg-score-label">input boundary</span>
+              </div>
+              <div className="pg-score">
+                <Counter value={rogueStats.policy} className="pg-score-value" />
+                <span className="pg-score-label">policy predicates</span>
+              </div>
+              <div className="pg-score">
+                <Counter value={rogueStats.chain} className="pg-score-value" />
+                <span className="pg-score-label">on chain</span>
               </div>
 
-              <div className="pg-thoughts" ref={thoughtsRef}>
-                <div className="pg-thoughts-label">agent reasoning</div>
-                {agentThoughts.length === 0 ? (
-                  <div className="pg-empty">Idle.</div>
-                ) : (
-                  agentThoughts.map((t, i) => (
-                    <div key={i} className="pg-thought">
-                      › {t}
-                    </div>
-                  ))
-                )}
+              {rogueStats.approved > 0 && (
+                <div className="pg-score pg-score-approved">
+                  <Counter value={rogueStats.approved} className="pg-score-value" />
+                  <span className="pg-score-label">core-approved, unsettled</span>
+                </div>
+              )}
+              {/* An attack we could not run is not a defence, so this appears
+                  only when the run is incomplete. */}
+              {rogueStats.errored > 0 && (
+                <div className="pg-score pg-score-errored">
+                  <Counter value={rogueStats.errored} className="pg-score-value" />
+                  <span className="pg-score-label">not tested</span>
+                </div>
+              )}
+
+              {/* The largest figure on the page, and the only --clear on it. It
+                  measures SETTLEMENT — money that left the account — which is
+                  the only thing "lost" can honestly mean. */}
+              <div className="pg-score pg-score-lost">
+                <span className="pg-score-lost-value">{formatInrMinor(0, true)}</span>
+                <span className="pg-score-label">lost · nothing settled</span>
               </div>
             </div>
-          </Rekha>
-        </section>
 
-        {/* ── RIGHT: enforcement ───────────────────────────────────────── */}
-        <section className="pg-col pg-col-enforce">
-          <h2 className="pg-h2">Enforcement</h2>
+            <div className="pg-attacks">
+              {attackLog.length === 0 ? (
+                <div className="pg-empty">Nothing has attacked this core yet.</div>
+              ) : (
+                attackLog.map((a) => (
+                  <div
+                    key={a.id}
+                    className={`pg-attack ${a.status === 'through' ? 'is-approved' : ''} ${a.status === 'errored' ? 'is-errored' : ''}`}
+                  >
+                    <span className="pg-attack-tech">{a.technique}</span>
+                    {a.novel && <span className="pg-attack-novel">novel</span>}
+                    {a.stage && <span className="pg-attack-stage">{a.stage}</span>}
+                    <span className="pg-attack-verdict">
+                      {a.status === 'blocked' ? 'blocked' : a.status === 'errored' ? 'not tested' : 'approved'}
+                    </span>
+                    <span className="pg-attack-reason">{a.revertReason}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        )}
+        </Rekha>
 
+        {/* The rail does not change between stages. That is the argument: the
+            same lease, the same core, the same contract are doing the work in
+            all three, and a judge can watch them while the stage changes. */}
+        <aside className="pg-rail">
           <div className="pg-lease">
             <TTLRing ttlMs={leaseTtl} maxMs={leaseTtlMax} size={64} />
             <div className="pg-lease-text">
@@ -1172,57 +1369,10 @@ export default function PlaygroundPage() {
             )}
           </div>
 
-          {/* ── M1 ── */}
-          <div className="pg-m1">
-            <h3 className="pg-h3">Agent alone</h3>
-            <p className="pg-m1-lede">
-              The agent holds key share A and full network access. It does not need us to reach Base Sepolia.
-            </p>
-            <button className="pg-btn-attack-wide" onClick={() => void runRailBypass()} disabled={railBypassRunning}>
-              {railBypassRunning ? 'Asking the chain…' : 'Pay itself, without the core'}
-            </button>
-
-            {railBypassError && <div className="pg-msg-err">{railBypassError}</div>}
-
-            {railBypass && (
-              <div className={`pg-m1-result ${railBypass.outcome === 'reverted' ? 'is-blocked' : 'is-critical'}`}>
-                <div className="pg-m1-row">
-                  <span>agent</span>
-                  <span className="pg-mono" title={railBypass.agentAddress}>{shortHex(railBypass.agentAddress, 8, 4)}</span>
-                </div>
-                <div className="pg-m1-row">
-                  <span>tried to take</span>
-                  <span className="pg-mono">{formatInrMinor(railBypass.amountMinor, true)}</span>
-                </div>
-                {railBypass.outcome === 'reverted' ? (
-                  <>
-                    <div className="pg-m1-revert">{railBypass.revert}</div>
-                    {railBypass.predicate && (
-                      <div className="pg-m1-row">
-                        <span>bound on</span>
-                        <span className="pg-mono">{railBypass.predicate}</span>
-                      </div>
-                    )}
-                    <p className="pg-m1-line">It isn&apos;t blocked. It&apos;s incapable.</p>
-                  </>
-                ) : (
-                  <div className="pg-m1-revert">
-                    The chain ACCEPTED a payment signed by one key share. The 2-of-2 claim is false.
-                  </div>
-                )}
-                <div className="pg-m1-foot">
-                  <a href={railBypass.accountUrl} target="_blank" rel="noopener noreferrer" className="pg-link">
-                    RekhaAccount {shortHex(railBypass.rekhaAccount, 8, 4)} ↗
-                  </a>
-                  <span className="pg-m1-method">{railBypass.method}</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* ── M3: one gesture ── */}
+          {/* ── M3 ── the one gesture, on screen in every stage because the
+              only thing that starts a ceremony is a dispatch from `shop`. */}
           <div className="pg-ceremony-block">
-            <h3 className="pg-h3">Signing ceremony</h3>
+            <h3 className="pg-h3"><span className="pg-moment-tag">M3</span> Signing ceremony</h3>
             <div className="pg-ceremony-row">
               <div className={`pg-ceremony ${ceremony?.aborted ? 'is-aborted' : ''}`}>
                 {ceremony ? (
@@ -1270,94 +1420,36 @@ export default function PlaygroundPage() {
               </button>
             )}
           </div>
-        </section>
+        </aside>
       </div>
 
-      {/* ── BOTTOM: M2 ─────────────────────────────────────────────────── */}
-      <footer className="pg-rogue">
-        <div className="pg-rogue-scores">
-          <span className="pg-rogue-title">Rogue Mode</span>
-
-          <div className="pg-score">
-            <Counter value={rogueStats.attempts} className="pg-score-value" />
-            <span className="pg-score-label">attempts</span>
-          </div>
-
-          {/* Three layers, counted separately.
-              A single "blocked: 147" hid the fact that 144 of them died at the
-              typed-schema boundary and only 3 ever reached a policy predicate.
-              Split, it reads as defence in depth; conflated, it reads as
-              something we were hoping nobody would check. */}
-          <div className="pg-score">
-            <Counter value={rogueStats.input} className="pg-score-value" />
-            <span className="pg-score-label">input boundary</span>
-          </div>
-          <div className="pg-score">
-            <Counter value={rogueStats.policy} className="pg-score-value" />
-            <span className="pg-score-label">policy predicates</span>
-          </div>
-          <div className="pg-score">
-            <Counter value={rogueStats.chain} className="pg-score-value" />
-            <span className="pg-score-label">on chain</span>
-          </div>
-
-          {/* The core issued a decision and a co-signature for these. It is not
-              the same as money moving — nothing in a Rogue Mode run settles, and
-              PolicyModule enforces the window cap on chain against its own
-              spend counter. Shown because a signature the policy should not
-              have granted is a finding even when no rupee leaves the account. */}
-          {rogueStats.approved > 0 && (
-            <div className="pg-score pg-score-approved">
-              <Counter value={rogueStats.approved} className="pg-score-value" />
-              <span className="pg-score-label">core-approved, unsettled</span>
+      {/* The decision takes the screen rather than a corner of it. A refusal
+          nobody can read is indistinguishable from a crash, and the predicate
+          that bound is the whole product. */}
+      {selectedTrace && (
+        <div
+          className="pg-decision-scrim"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Decision"
+          onClick={() => setSelectedTrace(null)}
+        >
+          <div className="pg-decision" onClick={(e) => e.stopPropagation()}>
+            <div className="pg-decision-head">
+              <h2 className="pg-h2">
+                Decision
+                {selectedTrace.bindingPredicate && (
+                  <span className="pg-decision-bound">bound on {selectedTrace.bindingPredicate}</span>
+                )}
+              </h2>
+              <button className="pg-btn-ghost" onClick={() => setSelectedTrace(null)}>
+                close
+              </button>
             </div>
-          )}
-
-          {/* Only rendered when non-zero — an attack we could not run is not a
-              defence, and the run is incomplete until this is empty. */}
-          {rogueStats.errored > 0 && (
-            <div className="pg-score pg-score-errored">
-              <Counter value={rogueStats.errored} className="pg-score-value" />
-              <span className="pg-score-label">not tested</span>
-            </div>
-          )}
-
-          {/* The largest number on the page, and the only --clear on it.
-              It measures SETTLEMENT — money that actually left the account —
-              which is the only thing "lost" can honestly mean. A Rogue Mode run
-              settles nothing, so this is a real ₹0 and not a hopeful one. The
-              core-approved tile beside it carries the weaker, separate fact. */}
-          <div className="pg-score pg-score-lost">
-            <span className="pg-score-lost-value">{formatInrMinor(0, true)}</span>
-            <span className="pg-score-label">lost · nothing settled</span>
+            <PredicateTable trace={selectedTrace} />
           </div>
         </div>
-
-        <div className="pg-attacks">
-          {attackLog.length === 0 ? (
-            <div className="pg-empty">
-              Nothing has attacked this core yet. Pick Compromised and dispatch.
-            </div>
-          ) : (
-            attackLog.map((a) => (
-              <div
-                key={a.id}
-                className={`pg-attack ${a.status === 'through' ? 'is-approved' : ''} ${a.status === 'errored' ? 'is-errored' : ''}`}
-              >
-                <span className="pg-attack-tech">{a.technique}</span>
-                {a.novel && <span className="pg-attack-novel">novel</span>}
-                {/* The stage is on the row, not just in the totals, so a judge
-                    reading the log can see which layer caught each one. */}
-                {a.stage && <span className="pg-attack-stage">{a.stage}</span>}
-                <span className="pg-attack-verdict">
-                  {a.status === 'blocked' ? 'blocked' : a.status === 'errored' ? 'not tested' : 'approved'}
-                </span>
-                <span className="pg-attack-reason">{a.revertReason}</span>
-              </div>
-            ))
-          )}
-        </div>
-      </footer>
+      )}
     </div>
   );
 }
