@@ -6,7 +6,7 @@
 > file that implements it, or says plainly that it is not implemented. Four
 > claims in the previous version described software that does not exist in this
 > repository — they are marked **NOT IMPLEMENTED** rather than deleted, so the
-> diff shows what was withdrawn and why. See `HONESTY_PLAN.md` for the same
+> diff shows what was withdrawn and why. See `docs/journal/HONESTY_PLAN.md` for the same
 > exercise applied to `BUILD.md`.
 
 ---

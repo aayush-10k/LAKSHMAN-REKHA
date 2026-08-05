@@ -212,7 +212,7 @@ export type ApiError = {
 // ---------------------------------------------------------------------------
 //
 // A's evaluator was written against its own `FactSheet` / `MandateState`, which
-// are NOT the ones above. Reconciling them (FIX.md TASK 1) resolved as follows,
+// are NOT the ones above. Reconciling them resolved as follows,
 // with docs/API.md authoritative wherever the two genuinely disagreed:
 //
 //  - `FactSheet` and `MandateState` keep the API.md shapes exactly. They are the

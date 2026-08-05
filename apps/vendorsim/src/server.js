@@ -8,8 +8,8 @@ let counterfeitCount = 0;
  * CORS. The playground's judge controls (spawn-counterfeit, inject) and its
  * vendor selector are called from the browser on :3000, so without these headers
  * every one of them fails with "blocked by CORS policy" no matter how correctly
- * it is wired — which is exactly what happened once FIX3.md BUG 4 pointed them
- * at this service. Same failure the SSE stream had (FIXLOG2).
+ * it is wired — which is exactly what happened once pointed them
+ * at this service. Same failure the SSE stream had.
  *
  * `*` is right here: this is a simulator serving a public fake catalogue, it
  * holds no credentials and authenticates nobody.

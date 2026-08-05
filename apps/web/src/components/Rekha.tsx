@@ -5,37 +5,30 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 /**
  * The Rekha — the line.
  *
- * A single 1px chalk boundary drawn around the agent's activity zone. It is the
- * containment claim made literal: the agent works inside the line, and the line
- * is what the enforcement layer does. It is the one animated idea in the product
- * and it carries the product's name, so it is deliberately quiet — present at
- * 40% opacity and doing nothing at all most of the time.
+ * A single 1px chalk boundary around the agent's activity zone: the containment
+ * claim made literal. The one animated idea in the product, and deliberately
+ * quiet — 40% opacity, doing nothing most of the time.
  *
- * ── What it reacts to, and what it pointedly does not ─────────────────────
- *   attack blocked     -> flare: a --breach pulse runs a short way along the
- *                         path and settles back to chalk over 600ms
- *   ceremony aborted   -> snap:  the line breaks at the top edge, the ends
- *                         recoil, it holds broken for 2s, then heals
- *   payment settled    -> NOTHING. The line does not celebrate. A boundary that
- *                         congratulates you every time money moves is decoration;
- *                         one that only reacts to being tested is a claim.
+ *   attack blocked     flare: a --breach pulse runs along the path and settles
+ *                      back to chalk over 600ms
+ *   ceremony aborted   snap: the line breaks at the top edge, the ends recoil,
+ *                      it holds broken for 2s, then heals
+ *   payment settled    nothing. A boundary that congratulates you every time
+ *                      money moves is decoration; one that only reacts to being
+ *                      tested is a claim.
  *
- * ── Why this measures the container instead of using a normalised viewBox ──
- * The obvious implementation — viewBox="0 0 100 100" with
- * preserveAspectRatio="none" and vector-effect="non-scaling-stroke" — renders
- * BROKEN. Stretching a square viewBox to a wide panel is a large non-uniform
- * scale, and stroke-dasharray is not resolved in the same space as the
- * non-scaling stroke, so the closed rectangle came out as three disconnected
- * fragments. Verified in Chrome on the kitchen-sink route before this rewrite.
- *
- * So the path is built in real pixels from a measured box: scale is 1:1, there
- * is no distortion, and dash maths behaves. `pathLength={1000}` still normalises
+ * The path is built in real pixels from a measured box rather than a normalised
+ * viewBox. viewBox="0 0 100 100" with preserveAspectRatio="none" and
+ * vector-effect="non-scaling-stroke" renders broken: stretching a square viewBox
+ * to a wide panel is a large non-uniform scale, and stroke-dasharray is not
+ * resolved in the same space as the non-scaling stroke, so the closed rectangle
+ * came out as three disconnected fragments. pathLength={1000} still normalises
  * every dash figure in globals.css to thousandths of the perimeter, so the CSS
- * remains independent of the panel's size.
+ * stays independent of the panel's size.
  *
- * The path starts at top-centre rather than at a corner, so a gap at the START
- * of the dash pattern is a break at the top edge — where the spec asks the snap
- * to appear, and where the eye already is during a ceremony.
+ * The path starts at top-centre, not a corner, so a gap at the start of the dash
+ * pattern breaks the line at the top edge — where the eye already is during a
+ * ceremony.
  */
 
 export type RekhaPulse = {

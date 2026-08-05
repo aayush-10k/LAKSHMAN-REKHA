@@ -1,13 +1,13 @@
 # FINALE.md — Frontend Rebuild for the 8 Aug Grand Finale
 
-**Read `BUILD.md` Part 11, `docs/API.md`, and `FIXLOG3.md` before starting.**
+**Read `BUILD.md` Part 11, `docs/API.md`, and `docs/journal/FIXLOG3.md` before starting.**
 
 > **Status note added 2026-08-04.** This is the original brief. It is still the
 > authority on *design* — Parts 1, 2, 5 and 6 are adopted verbatim. Its Part 3
-> *priority order* has been superseded by `FINALE_PLAN.md`, which moves hosting
+> *priority order* has been superseded by `docs/journal/FINALE_PLAN.md`, which moves hosting
 > from P3 to first (the demo must run from one deployed URL with nothing local)
 > and drops the `permittedCategories` concern (measured on chain: it is 223, not
-> 128 — `PACKAGING` settles fine). Where the two disagree, `FINALE_PLAN.md` wins.
+> 128 — `PACKAGING` settles fine). Where the two disagree, `docs/journal/FINALE_PLAN.md` wins.
 
 ---
 
@@ -214,7 +214,7 @@ mockup wastes two-thirds of the screen.
 
 ## PART 3 — PRIORITY ORDER
 
-> **Superseded by `FINALE_PLAN.md`.** Hosting was P3 here; it is now first,
+> **Superseded by `docs/journal/FINALE_PLAN.md`.** Hosting was P3 here; it is now first,
 > because the demo must run from one deployed URL with nothing local. The
 > `library.py` and 147-breakdown items below are unchanged and still required.
 

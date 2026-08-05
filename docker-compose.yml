@@ -153,7 +153,7 @@ services:
       # the reasoning in .env.example.
       - LEASE_TTL_MS=${LEASE_TTL_MS:-15000}
       - CEREMONY_ROUND_MS=${CEREMONY_ROUND_MS:-1200}
-      # Rogue Mode proxies to the adversary (FIX3.md BUG 5), which now runs
+      # Rogue Mode proxies to the adversary, which now runs
       # inside this container on loopback rather than as its own service.
       - ADVERSARY_URL=http://127.0.0.1:4300
       # The core reads the vendor registry too — this is not only the agent's

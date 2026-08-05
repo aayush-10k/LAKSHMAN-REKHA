@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HONESTY_PLAN 3.2 — "guardian can revoke but cannot spend".
+"""Can the guardian revoke but not spend?
 
 The claim has two halves and only one of them was ever demonstrated.
 

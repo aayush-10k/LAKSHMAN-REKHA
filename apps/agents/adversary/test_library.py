@@ -2,7 +2,7 @@
 B7 — Adversary library tests
 
 These used to assert "all 12 attack classes are blocked". They no longer do,
-because that is the claim HONESTY_PLAN.md withdrew: the old suite counted its
+because that claim has been withdrawn: the old suite counted its
 own crashes and its own unreachable services as defences, and two of the twelve
 classes returned a hardcoded revert string without ever touching the chain.
 
@@ -103,7 +103,7 @@ class AllAttackClassesBlocked(unittest.TestCase):
         The invariant the whole scoreboard rests on: `blocked` means something
         stopped the payment, never that our own harness fell over.
 
-        FIXLOG3.md:317. `blocked` used to be the only state, so an attack class
+        `blocked` used to be the only state, so an attack class
         that threw and a response shape the classifier did not recognise both
         landed on the board as successful defences. A number that goes up when
         our test rig breaks is worthless.

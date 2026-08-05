@@ -173,7 +173,7 @@ export function revokeMandate(mandateId: string): void {
 /**
  * Clear an OFF-CHAIN revoke. Rehearsal control, not a product feature.
  *
- * FINALE_PLAN.md Phase 5 item 3: the core's revoke needed a process restart to
+ * the core's revoke needed a process restart to
  * undo, so a judge who pressed "Revoke" mid-demo bricked the rest of it. The
  * button is now labelled one-way, and this is the other half — a way to reset
  * between rehearsals without `pkill`.
@@ -232,31 +232,27 @@ export function heartbeat(mandateId: string): void {
 // Nonce reservation — the core's half of predicate 6
 // ──────────────────────────────────────────────
 //
-// LIMITATIONS.md has disclosed that "the core is not concurrency-safe on
-// nonces": 50 parallel requests carrying the same nonce all read
-// `usedNonces(nonce) == false` off the chain, all evaluate independently, and
-// most get APPROVED and co-signed. `PolicyModule` enforces the nonce on chain
-// so **exactly one could ever settle** — which is what INV5 guarantees — but
-// INV5 is a property of SETTLEMENT, and the core handing out N signatures for
-// one nonce is a different and uglier fact.
+// 50 parallel requests carrying one nonce all read `usedNonces(nonce) == false`
+// off the chain, all evaluate independently, and most get APPROVED and
+// co-signed. PolicyModule enforces the nonce on chain so exactly one can ever
+// settle (INV5), but INV5 is a property of settlement; the core handing out N
+// signatures for one nonce is a separate fact.
 //
-// The race is entirely between the `await` on the chain read and the `await` on
-// coreSign. Node runs one turn at a time, so a check-and-claim with **no await
-// between the check and the set** cannot interleave. That is the whole fix:
-// this Map is consulted and written synchronously, in the same tick.
+// The race is between the await on the chain read and the await on coreSign.
+// Node runs one turn at a time, so a check-and-claim with no await between the
+// check and the set cannot interleave. This Map is read and written
+// synchronously, in the same tick.
 //
-// It does NOT replace the chain read — an unreachable RPC still fails closed to
-// "used", and a nonce burned by some other process is still caught there. This
-// only closes the window this process opens against itself.
+// It does not replace the chain read: an unreachable RPC still fails closed to
+// "used", and a nonce burned by another process is still caught there.
 //
-// ── Claims expire with the lease, and the first version got this wrong ─────
-// The first cut held claims for the whole process lifetime. That is unbounded
-// growth, and worse: a claim whose lease has lapsed can never settle, so the
+// Claims expire with the lease. Holding them for the process lifetime is
+// unbounded growth, and a claim whose lease has lapsed can never settle — the
 // nonce is free on chain while this process still refuses it. Caught by
-// scripts/verify-window-race.py, where eight requests came back REFUSED on
-// `nonce` instead of `windowCap` — the adversary's nonce counter resets when it
-// restarts, and the core was still holding claims from the previous run. Those
-// refusals looked like enforcement and were an artifact.
+// scripts/verify-window-race.py: eight requests came back REFUSED on `nonce`
+// rather than `windowCap`, because the adversary's nonce counter resets when it
+// restarts and stale claims were still held. Those refusals looked like
+// enforcement and were an artifact.
 const reservedNonces = new Map<string, Map<number, number>>(); // mandate → nonce → expiresAtMs
 
 /**
@@ -409,9 +405,10 @@ export interface LeaseRecord {
 const leases = new Map<string, LeaseRecord>();
 
 /**
- * Why a lease could not be issued. The route turns this into the 503/409 body so
- * the failure is never invisible again (FIX2.md BUG 1: a bare "Could not issue
- * lease" cost an afternoon of guessing that the core simply had no key).
+/**
+ * Why a lease could not be issued. The route turns this into the 503/409 body,
+ * so a caller is told which of the six it was rather than "could not issue
+ * lease" — the six have completely different fixes.
  */
 export type LeaseFailureCode =
   | 'AGENT_NOT_FOUND'
@@ -422,7 +419,7 @@ export type LeaseFailureCode =
   | 'CORE_KILLED';
 
 // ──────────────────────────────────────────────
-// Kill switch (FIX3.md BUG 4)
+// Kill switch
 // ──────────────────────────────────────────────
 
 /**
@@ -600,7 +597,7 @@ export function getMandateIdForDecision(decisionId: string): string | undefined 
  * request reassembled at settle time from a lease that has since ticked over
  * produces a different digest and reverts with InvalidCoreSignature. Storing it
  * also means there is exactly one construction path, which is the point of
- * FIX.md TASK 2.
+ *
  */
 export type SettlementContext = {
   request: PaymentRequestStruct;

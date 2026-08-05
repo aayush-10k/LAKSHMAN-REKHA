@@ -1,7 +1,7 @@
 /**
  * The only place in the core that broadcasts a transaction.
  *
- * FIX.md TASK 2: an approved payment must become a real, explorer-verifiable
+ * an approved payment must become a real, explorer-verifiable
  * transaction on Base Sepolia. Everything here therefore fails closed — there is
  * no code path that returns a transaction hash which did not come back from a
  * mined receipt. A missing key, an unreachable RPC or a revert all end in a
@@ -111,7 +111,7 @@ function envAddress(name: string, fallback: Address | null): Address | null {
 }
 
 /**
- * The two things settlement cannot proceed without. FIX.md: if either is
+ * The two things settlement cannot proceed without.: if either is
  * missing the route returns 503 CORE_UNAVAILABLE — never a fake hash.
  *
  * The core signer also pays the gas. `execute` is authorized by the two
@@ -382,7 +382,7 @@ export async function readDeployedPolicy(): Promise<DeployedPolicySnapshot | nul
 }
 
 // ---------------------------------------------------------------------------
-//  INRx balance (FIX.md TASK 2: the account must actually hold tokens)
+//  INRx balance
 // ---------------------------------------------------------------------------
 
 /** The account whose INRx balance is the wallet balance the console shows. */

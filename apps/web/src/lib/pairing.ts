@@ -3,16 +3,12 @@
 /**
  * Browser-side pairing against the core.
  *
- * FIX2.md BUG 2: /console used to POST /v1/agent/pair with a literal '------'
- * and swallow the 404 (`// will fail, we need init endpoint`). Nothing in the UI
- * was ever paired, so every downstream call that needs an agentId was dead.
- *
  * The core mints a new pairing code on every boot and keeps pairing state in
- * memory, so ANY code the frontend remembers — hardcoded or cached — is wrong
- * after a restart. The only thing safe to cache is the agentId, and even that
- * has to be re-checked, which is what GET /v1/agent/:agentId is for. A 404 there
- * means "core restarted", and the correct response is to pair again, not to show
- * a connected-looking UI that cannot spend.
+ * memory, so any code the frontend remembers is wrong after a restart. Only the
+ * agentId is safe to cache, and it still has to be re-checked — that is what
+ * GET /v1/agent/:agentId is for. A 404 there means the core restarted, and the
+ * response is to pair again rather than show a connected-looking UI that cannot
+ * spend.
  */
 
 export const CORE_URL = process.env['NEXT_PUBLIC_CORE_URL'] ?? 'http://localhost:4000';
@@ -125,7 +121,7 @@ export async function renewLease(
 
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    // The 503 body now names the underlying reason (FIX2.md BUG 1) — surface it.
+    // The 503 body now names the underlying reason — surface it.
     throw new Error(body?.error?.message ?? `lease renew failed (HTTP ${res.status})`);
   }
 

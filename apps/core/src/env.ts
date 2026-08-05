@@ -1,7 +1,7 @@
 /**
  * Loads .env into process.env at core startup.
  *
- * FIX2.md BUG 1: nothing in this process ever read .env, so a plain
+ * nothing in this process ever read .env, so a plain
  * `pnpm dev:core` started with no CORE_SIGNER_PRIVATE_KEY. hasCoreKey() was then
  * false, store.issueLease() returned null for that reason, and POST
  * /v1/lease/renew answered a bare 503 CORE_UNAVAILABLE that named none of it.

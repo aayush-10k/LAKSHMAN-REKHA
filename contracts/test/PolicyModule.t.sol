@@ -324,12 +324,12 @@ contract PolicyModuleTest is Test {
     //          The guardian: can revoke, cannot do anything else          //
     // ------------------------------------------------------------------- //
     //
-    // HONESTY_PLAN.md 3.2. BUILD.md:787 claims "guardian can revoke but cannot
+    // md 3.2. BUILD.md:787 claims "guardian can revoke but cannot
     // spend" and only the CAN half was ever exercised (test_p4 pranks the
     // guardian through revoke()). The negative half was true by construction —
     // every other state-changing function is onlyOwner — but true by
     // construction is not the same as tested, and an untested half-claim on a
-    // slide is exactly what HONESTY_PLAN exists to catch.
+    // slide is exactly what exists to catch.
     //
     // These are cheap, and they are the difference between "we reasoned about
     // it" and "we checked".

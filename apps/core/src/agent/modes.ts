@@ -1,31 +1,23 @@
 /**
- * The six behaviour modes — Phase 6 of FINALE_PLAN.md.
+ * The six behaviour modes.
  *
- * Four of the six (`hallucinating`, `injected`, `overreach`, `colluding`) used
- * to change a label on a card and nothing else. A judge who picked
- * "Hallucinating", watched an ordinary purchase settle, and read the card's
- * promise of "invented vendors and wrong quantities" had caught us. The cards
- * were relabelled `not wired` as a stopgap; this file is the actual fix.
- *
- * ── The rule this file obeys ──────────────────────────────────────────────
- * **A mode may only change what the agent already controls.** The same agent
- * binary runs in all six; nothing here is a special path through the core, the
- * evaluator or the chain, and none of these functions can approve anything.
- * Concretely, the agent controls exactly three things:
+ * A mode may only change what the agent already controls. The same agent binary
+ * runs in all six; nothing here is a special path through the core, the
+ * evaluator or the chain, and none of these functions can approve anything. The
+ * agent controls exactly three things:
  *
  *   1. what it decides to buy       -> warpPlan()
  *   2. what it believes a page says -> obeyInjection()
- *   3. what it declares in the FactSheet about the counterparty
+ *   3. what it declares about the counterparty
  *                                   -> warpFactSheet()
  *
- * Everything else — the lease, the core signature, the on-chain tier, the
- * registry's age and settled counts — is out of its reach by construction. That
- * is the whole demonstration, so a mode that reached past this boundary would
- * be proving the opposite of what it is for.
+ * The lease, the core signature, the on-chain tier and the registry's age and
+ * settled counts are out of its reach by construction. A mode that reached past
+ * that boundary would prove the opposite of what it is for.
  *
- * ── What each mode is meant to run into ───────────────────────────────────
- * Predicate numbering is `evaluator.ts`, which short-circuits at the first hard
- * failure, so the binding predicate is the FIRST of these the request meets:
+ * Which predicate each mode is aiming at, numbered as in evaluator.ts. That file
+ * short-circuits at the first hard failure, so the binding predicate is the
+ * FIRST one the request meets:
  *
  *   hallucinating  inflated quantities + a duplicate line item -> 12 perTxCap
  *   overreach      an extra line item nobody asked for, out of
@@ -36,9 +28,8 @@
  *                  to do (or 12 perTxCap, if the injected
  *                  text only moved the price)
  *
- * These are intentions, not assertions. Nothing in this file inspects the
- * outcome, and the runner reports whatever the evaluator actually said — if a
- * mode ever settles, that is a finding and it has to be visible.
+ * Intentions, not assertions. Nothing here inspects the outcome and the runner
+ * reports whatever the evaluator returned; a mode that settles is a finding.
  */
 
 import { categoryForSku } from './extract.js';
@@ -87,21 +78,20 @@ export type ModeNotes = string[];
 /**
  * How far `hallucinating` overshoots.
  *
- * A flat multiplier is not enough, and the first version of this was wrong in a
- * way only a test caught. 250× on the demo phrase — 200 tamper caps at ₹2.40 —
- * lands on ₹1,20,000, past both the ₹25,000 per-tx cap and the ₹1,00,000
- * window. 250× on *one* tamper cap lands on ₹600, which **settles**. A judge
- * who typed "buy 1 tamper cap" in Hallucinating mode would have watched the
- * corrupted agent make an ordinary purchase.
+ * A flat multiplier is not enough. 250× on the demo phrase (200 tamper caps at
+ * ₹2.40) lands on ₹1,20,000, past both the ₹25,000 per-tx cap and the ₹1,00,000
+ * window — but 250× on ONE tamper cap lands on ₹600, which settles. Typing "buy
+ * 1 tamper cap" in this mode would show a corrupted agent making an ordinary
+ * purchase.
  *
- * So the quantity is sized from the planner's own estimate to land near
- * `HALLUCINATION_TARGET_MINOR`, with the flat factor as a floor. On the demo
- * phrase the two agree exactly — 200 × 250 and 12,000,000 ÷ 240 are both
- * 50,000 units — so the number on screen does not change; it just also works
- * for everything else in the catalogue.
+ * So the quantity is sized from the planner's estimate to land near
+ * HALLUCINATION_TARGET_MINOR, with the flat factor as a floor. On the demo
+ * phrase the two agree exactly (200 × 250 and 12,000,000 ÷ 240 are both 50,000
+ * units), so the familiar number is unchanged and the rest of the catalogue
+ * also works.
  *
- * A model that miscounts by orders of magnitude is the realistic failure. This
- * is that, plus the same line item submitted twice because it lost track.
+ * The realistic failure being modelled is a miscount by orders of magnitude,
+ * plus the same line item submitted twice.
  */
 const HALLUCINATION_FACTOR = 250;
 
@@ -174,11 +164,10 @@ export function warpPlan(
   }
 
   if (mode === 'overreach') {
-    // Something adjacent, expensive, and outside the scope of what was asked —
-    // the classic "while I was in there" purchase. Found by asking the SAME
-    // SKU→category lookup the FactSheet boundary uses (extract.ts), so this is
-    // not a hardcoded pointer at PixelVault: it is whatever the live catalogue
-    // currently sells that falls outside the permitted set.
+    // Something adjacent, expensive, and outside the scope of what was asked.
+    // Chosen through the same SKU→category lookup the FactSheet boundary uses
+    // (extract.ts), so it is not a hardcoded pointer at one vendor: it is
+    // whatever the live catalogue currently sells outside the permitted set.
     const extra = findOutOfScopeItem(catalog, plan);
     if (extra === null) {
       notes.push(
@@ -354,8 +343,8 @@ export type DeclaredCounterparty = {
  *    storage** (predicate 8). An address nobody registered reads as tier 0, so
  *    declaring it tier 1 is the thing that gets caught.
  *
- * We send the lie anyway, in full, because a demo in which the agent politely
- * declines to lie proves nothing about the check.
+ * The lie is sent in full regardless: an agent that politely declines to lie
+ * proves nothing about the check.
  */
 export function warpFactSheet(
   mode: BehaviourMode,

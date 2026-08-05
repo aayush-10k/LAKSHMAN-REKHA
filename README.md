@@ -24,9 +24,9 @@ InnovaHack Chapter 1 · Round 2 · FinTech PS2
 - `THREAT_MODEL.md` — trust boundary, the 12 attack classes, and four claims
   marked NOT IMPLEMENTED rather than deleted
 - `LIMITATIONS.md` — what is simulated, and what the numbers do not prove
-- `HONESTY_PLAN.md` — every claim audited against what ships, with the
+- `docs/journal/HONESTY_PLAN.md` — every claim audited against what ships, with the
   retractions
-- `FINALE_PROGRESS.md` — current state: what is done, what is next, what is
+- `docs/journal/FINALE_PROGRESS.md` — current state: what is done, what is next, what is
   blocked. **Start here if you are picking this up**
 - `docs/API.md` — frozen interfaces
 - `SETUP.md` — first-time setup
@@ -105,7 +105,7 @@ cd apps/agents/adversary   && python3 test_library.py   # 7 pass
 - **RekhaAccount:** [`0xd65122eafeb2e6f384d0095bac7de6f662276f6c`](https://sepolia.basescan.org/address/0xd65122eafeb2e6f384d0095bac7de6f662276f6c)
 
 **Payments this system actually settled** (driven from the browser, re-read
-afterwards through an independent client — see `FIXLOG2.md`):
+afterwards through an independent client — see `docs/journal/FIXLOG2.md`):
 
 - [`0x35025de9…f12c7e90`](https://sepolia.basescan.org/tx/0x35025de91d5f92d76165358ebab92bf94dc8b05ab7bfd9971eb3b061f12c7e90) — block 44959341, ₹5,760.00
 - [`0x1ed0242a…f64a4df96`](https://sepolia.basescan.org/tx/0x1ed0242aee4b863ca20b09999d2d4cd2d6d3b24ac8cceea949c0cd3f64a4df96) — block 44959201, ₹9,520.00

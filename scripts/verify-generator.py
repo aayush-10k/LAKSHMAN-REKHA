@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HONESTY_PLAN 1.2 — does the LLM adversary generator actually work?
+"""Does the LLM adversary generator actually work?
 
 It has never run: it needs an API key and both were empty. The `novel` counter
 was pulled off the scoreboard for exactly that reason, and the open question is

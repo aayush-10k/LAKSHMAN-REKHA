@@ -9,7 +9,7 @@
 | Component | Status |
 |---|---|
 | Solidity contracts | ✅ Deployed on Base Sepolia — verified source on Basescan |
-| INRx ERC-20 | ✅ Real token, real transfers on Base Sepolia — see the settled transactions in FIXLOG.md |
+| INRx ERC-20 | ✅ Real token, real transfers on Base Sepolia — see the settled transactions in docs/journal/FIXLOG.md |
 | Settlement | ✅ `POST /v1/payment/settle` broadcasts `RekhaAccount.execute` and returns the mined hash. No code path returns a hash that did not come off a receipt |
 | PolicyModule | ✅ All 14 predicates on-chain, named custom errors |
 | RekhaAccount | ✅ Dual-signature enforcement, no admin backdoor |
@@ -17,7 +17,7 @@
 | Fail-closed lease TTL | ✅ **15-second** TTL (`LEASE_TTL_MS=15000`), not 5 — see below. Core unreachable, or `POST /v1/admin/kill`, = no new leases = spending stops within that window |
 | 2-of-2 ECDSA co-signing | ✅ Agent sig + core sig both required. The agent share lives in a separate process (`pnpm dev:agent`); the core never calls `agentSign()` on a request path |
 | Dead-man switch | ✅ Heartbeat lapse auto-freezes |
-| 12-class adversary attack library | ✅ All 12 classes run against the live core via `pnpm dev:adversary`, and classes 5 and 7 now `eth_call` the deployed contract rather than asserting a revert. **The old "147 attempts, 147 blocked" is withdrawn** — that suite never reached the policy evaluator and counted its own errors as defences. Current measured run and the two weaknesses it exposed: `HONESTY_PLAN.md` Part II |
+| 12-class adversary attack library | ✅ All 12 classes run against the live core via `pnpm dev:adversary`, and classes 5 and 7 now `eth_call` the deployed contract rather than asserting a revert. **The old "147 attempts, 147 blocked" is withdrawn** — that suite never reached the policy evaluator and counted its own errors as defences. Current measured run and the two weaknesses it exposed: `docs/journal/HONESTY_PLAN.md` Part II |
 | Typed-schema injection boundary | ✅ And now actually tested for: class 8 searches every response for the injected markers instead of treating "payment refused" as success. Measured: zero leaked |
 | Signing ceremony | ✅ 3 rounds, revocation re-checked between each. `CEREMONY_ROUND_MS` (default 1200) makes it ~3.6s so the mid-ceremony revoke is performable by hand |
 | Audit export | ✅ Signed by the core key. `digest` is keccak256 of the serialised body; recompute it and recover the signer. Unsigned exports say so in `signatureStatus` rather than carrying a zero signature |
@@ -28,7 +28,7 @@
 ## The off-chain core is an optimistic pre-filter. The chain is the enforcer.
 
 Measured 4 Aug 2026, once the adversary suite was fixed so its attacks actually
-reached the policy evaluator (`HONESTY_PLAN.md` Part II). Two things follow, and
+reached the policy evaluator (`docs/journal/HONESTY_PLAN.md` Part II). Two things follow, and
 both are architecture rather than bugs — but the ship checklist described a core
 that is stronger than it is, so they are stated here plainly.
 
@@ -90,6 +90,18 @@ windowCap 10000000  spent 5036800  headroom 4963200
 Exact to the paisa, and the refusals name the predicate `PolicyModule` would
 revert with.
 
+**A replayed nonce used to cancel the reservation it collided with. Fixed
+5 Aug 2026.** Both the nonce claim and the spend reservation are keyed by nonce,
+so a second request carrying a nonce another request already held shared its key:
+it overwrote the reservation on the way in, was refused on predicate 6, and
+released the winner's key on the way out. Measured before the guard — four
+₹25,000 approvals filled the ₹1,00,000 window, one refused replay dropped the
+held total to ₹75,000, and the next ₹25,000 was approved, for ₹1,25,000
+co-signed against a ₹1,00,000 cap. A request that does not win the nonce now
+touches neither structure. Covered by `apps/core/test/reservation.test.ts`,
+which is the first automated test either mechanism has had; the figures above
+came from a Python probe against a running core.
+
 > **What this does NOT stop, stated plainly.** A *slow* structuring run still
 > gets each slice approved, because the leases lapse between them and the
 > reservations are released. Those approvals are void — none of them can settle
@@ -125,17 +137,21 @@ source moves.
 
 ```
 files    59
-digest   0x55ffb75f2da26b9dec34cf12815b7887675114785aeba2cac1324e2900d45797
+digest   0x5f38e7e2bf9e62e2410fd452ba2d59824e6d8ea885e6becf991626e06213b818
 ```
 
-**This value has moved twice since it was first recorded, and both moves are the
-property working rather than a defect.** It read `54 files / 0xbc770793…` at
-commit `5dbbfe5`. Three files in the hashed set changed after that —
+**This value has moved three times since it was first recorded, and every move
+is the property working rather than a defect.** It read `54 files / 0xbc770793…`
+at commit `5dbbfe5`. Three files in the hashed set changed after that —
 `api/store.ts` and `api/routes/payment.ts` (the nonce and window-reservation
 fixes) and `agents/adversary/generator.py` — which is precisely the sensitivity
 this section claims. It then went 54 → 59 when `packages/contracts-abi` was
 added to both the Dockerfile and the `INCLUDE` list, after a container build
-proved those ABIs had never been in the image at all.
+proved those ABIs had never been in the image at all. It moved a third time,
+`0x55ffb75f…` → the value above, on a pass that only rewrote comments: the file
+count is unchanged at 59, and the digest is different, which is the claim
+"one added comment line in `evaluator.ts` changes it" holding on a real edit
+rather than a contrived one.
 
 That second move is the failure mode the script's own comment warns about: the
 `INCLUDE` list mirrors the Dockerfile's COPY lines *by hand*, so a COPY added in
@@ -335,7 +351,9 @@ tier-2 counterparty.
       withdraws. Live value is 223; every category except `SOFTWARE` settles as
       deployed. No owner transaction was required and none was made
 - [ ] Halmos symbolic proofs (Foundry fuzzing is in CI; Halmos is a stretch goal)
-- [ ] Mobile-responsive layout for the three-panel playground
+- [ ] Mobile-responsive layout for `/playground`. It is now a stage and a rail
+      rather than three columns, and it stacks below 1100px, but the narrow
+      layout has been checked in a browser only down to 1280px wide
 - [ ] Register the core image digest. The digest now **exists** and is
       deterministic (`apps/core/scripts/core-image-digest.mjs`); the on-chain
       value is still the placeholder. Registering it takes the payment path down

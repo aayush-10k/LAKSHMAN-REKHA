@@ -5,7 +5,7 @@
  *   GET  /v1/agent/:agentId      — is this agentId still known here?
  *   POST /v1/agent/pair          — redeem a code, get agentId + shareA
  *
- * FIX2.md BUG 2. The browser POSTed a hardcoded pairing code and got 404 every
+ * The browser POSTed a hardcoded pairing code and got 404 every
  * time. It could not have worked: the code is minted fresh on each boot
  * (see the createMandate call below) and pairing state is in memory, so any
  * value baked into the frontend is dead the moment the core restarts.

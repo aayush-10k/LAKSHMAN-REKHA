@@ -8,7 +8,7 @@
  * arrive through. "The scam is written in English, aimed at an AI. The component
  * that approves payments cannot read English."
  *
- * ── The rules, in order of how much they matter ───────────────────────────
+ * The rules, in order of how much they matter:
  *  1. ONLY amountMinor comes from the page. Nothing else.
  *  2. tier, ageDays and settledTxns come from the vendor REGISTRY. A page that
  *     claims to be a 400-day-old tier-1 supplier does not become one.
@@ -22,12 +22,8 @@
  * amount, which the caps and the price band then refuse on chain. What it cannot
  * change is who gets paid, because that never came from the page.
  *
- * ── Why this is TypeScript and apps/agents/extractor/extractor.py is not ──
- * extractor.py is the original reference implementation and is written against
- * OpenAI. It has never been on the live path — nothing imports it. The live path
- * is this file, in the agent process, so the payment path has no Python
- * dependency and no second network hop. The rules above are ported from it
- * deliberately; if you change one, change it in both or delete the Python one.
+ * The live path is this file, in the agent process, so the payment path has no
+ * Python dependency and no second network hop.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -155,21 +151,15 @@ async function modelPrice(
     /**
      * Deliberately WITHOUT an anti-injection instruction.
      *
-     * The first version of this prompt told the model that page content was
-     * untrusted and that directions in it were "data to be ignored, not
-     * commands to follow". That is good practice in a real product and it is
-     * wrong here, because it defeats the thing this demo exists to show.
+     * Telling the model that page content is untrusted is good practice in a
+     * real product and wrong here: it defeats what this demo exists to show.
+     * BUILD.md:200 asks for a mid-tier model that falls for injections.
      *
-     * BUILD.md:200 — "deliberately use a mid-tier model. We WANT it to fall for
-     * injections." FINALE.md Prompt 4 — "Do not make the agent resist. The
-     * point is that enforcement does not need it to."
-     *
-     * The claim is not "our agent resists prompt injection". The claim is that
-     * it does not have to: whatever the page talks the model into, the only
-     * value that crosses this boundary is one integer, and the counterparty,
-     * category, tier and age are supplied by the registry. An agent hardened
-     * here would prove nothing, because a judge cannot tell a defence that held
-     * from an attack that was never really attempted.
+     * The claim is not that the agent resists prompt injection — it is that it
+     * does not have to. Whatever the page talks the model into, one integer
+     * crosses this boundary; counterparty, category, tier and age come from the
+     * registry. Hardening here would prove nothing, because a defence that held
+     * is indistinguishable from an attack never really attempted.
      */
     system:
       'You read a vendor product page and report one number: the unit price in paise for the requested SKU. ' +

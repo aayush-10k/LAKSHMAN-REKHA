@@ -1,12 +1,6 @@
 /**
  * The shopping agent, as a service.
  *
- * FIX2.md TASK: the Dispatch button in /playground had nothing behind it. It
- * POSTed /v1/task (a route that does not exist — the real one is
- * /v1/task/create) and even that only emitted task.started. Nothing ever asked
- * for a lease, built a FactSheet, requested a decision or settled, so no task
- * could produce a trace, a txHash or a balance change. This is the missing half.
- *
  *   POST /dispatch { description, mode, agentId? }
  *     1. pair, or adopt the agentId the browser already paired
  *     2. POST /v1/task/create                       -> taskId + line items
@@ -16,24 +10,20 @@
  *     6. sign the SAME PaymentRequest with the agent key
  *     7. POST /v1/payment/settle                    -> the mined txHash
  *
- * ── Why this is a separate process ────────────────────────────────────────
- * The security claim is 2-of-2: the core holds one key share, the agent holds
- * the other, and neither can move money alone. If the core built both halves the
- * claim would be theatre. So the agent signature is computed HERE, from
- * AGENT_SIGNER_PRIVATE_KEY, by rebuilding the PaymentRequest from the lease and
- * the FactSheet — exactly as scripts/e2e-settle.ts does. The core never calls
- * agentSign() on a request path.
+ * A separate process because the security claim is 2-of-2: the core holds one
+ * key share, this holds the other, and neither moves money alone. If the core
+ * built both halves the claim would be theatre. The agent signature is computed
+ * here from AGENT_SIGNER_PRIVATE_KEY by rebuilding the PaymentRequest from the
+ * lease and the FactSheet; the core never calls agentSign() on a request path.
  *
- * HONEST LIMITATION: this process reads the same .env as the core, so on this
- * one machine both keys sit in one file. The code paths are separate and the
- * agent share never enters the core's request handling, but the deployment is
- * not. A real deployment gives this service its own secret store.
+ * Limitation: this process reads the same .env as the core, so on a single
+ * machine both keys sit in one file. The code paths are separate; the deployment
+ * is not. A real deployment gives this service its own secret store.
  *
- * ── What it will not do ───────────────────────────────────────────────────
- * Nothing here decides anything. It cannot approve a payment, and it fails
- * closed on every error: a REFUSED or HELD decision is returned as-is with its
- * trace, and a settlement that reverts is reported with the contract's error
- * name. No branch fabricates a hash, a signature or an approval.
+ * Nothing here decides anything. It cannot approve a payment and fails closed on
+ * every error: REFUSED and HELD are returned as-is with their trace, and a
+ * settlement that reverts is reported with the contract's error name. No branch
+ * fabricates a hash, a signature or an approval.
  */
 
 // First import: populates process.env from .env (see src/env.ts).
@@ -147,7 +137,7 @@ async function say(taskId: string, text: string): Promise<void> {
  *
  * Prefers the one the browser paired (so the console's chip names the agent that
  * actually pays), but verifies it against the core first: after a core restart a
- * remembered id is meaningless. FIX2.md BUG 2's "re-pair automatically instead of
+ * remembered id is meaningless. the "re-pair automatically instead of
  * failing silently", from the agent's side.
  */
 async function resolveAgentId(preferred?: string): Promise<{ agentId: string; repaired: boolean }> {
@@ -533,38 +523,31 @@ app.post<{ Body: { description: string; mode: BehaviourMode; agentId?: string } 
 /**
  * M1 — the agent, alone.
  *
- * FINALE.md's first moment: "It isn't blocked. It's incapable." The agent holds
- * key share A and full network access, so it does not need our permission to
- * reach Base Sepolia. It skips the core entirely, builds its own PaymentRequest
- * paying ITSELF the largest amount the policy allows, signs it, and calls
- * RekhaAccount.execute() directly. The chain answers.
+ * The agent holds key share A and full network access, so it does not need the
+ * core's permission to reach Base Sepolia. It skips the core, builds its own
+ * PaymentRequest paying itself the largest amount the policy allows, signs it,
+ * and calls RekhaAccount.execute() directly.
  *
- * ── Why this route lives in the agent process ─────────────────────────────
- * The claim is that the core is not what stops this. If the core ran the probe,
- * the core would be holding the agent's key and the demonstration would be
- * theatre. This process already holds AGENT_SIGNER_PRIVATE_KEY (it is where the
- * honest half of the 2-of-2 is produced), so the attack is mounted from exactly
- * the position an attacker would occupy. It imports read-only ABI and RPC
- * helpers from api/chain.js; it imports no authority.
+ * The probe runs in the agent process, not the core, because the claim is that
+ * the core is not what stops it. This process already holds
+ * AGENT_SIGNER_PRIVATE_KEY, so the attack is mounted from exactly the position
+ * an attacker occupies. It imports read-only ABI and RPC helpers from
+ * api/chain.js and no authority.
  *
- * ── What the agent puts in the core signature slot ────────────────────────
- * Its own. That is not a shortcut — it is the whole point. `coreSig` is a real
- * secp256k1 signature over the correct digest, so ECDSA.recover succeeds and
- * returns a genuine address; it simply is not `coreSigner`. An agent that could
- * produce anything better would not need this attack. Sending 65 zero bytes
- * instead would revert inside OpenZeppelin's ECDSA with a malformed-signature
- * error and prove something much weaker.
+ * In the core-signature slot the agent puts its own signature: a real secp256k1
+ * signature over the correct digest, so ECDSA.recover succeeds and returns a
+ * genuine address that simply is not coreSigner. An agent able to produce
+ * anything better would not need this attack, and 65 zero bytes would revert
+ * inside OpenZeppelin's ECDSA as malformed and prove something much weaker.
  *
- * ── eth_call, not a transaction ───────────────────────────────────────────
- * The deployed bytecode evaluates the call and returns its real revert. Nothing
- * is mined, and the response says so in `method` — there is no tx hash here and
- * the UI must not offer one. A broadcast version would need the agent address
- * funded with gas; it holds 0 ETH, measured 4 Aug 2026.
+ * eth_call, not a transaction: the deployed bytecode evaluates the call and
+ * returns its real revert. Nothing is mined, `method` says so, and the UI must
+ * not offer a tx hash. Broadcasting would need the agent address funded; it
+ * holds 0 ETH (measured 4 Aug 2026).
  *
- * Nothing below asserts the outcome. `InvalidCoreSignature` is what predicate 2
- * should produce, but the route reports whatever the chain actually said —
- * including `executed`, which would mean the security claim is false and needs
- * to be visible rather than swallowed.
+ * Nothing below asserts the outcome. InvalidCoreSignature is what predicate 2
+ * should produce, but the route reports whatever the chain said — including
+ * `executed`, which would mean the security claim is false.
  */
 
 /** PolicyModule.validate's custom errors, in the order they can fire. */

@@ -7,7 +7,7 @@ import { CONTRACTS, SETTLED_TX as SETTLED, basescanAddress, basescanTx } from '.
 /**
  * Shown when the enforcement core cannot be reached.
  *
- * FIX3.md BUG 3. The console defaults to http://localhost:4000, so on a deployed
+ * The console defaults to http://localhost:4000, so on a deployed
  * URL every real page silently reached nothing — and before BUG 1 the only page
  * that appeared to work was the browser-side fake. That combination is what made
  * the whole submission read as a mock.

@@ -43,7 +43,7 @@ class AttackResult:
     # 'through'  it succeeded. The product is wrong and the board must say so.
     # 'errored'  we never got a verdict. NOT a defence, and never counted as one.
     #
-    # FIXLOG3.md:317. `blocked` used to be the only state, so an attack class
+    # 317. `blocked` used to be the only state, so an attack class
     # that threw, and a response shape the classifier did not recognise, both
     # landed in the scoreboard as successful defences. A number that goes up
     # when our own test harness breaks is worthless.
@@ -950,7 +950,7 @@ def run_all_attacks(
             batch = attack.execute(core_url, emit)
             results.extend(batch)
         except Exception as exc:
-            # FIXLOG3.md:317. This used to emit `blocked=True` "so the board
+            # 317. This used to emit `blocked=True` "so the board
             # stays full" — a full board is not the goal, a true one is. Our own
             # harness throwing is not the enforcement layer working, and
             # counting it as such inflates the headline number by exactly the

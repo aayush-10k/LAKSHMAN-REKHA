@@ -1,5 +1,5 @@
 /**
- * End-to-end proof for FIX.md TASK 2: pair -> lease -> request -> settle, then
+ * End-to-end proof for: pair -> lease -> request -> settle, then
  * re-read the returned hash from Base Sepolia through a fresh client.
  *
  * Run against a core started with the real .env:

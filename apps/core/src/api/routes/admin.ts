@@ -1,7 +1,7 @@
 /**
  * POST /v1/admin/kill  +  POST /v1/admin/revive
  *
- * FIX3.md BUG 4. The playground's "☠ Kill Approval Service" button POSTed
+ * The playground's "☠ Kill Approval Service" button POSTed
  * /v1/admin/kill, a route that did not exist, wrapped in `.catch(() => {})`. It
  * then greyed itself out and announced "Core is offline" while the core was
  * fine. A fabricated demo beat — worse than a missing feature, because a judge

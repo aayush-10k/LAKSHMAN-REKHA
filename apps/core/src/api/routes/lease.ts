@@ -35,7 +35,7 @@ export async function registerLeaseRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Every failure here must stop spending rather than yield an unsigned lease.
-    // FIX2.md BUG 1: the body now carries the underlying reason, so "503
+    // the body now carries the underlying reason, so "503
     // CORE_UNAVAILABLE" can never again mean "some unnamed thing went wrong".
     const issued = await store.issueLease(agentId);
     if (!issued.ok) {

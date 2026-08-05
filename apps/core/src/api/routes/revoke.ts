@@ -74,7 +74,7 @@ export async function registerRevokeRoutes(app: FastifyInstance): Promise<void> 
   /**
    * POST /v1/admin/unrevoke — clears an OFF-CHAIN revoke.
    *
-   * FINALE_PLAN.md Phase 5 item 3. Before this, a judge who pressed "Revoke
+   * Before this, a judge who pressed "Revoke
    * Mandate (Core)" ended the demo: nothing could spend again until someone
    * restarted the process, which on stage is indistinguishable from the demo
    * having broken. The playground labels the button one-way; this is the reset.

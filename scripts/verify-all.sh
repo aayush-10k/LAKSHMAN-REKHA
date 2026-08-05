@@ -72,4 +72,4 @@ python3 scripts/verify-adversary.py
 printf '\n══ done %s\n' "$(printf '─%.0s' $(seq 1 55))"
 echo "NOT covered: how anything looks, and the Docker images."
 echo "The model reader has its own run: scripts/verify-injection-resistance.sh"
-echo "See FINALE_PROGRESS.md 'Still open'."
+echo "See LIMITATIONS.md for what is still open."

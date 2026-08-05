@@ -3,7 +3,7 @@
 The judge opens **one** URL: the Vercel deployment. Everything behind it is
 infrastructure. Nothing runs on the presenter's laptop.
 
-Plan and rationale: `FINALE_PLAN.md`. This file is the mechanical procedure.
+Plan and rationale: `docs/journal/FINALE_PLAN.md`. This file is the mechanical procedure.
 
 ```
                     ┌────────────────────────────┐
@@ -377,7 +377,7 @@ cd <repo> && set -a && . ./.env && set +a && node apps/core/scripts/chain-state.
 ```
 
 **Then measure the settlement window** — the number Phase 1 of the plan asks for.
-FIXLOG3 recorded 10 s against a 15 s lease from a laptop; hosted will differ.
+docs/journal/FIXLOG3.md recorded 10 s against a 15 s lease from a laptop; hosted will differ.
 Time a dispatch from click to `payment.settled`. If it exceeds ~11 s, raise
 `LEASE_TTL_MS` on the core service and say so in `LIMITATIONS.md` — the
 fail-closed window is a product claim, so it gets corrected, not hidden.

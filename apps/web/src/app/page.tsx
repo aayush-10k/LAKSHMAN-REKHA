@@ -11,40 +11,25 @@ import {
 } from '@/lib/contracts';
 
 /**
- * The landing page — FINALE_PLAN.md Phase 7.
+ * The landing page. The root URL is what a judge opens cold, days later, with
+ * nobody narrating, so three things about it are deliberate:
  *
- * What used to be here was a redirect to /console, and before that ~44KB of
- * prototype HTML that evaluated "policy" as a client-side if/else chain in the
- * browser. Both are gone for the same reason: the root URL is what a judge
- * opens cold, days later, with nobody narrating.
+ * 1. A Server Component with no data fetching. No core call, no SSE, no wallet,
+ *    no client state — nothing in it can fail. If the backends are asleep, this
+ *    page and its Basescan links still work, and those links never required
+ *    trusting our server in the first place.
  *
- * ── Three decisions worth defending ───────────────────────────────────────
+ * 2. The hero is a revert reason rather than a headline. InvalidCoreSignature is
+ *    the deployed bytecode's own answer when the agent signs alone. It is a
+ *    RECORDED result and says so on screen, beside a link to run it live — a
+ *    hardcoded revert string presented as a live one would be the exact failure
+ *    this page exists to avoid.
  *
- * 1. **It is a Server Component with no data fetching at all.** No core call,
- *    no SSE, no wallet, no client state. Every other surface in this product
- *    degrades honestly when the core is down; this one cannot degrade, because
- *    there is nothing in it to fail. If Railway is asleep and the demo is dead,
- *    this page and its Basescan links still work — and those links are the only
- *    part of the system that never required trusting our server anyway.
+ * 3. No feature cards. The page is an evidence sheet: a claim on the left, the
+ *    address where it can be checked on the right.
  *
- * 2. **The hero is a revert reason, not a headline.** `InvalidCoreSignature` is
- *    the deployed bytecode's own answer when the agent signs alone. Setting a
- *    Solidity error at 64px in --breach is the one risk this page takes, and it
- *    is the right one: the strongest sentence we have is not ours, and a page
- *    that leads with the machine's word instead of a marketing claim is the
- *    whole thesis of LIMITATIONS.md rendered as a layout.
- *
- *    It is a RECORDED result, and it says so on screen, beside a link to run it
- *    live. A hardcoded revert string presented as a live one is precisely the
- *    mistake `library.py` made and FIXLOG3 exists to stop.
- *
- * 3. **No feature cards, no three-column benefits row.** The page is an
- *    evidence sheet: a claim on the left, the address where you can check it on
- *    the right. That structure is not decoration — it is the argument.
- *
- * The <Rekha> wraps the thesis at idle, doing nothing, at 40% opacity. It is
- * the same component the playground animates; here it is quiet, because on this
- * page nothing has been tested yet.
+ * <Rekha> wraps the thesis at idle. Same component the playground animates,
+ * quiet here because nothing on this page has been tested yet.
  */
 
 export const metadata: Metadata = {

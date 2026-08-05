@@ -2,7 +2,7 @@
 # Bring the four backend services up for local verification, and report ports.
 #
 # Why a script and not four tool calls: `pnpm` on this machine is a broken
-# wrapper (see FINALE_PROGRESS.md), and `pkill -f "tsx watch"` matches nothing
+# wrapper (see), and `pkill -f "tsx watch"` matches nothing
 # because tsx runs as `node .../tsx/dist/cli.mjs watch <entry>`. Both cost a
 # session an hour. Stop targets the entry script instead.
 #

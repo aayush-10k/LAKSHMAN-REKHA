@@ -1,48 +1,30 @@
 #!/usr/bin/env node
 /**
- * Compute a reproducible digest over the exact source the core image runs.
- *
- * ── The gap this closes, and the one it does not ──────────────────────────
- * `PolicyModule` predicate 3 is real: `req.coreImageDigest != coreImageDigest`
- * reverts `CoreImageMismatch` (`PolicyModule.sol:213`). The *mechanism* works.
- * The registered *value* is `0x01` followed by 31 zero bytes — not the hash of
- * anything — so it currently attests nothing, and both the console and the
- * playground print it next to a copy button where it reads as evidence.
- * `LIMITATIONS.md` says so in as many words, and `lib/contracts.ts`
- * `isPlaceholderDigest()` labels it on screen.
- *
- * The blocker was never the maths. It was that Docker is not installed on the
- * build machine, so no *image* digest could be produced. But the claim the demo
- * actually makes is *"if we swapped in a permissive policy engine every payment
- * would revert"* — and that is a claim about the SOURCE, which is right here.
- * A source-tree digest is weaker than a reproducible image digest and stronger
- * than a constant. It is honest as long as it is described as what it is.
- *
- * **What this does NOT prove.** It does not attest the runtime: not the Node
- * version, not the installed dependency tree, not the base image, not that the
- * deployed process is running this source at all. Anyone who can set
- * `CORE_IMAGE_DIGEST` can send whatever value they like. It closes the gap
- * between "an arbitrary constant" and "a commitment to a specific policy
- * engine". Do not present it as enclave attestation.
- *
- * ── Determinism ──────────────────────────────────────────────────────────
- * Sorted paths, POSIX separators, CRLF normalised to LF, and the file's path
- * hashed alongside its bytes so a rename is a different digest. Same tree on
- * any machine, any checkout, any OS — which is the whole point, since the
- * person verifying is not the person who built it.
+ * A reproducible digest over the exact source the core image runs.
  *
  *   node apps/core/scripts/core-image-digest.mjs            # print the digest
  *   node apps/core/scripts/core-image-digest.mjs --list     # and every file in it
  *
- * To make it real, two steps, in this order, or every settlement reverts:
- *   1. set CORE_IMAGE_DIGEST to this value everywhere the core and the agent
- *      run (.env, Railway, docker-compose) and restart both
- *   2. owner calls PolicyModule.attestCoreImage(<digest>)
+ * Predicate 3 is real — PolicyModule.sol:213 reverts CoreImageMismatch — but the
+ * registered value is 0x01 followed by 31 zero bytes, so today it attests
+ * nothing. This produces a value that commits to a specific policy engine.
  *
- * Doing 2 before 1 breaks every payment in flight. Doing 1 before 2 breaks
- * every payment too — predicate 3 compares against what is registered. There is
- * no ordering that avoids a window; take the outage deliberately, between
- * rehearsals, and re-run scripts/chain-state.mjs after.
+ * What it does NOT attest: the Node version, the dependency tree, the base
+ * image, or that the deployed process is running this source at all. Anyone who
+ * can set CORE_IMAGE_DIGEST can send any value. It is a source-tree hash, not
+ * enclave attestation, and must not be described as one.
+ *
+ * Determinism: sorted paths, POSIX separators, CRLF normalised to LF, and each
+ * file's path hashed alongside its bytes so a rename changes the digest.
+ *
+ * Registering it takes two steps and there is no ordering that avoids an
+ * outage — predicate 3 compares the request against what is registered, so
+ * whichever side moves first, payments in flight revert until the other
+ * follows. Do it between rehearsals:
+ *   1. set CORE_IMAGE_DIGEST wherever the core and agent run (.env, Railway,
+ *      docker-compose) and restart both
+ *   2. owner calls PolicyModule.attestCoreImage(<digest>)
+ * Then re-run scripts/chain-state.mjs.
  */
 
 import { createHash } from 'node:crypto';

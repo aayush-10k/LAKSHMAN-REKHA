@@ -1,7 +1,7 @@
 /**
  * POST /v1/adversary/run — Rogue Mode.
  *
- * FIX3.md BUG 5. `mode` was validated in routes/task.ts and threaded through the
+ * `mode` was validated in routes/task.ts and threaded through the
  * agent runner, then ignored: hallucinating, injected, compromised, overreach
  * and colluding all ran the identical honest path, and no `attack.attempt` event
  * was emitted by any running process. The scoreboard therefore read

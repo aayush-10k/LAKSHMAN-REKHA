@@ -33,7 +33,7 @@ export const CONTRACTS: readonly ContractRef[] = [
   { name: 'INRx', address: INRX_ADDRESS, note: 'ERC-20, the money that moves' },
 ];
 
-/** Settlements that actually landed. Recorded in FIXLOG2.md. */
+/** Settlements that actually landed. Recorded in. */
 export const SETTLED_TX: readonly { hash: string; detail: string }[] = [
   {
     hash: '0x35025de91d5f92d76165358ebab92bf94dc8b05ab7bfd9971eb3b061f12c7e90',
@@ -89,7 +89,7 @@ export const shortHex = (s: string, lead = 6, tail = 4) =>
  * Predicate 3 is real — a mismatch reverts `CoreImageMismatch` on chain — but
  * the registered value attests nothing, and both surfaces print it beside a
  * copy button where it reads as evidence. This is what labels it. See
- * LIMITATIONS.md and HONESTY_PLAN.md item 1.1.
+ * LIMITATIONS.md and item 1.1.
  *
  * Deliberately a shape test rather than equality against that one constant: a
  * digest whose whole body is one leading byte followed by zeros is a

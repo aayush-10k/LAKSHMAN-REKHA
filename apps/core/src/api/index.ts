@@ -9,7 +9,7 @@
  */
 
 // MUST be the first import: it populates process.env from .env, and api/chain.ts
-// reads BASE_SEPOLIA_RPC at module scope. See src/env.ts (FIX2.md BUG 1).
+// reads BASE_SEPOLIA_RPC at module scope. See src/env.ts.
 import { LOADED_ENV_FILES } from '../env.js';
 
 import Fastify from 'fastify';
@@ -70,7 +70,7 @@ async function buildApp() {
     leaseTtlMs: store.leaseTtlMs(),
     // A killed core is still up enough to answer /health, so it has to say so —
     // otherwise the one state where spending has stopped looks like the one
-    // where everything is fine (FIX3.md BUG 4).
+    // where everything is fine.
     issuanceKilledAtMs: store.issuanceKilledAt(),
     envFilesLoaded: LOADED_ENV_FILES.map((f) => f.path),
   }));
@@ -138,7 +138,7 @@ console.log(`core API listening on http://localhost:${PORT}`);
 // Emit periodic core.status so C's enforcement panel stays current.
 // `up` reports issuance, not process liveness: a killed core is still running
 // well enough to send this, and hardcoding true here would quietly flip the UI
-// back to healthy within 30s of a kill that is still in force (FIX3.md BUG 4).
+// back to healthy within 30s of a kill that is still in force.
 setInterval(() => {
   emit({
     t: 'core.status',
@@ -147,10 +147,8 @@ setInterval(() => {
   });
 }, 30_000);
 
-// Dead-man switch: check all mandates every 10s
+// Dead-man switch: freeze any mandate whose heartbeat has lapsed.
 setInterval(() => {
-  // Access mandates indirectly via store — freeze if heartbeat lapsed
-  // We expose a checkDeadman helper from store
   store.checkDeadman((mandateId, epoch) => {
     emit({ t: 'revocation', epoch, source: 'deadman', latencyMs: 0 });
     console.warn(`[deadman] mandate ${mandateId} frozen — heartbeat lapsed`);

@@ -5,7 +5,7 @@ breakdown the scoreboard is supposed to render.
 The number that matters is not `blocked`. It is the split — how many died at
 the typed-schema boundary, how many a policy predicate refused, how many the
 chain reverted, and how many we simply failed to run. A single conflated
-"147 blocked" is the claim FIXLOG/HONESTY_PLAN withdrew.
+"147 blocked" is the claim that has since been withdrawn.
 """
 import collections
 import json

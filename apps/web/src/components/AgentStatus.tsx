@@ -4,7 +4,7 @@ import React from 'react';
 import type { Pairing } from '../lib/pairing';
 
 /**
- * FIX2.md BUG 3 — the pairing state, visible.
+ * — the pairing state, visible.
  *
  * Before this there was nothing on screen that said whether the console was
  * paired, so BUG 2 (never paired at all) looked identical to a working demo.
