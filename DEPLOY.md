@@ -86,9 +86,27 @@ git status --short                  # expect clean
 git push origin finale/frontend
 ```
 
-**`finale/frontend` now exists on the remote** and is up to date as of 5 Aug
-2026 — this section used to say it did not and that the first push needed `-u`.
-The remote is `aayush-10k/LAKSHMAN-REKHA`, and pushes to it are working.
+**Deploy from `ranvir7123/LAKSHMAN-REKHA`, not `aayush-10k`.** As of 5 Aug 2026
+this working copy points at the fork:
+
+```
+origin    https://github.com/ranvir7123/LAKSHMAN-REKHA   <- deploy from this
+upstream  https://github.com/aayush-10k/LAKSHMAN-REKHA
+```
+
+All nine branches were pushed to the fork and verified SHA-for-SHA against
+upstream. GitHub's fork UI copies only the default branch, which is why the fork
+arrived with `main` alone.
+
+Two things to know when picking the repo in Railway and Vercel:
+
+- Select the **fork**, and branch **`finale/frontend`**. It is not the fork's
+  default branch, so neither platform will pick it for you. Every service and
+  the Vercel project must be set to it explicitly, or you will build `main`,
+  which is 25 commits behind and does not contain any of this.
+- `upstream/main` has moved on independently (`ccfa336`, "Update README.md") and
+  has diverged from the local `main` — 25 ahead, 3 behind. Do not merge it in to
+  tidy up before the demo.
 
 ---
 
