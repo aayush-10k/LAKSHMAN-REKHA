@@ -110,6 +110,22 @@ came from a Python probe against a running core.
 > version that could actually take money is the one that fits inside a single
 > lease, and that one is now refused.
 
+**What Rogue Mode shows on the deployed stack, so nobody is surprised on
+stage.** Measured 5 Aug 2026 against `core-production-636d.up.railway.app`:
+
+```
+total 99   blocked 85   through 14   errored 0
+byStage    input 26   policy 57   chain 2
+```
+
+`through: 14` is the slow-structuring case above, and the playground renders it
+as **14 core-approved, unsettled** in amber beside the ₹0. That figure is the
+honest one and should be read aloud rather than skipped: nothing settled, the
+on-chain window counter is what stops the money, and `errored 0` means every
+one of the 99 was actually attempted. A run that showed 99 blocked would mean
+the suite was not reaching the evaluator — which is exactly the defect that
+retired the old "147 attempts, 147 blocked".
+
 ---
 
 ## What Is Simulated
@@ -301,18 +317,21 @@ anvil --port 8545                                        # differential
 pnpm --filter core test
 ```
 
-Measured 2026-08-02:
+Measured 2026-08-05:
 
 ```
+ ✓ test/extract.test.ts            (25 tests)
  ✓ test/explain.test.ts            (11 tests)
- ✓ test/evaluator.test.ts          (32 tests)
+ ✓ test/evaluator.test.ts          (34 tests)
+ ✓ test/modes.test.ts              (36 tests)
  ✓ test/lease.test.ts              (19 tests)
  ✓ test/signing.test.ts            (17 tests)
  ✓ test/hash-request.fork.test.ts   (2 tests)
+ ✓ test/reservation.test.ts         (4 tests)
  ✓ test/execute.fork.test.ts        (4 tests)
  ✓ test/differential.test.ts        (1 test)  10000/10000 agree
- Test Files  7 passed (7)
-      Tests  86 passed (86)
+ Test Files  10 passed (10)
+      Tests  153 passed (153)
 ```
 
 `hash-request.fork.test.ts` is the canary for the signing digest: if it fails,
@@ -427,6 +446,25 @@ tier-2 counterparty.
       latter. Build real model-authored attempts or leave the counter off
 - [ ] Deck slide 5 cites Halmos output; there are no Halmos proofs. What exists
       is Foundry invariant fuzzing plus 10,000/10,000 differential agreement
+- [ ] **There are two `issueLease` implementations and they disagree about the
+      TTL.** Requests go through `api/store.ts`, which reads `LEASE_TTL_MS` from
+      the environment — 15000 in every shipped configuration. `lease/index.ts`
+      has a second one fixed at the 5000ms constant, used only by
+      `test/lease.test.ts`, which asserts that figure. It carried a comment
+      insisting the TTL is "not configurable", which is true of that function and
+      false of the running core. The comment now says which is which; the
+      duplication itself is not resolved, and it is the same
+      one-struct-two-builders hazard `payment.ts` was refactored to remove
+- [x] ~~The Rogue Mode counters freeze when the tab is not visible~~ —
+      **fixed 5 Aug 2026.** `Counter` animated purely through
+      `requestAnimationFrame`, which does not fire in a background tab, and its
+      effect only re-runs when the value changes. A judge who started the 2–4
+      minute suite and switched away came back to a board reading 0 with 99
+      attacks in the log beside it, and nothing would ever move it again.
+      Measured on a hidden tab: **0 rAF callbacks in one second, 99 rows, every
+      counter still 0.** It now snaps to the value instead of animating when
+      `document.hidden`, and resumes from the displayed figure rather than the
+      previous target so an interrupted animation does not lose its progress
 
 ---
 

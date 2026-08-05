@@ -1223,6 +1223,10 @@ input, textarea { font-family: inherit; outline: none; border: none; background:
   display: flex;
   align-items: baseline;
   gap: 34px;
+  /* The ₹0 is pushed right and is twice the height of the counters, so on a
+     narrow stage it wraps to its own line. Let it — but do not pay a 34px
+     row-gap for the privilege. */
+  row-gap: 2px;
   flex-wrap: wrap;
   flex: none;
   padding-bottom: 14px;

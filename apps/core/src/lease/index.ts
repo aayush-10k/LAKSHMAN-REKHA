@@ -129,7 +129,11 @@ export async function issueLease(
   const unsigned: LeaseDigestInput = {
     leaseId: nextLeaseId(agentId, nowMs),
     agentId,
-    // TTL is exactly 5000ms. Not "about 5 seconds", not clamped, not configurable.
+    // NOT the lease the running core issues. Requests go through
+    // store.issueLease, which reads LEASE_TTL_MS from the environment and is
+    // 15000 in every shipped configuration. This one is fixed at the 5000ms
+    // constant and is exercised only by test/lease.test.ts, which asserts that
+    // exact figure. Do not read the TTL from here.
     expiresAtMs: nowMs + LEASE_TTL_MS,
     revocationEpoch: mandateState.revocationEpoch,
     policyHash: mandateState.policyHash,

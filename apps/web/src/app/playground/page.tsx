@@ -893,8 +893,9 @@ export default function PlaygroundPage() {
   }
 
   const hasRun = tasks.length > 0;
-  /** The adversary run's own row, so M2 can show its failure without the task list. */
+  /** The adversary run's own row, so M2 can show its state without the task list. */
   const rogueRow = tasks.find((t) => t.id.startsWith('rogue-')) ?? null;
+  const rogueRunning = rogueRow?.status === 'running';
 
   return (
     <div className="pg-layout">
@@ -1222,10 +1223,21 @@ export default function PlaygroundPage() {
                   setMode('compromised');
                   void runAdversary('Rogue Mode — deterministic attack suite');
                 }}
+                disabled={rogueRunning}
               >
-                Run the attack suite
+                {rogueRunning ? 'Attacking…' : 'Run the attack suite'}
               </button>
             </div>
+
+            {/* The route waits for the whole suite before replaying it, so the
+                board stays at zero for minutes with nothing else to look at.
+                Silence for that long reads as a broken button. */}
+            {rogueRunning && (
+              <div className="pg-msg-ok">
+                Running all 12 classes against this core over HTTP. It takes two to four minutes,
+                and the board fills as each verdict comes back. Do not click again.
+              </div>
+            )}
 
             {rogueRow?.error && <div className="pg-msg-err">{rogueRow.error}</div>}
 

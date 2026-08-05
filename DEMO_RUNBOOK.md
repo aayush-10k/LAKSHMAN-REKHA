@@ -6,6 +6,20 @@ and the output pasted is real. Where something is untested, it says so.
 The three moments are `FINALE.md:34`: **M1** agent alone, **M2** Rogue Mode
 scoreboard, **M3** ceremony bar broken by REVOKE.
 
+### Where things are on `/playground`
+
+The header carries three tabs — **Let it buy**, **M1 · Agent alone**, **M2 ·
+Rogue Mode** — and whichever is selected owns the whole stage. To the right is
+the enforcement rail: lease ring, core status, kill switch, and the M3 ceremony
+bar with REVOKE. **The rail never changes between tabs**, which is the argument
+worth making out loud: the same lease, the same core and the same contract are
+doing the work in all three moments.
+
+Clicking a payment's outcome opens the full predicate table over the page.
+Escape closes it. It also opens by itself after a dispatch on **Let it buy** —
+that is the payoff — but never during M2, where there is one decision per
+attempt.
+
 ---
 
 ## T-30 — bring it up
@@ -94,7 +108,7 @@ A normal-mode dispatch costs ₹282. M1 and M2 cost nothing on-chain.
 
 ## M1 — agent alone
 
-**Where:** `/playground`, right column, **AGENT ALONE**.
+**Where:** `/playground`, the **M1 · Agent alone** tab in the header.
 **Click:** `Pay itself, without the core`.
 **Costs nothing** — it is an `eth_call`, nothing is broadcast.
 
@@ -120,10 +134,13 @@ network policy. See the note at the top of `docker-compose.yml`.
 
 ## M2 — Rogue Mode
 
-**Where:** `/playground`. Pick **Compromised**, then Dispatch.
+**Where:** `/playground`, the **M2 · Rogue Mode** tab. Click `Run the attack
+suite`. There is no longer a Compromised mode chip beside the shopping modes —
+it did something entirely different from the other five, so it has its own tab.
 **Takes ~2-4 minutes.** Do not click twice.
 
-Verified, containerised:
+Verified, containerised, and re-measured 5 Aug 2026 against the deployed core
+at `core-production-636d.up.railway.app` — identical:
 
 ```
 total 99   blocked 85   through 14   errored 0
@@ -152,10 +169,12 @@ suspicious one.
 
 ## M3 — ceremony broken by REVOKE
 
-**Where:** `/playground`. The ceremony bar and REVOKE sit side by side so this is
-one gesture (`FINALE.md:209`).
+**Where:** `/playground`, the enforcement rail on the right. The ceremony bar and
+REVOKE are stacked there and stay on screen in every tab, because the only thing
+that starts a ceremony is a dispatch from **Let it buy** — so the button has to
+be reachable at the moment it is needed, not behind a tab switch.
 
-1. Dispatch anything in **Normal** mode (₹282).
+1. On the **Let it buy** tab, dispatch anything in **Normal** mode (₹282).
 2. The signing ceremony bar starts — three segments, ~1200ms each.
 3. Hit **REVOKE** at roughly 60%.
 4. The bar **breaks** and the Rekha line snaps.
