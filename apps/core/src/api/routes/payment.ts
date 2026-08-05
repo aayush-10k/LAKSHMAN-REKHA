@@ -6,7 +6,7 @@
  *           ceremony rounds for M3.
  * /settle:  broadcasts RekhaAccount.execute and returns the MINED transaction.
  *
- * FIX.md TASK 2 + TASK 3. Two things changed in here and both are load-bearing:
+ * Two things changed in here and both are load-bearing:
  *
  *  1. There is now exactly one place a PaymentRequest is built — coreSign() in
  *     src/signing/, via buildPaymentRequest(). The inline tuple and the local
@@ -177,29 +177,31 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
     const claimedHere = store.claimNonce(lease.mandateId, fs.nonce, lease.expiresAtMs);
     const usedNonces = new Set<number>(nonceBurned || !claimedHere ? [fs.nonce] : []);
 
-    // Rupees this core has already co-signed for but which have not settled.
+    // Rupees this core has co-signed for that have not settled.
     //
-    // `mandate.windowSpentMinor` only moves on settlement, so without this a
-    // run of approvals that never settle each looks fine on its own — which is
-    // exactly how twelve ₹8,000 slices cleared a ₹1,00,000 window.
+    // `mandate.windowSpentMinor` only moves on settlement, so a run of approvals
+    // that never settle each looks fine alone — which is how twelve ₹8,000
+    // slices cleared a ₹1,00,000 window.
     //
-    // Note where this is added: to the STATE handed to the evaluator, not to
-    // the evaluator. `evaluator.ts` stays byte-identical to Solidity
-    // `PolicyModule.validate` — that agreement is checked over 10,000
-    // differential inputs and is worth more than this fix. What changes is the
-    // core's own bookkeeping about what it has already promised.
-    // Read the outstanding total and stake this request's claim in the SAME
-    // tick — no await between them, exactly like the nonce claim above.
+    // Added to the STATE handed to the evaluator, not to the evaluator itself.
+    // evaluator.ts stays byte-identical to PolicyModule.validate, checked over
+    // 10,000 differential inputs; what changes is the core's bookkeeping about
+    // what it has already promised.
     //
-    // Reserving after coreSign is not enough and the first version did that:
-    // eight concurrent requests all read `reserved` before any of them had
-    // written, and three were approved where one should have been. Measured.
-    // The reservation is keyed by nonce because that is the one identifier
-    // available before a decisionId exists, and it is already unique per
-    // payment — the claim above guarantees it.
+    // Read and staked in the same tick, no await between them, like the nonce
+    // claim above. Reserving after coreSign is not enough: eight concurrent
+    // requests all read `reserved` before any had written and three were
+    // approved where one should have been.
+    //
+    // Keyed by nonce — the only identifier that exists before a decisionId, and
+    // unique per payment because the claim above guarantees it. A request that
+    // did NOT win the nonce must therefore touch neither, or it releases the
+    // winner's key on its way out: four ₹25,000 approvals filled the window, one
+    // refused replay dropped the held total to ₹75,000, and the next ₹25,000 was
+    // approved. See test/reservation.test.ts.
     const reserved = store.reservedSpendMinor(lease.mandateId);
     const spendKey = `nonce:${fs.nonce}`;
-    store.reserveSpend(lease.mandateId, spendKey, fs.amountMinor, lease.expiresAtMs);
+    if (claimedHere) store.reserveSpend(lease.mandateId, spendKey, fs.amountMinor, lease.expiresAtMs);
 
     // `reserved` deliberately excludes this request — the evaluator adds
     // `fs.amountMinor` itself when it checks the window.
@@ -219,8 +221,10 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
       // The claim must not outlive the request that made it. A lease error here
       // means no decision and no signature, so holding the nonce would refuse a
       // legitimate retry for a reason that is not true.
-      if (claimedHere) store.releaseNonce(lease.mandateId, fs.nonce);
-      store.releaseSpend(lease.mandateId, spendKey);
+      if (claimedHere) {
+        store.releaseNonce(lease.mandateId, fs.nonce);
+        store.releaseSpend(lease.mandateId, spendKey);
+      }
       if (e instanceof LeaseInvalidError) {
         return reply.code(403).send({ error: { code: 'LEASE_EXPIRED', message: e.message } });
       }
@@ -234,9 +238,10 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
     // ever consume the nonce on chain. Anything else gives it back — a REFUSED
     // or HELD payment burns nothing, so the same request may legitimately be
     // retried with the same nonce once whatever refused it is fixed.
-    // Nothing was promised unless it was approved, so give both claims back.
-    if (trace.outcome !== 'APPROVED') {
-      if (claimedHere) store.releaseNonce(lease.mandateId, fs.nonce);
+    // Nothing was promised unless it was approved, so give both claims back —
+    // but only the ones this request actually took.
+    if (trace.outcome !== 'APPROVED' && claimedHere) {
+      store.releaseNonce(lease.mandateId, fs.nonce);
       store.releaseSpend(lease.mandateId, spendKey);
     }
 
@@ -334,7 +339,7 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
       return reply.code(409).send({ error: { code: 'DECISION_NOT_APPROVED', message: `Cannot settle a ${trace.outcome} decision.` } });
     }
 
-    // FIX.md: no core key or no account address means we cannot broadcast, and
+    // no core key or no account address means we cannot broadcast, and
     // there is no fallback that invents a hash instead.
     const config = settlementConfig();
     if (config === null) {
