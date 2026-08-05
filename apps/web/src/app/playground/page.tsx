@@ -207,9 +207,6 @@ export default function PlaygroundPage() {
   const attackIdRef = useRef(0);
   const thoughtsRef = useRef<HTMLDivElement>(null);
 
-  /** The live stage, readable from the SSE handler without re-subscribing. */
-  const stageRef = useRef<Stage>(stage);
-  stageRef.current = stage;
 
   /** The line does not celebrate. Only 'flare' and 'snap' ever reach it. */
   const firePulse = useCallback((kind: 'flare' | 'snap') => {
@@ -349,16 +346,17 @@ export default function PlaygroundPage() {
           return;
 
         case 'decision.made':
-          // The decision lands on the stream before the runner's reply does, so
-          // the trace fills in while the settlement is still being mined.
+          // Deliberately does NOT open the decision panel.
           //
-          // Only while `shop` is on stage. The decision is a full-screen panel
-          // now, and the attack suite emits one decision per attempt — during M2
-          // that buried the scoreboard under a dialog that reopened faster than
-          // it could be dismissed. Read through a ref so the stage is not a
-          // dependency of this callback: adding it would tear down and re-open
-          // the EventSource on every tab change.
-          if (stageRef.current === 'shop') setSelectedTrace(event.trace);
+          // This event is emitted before the signing ceremony runs, and the
+          // panel covers the screen — so opening it here put a dialog over the
+          // ceremony bar at exactly the moment M3 asks a judge to watch that bar
+          // break. It also fired once per attempt during the attack suite,
+          // reopening faster than it could be dismissed.
+          //
+          // dispatchTask opens the panel from the runner's reply instead, which
+          // arrives after the ceremony and after settlement. A dispatch that was
+          // revoked mid-ceremony returns an error and correctly opens nothing.
           return;
 
         case 'attack.attempt': {
