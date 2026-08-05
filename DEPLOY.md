@@ -82,15 +82,13 @@ Railway and Vercel build from GitHub, so anything uncommitted is invisible to
 them.
 
 ```bash
-git status --short                         # expect clean
-git log --oneline origin/main..HEAD | wc -l   # what is waiting
-git push -u origin finale/frontend         # -u: the branch has no upstream yet
+git status --short                  # expect clean
+git push origin finale/frontend
 ```
 
-**`finale/frontend` does not exist on the remote** — `git branch -r | grep
-finale` returns nothing — so the first push needs `-u`. The remote is
-`aayush-10k/LAKSHMAN-REKHA`; confirm you have write access before relying on
-this step.
+**`finale/frontend` now exists on the remote** and is up to date as of 5 Aug
+2026 — this section used to say it did not and that the first push needed `-u`.
+The remote is `aayush-10k/LAKSHMAN-REKHA`, and pushes to it are working.
 
 ---
 
@@ -144,6 +142,27 @@ Environment:
 
 `ADVERSARY_URL` is already `http://127.0.0.1:4300` in the image and needs no
 override — the adversary runs beside the core in the same container.
+
+**One more variable, and it has to wait for §3: `AGENT_URL`.**
+
+| Variable | Value | Notes |
+|---|---|---|
+| `AGENT_URL` | `<AGENT_URL>` from §3 | Rogue Mode's attack classes 5 and 7 are mounted by the adversary — which runs *inside this container* — POSTing to the agent's `/rail-bypass`. Its default is `http://localhost:4200`, which in here is nothing |
+
+This is a genuine circular dependency: the core needs the agent's URL and the
+agent needs the core's. **Deploy the core without `AGENT_URL` first, do §3, then
+come back and add it and redeploy the core.** Nothing else in the core depends
+on it, so the first deploy is healthy and settles fine without it.
+
+If you skip it, Rogue Mode reports **`2 errored`** and those two are the only
+classes that reach the deployed contract — so `byStage.chain` reads `0` and the
+on-chain half of the enforcement claim goes untested while the scoreboard still
+looks broadly fine. Measured in the compose stack before this was set:
+
+```
+without AGENT_URL   blocked 83  through 14  errored 2   byStage.chain 0
+with AGENT_URL      blocked 85  through 14  errored 0   byStage.chain 2
+```
 
 Record the URL as **`<CORE_URL>`**. Verify:
 
@@ -204,6 +223,16 @@ Environment:
 | `CORE_URL` | `<CORE_URL>` from §2 |
 | `VENDORSIM_URL` | `<VENDORSIM_URL>` from §1 |
 | `CORE_IMAGE_DIGEST` | **byte-identical to the core's** |
+| `BASE_SEPOLIA_RPC` | `https://sepolia.base.org` — **easy to miss on this service.** The rail-bypass probe `eth_call`s the deployed RekhaAccount *from this process*, on purpose, so it needs its own RPC. Without it, attack classes 5 and 7 cannot reach the chain to lose to it |
+
+> **The agent is meant to have internet, and that is not an oversight.** The
+> probe runs here rather than in the core so the attack is mounted from exactly
+> the position an attacker occupies (`agent/runner.ts:543` — "the claim is that
+> the core is not what stops this"). If a network policy is what prevents the
+> bypass, the demo proves the wrong thing: enforcement must not depend on the
+> agent being contained. An agent that *can* reach the chain, holds a real key,
+> and still cannot spend is the entire demonstration. It holds 0 ETH and the
+> probe broadcasts nothing.
 
 > **Do not put `CORE_SIGNER_PRIVATE_KEY` on this service.** Keeping the two
 > shares on separate hosts with separate secret stores is the entire reason this
@@ -315,6 +344,7 @@ fail-closed window is a product claim, so it gets corrected, not hidden.
 | Settlement reverts `WindowCapExceeded` | ₹1,00,000 rolling 24 h cap. On-chain — restarting the core does **not** reset it. `chain-state.mjs` shows `windowSpentMinor` |
 | Dispatch times out, nothing in logs | The agent listened on the wrong port. Fixed by the `PORT` fallback in `runner.ts:51`; confirm the service picked it up |
 | Rogue Mode 503s | The adversary died inside the core container. Deliberately non-fatal — the core reports it rather than inventing a score. Redeploy the core service |
+| Rogue Mode shows **`2 errored`**, `byStage.chain 0` | Classes 5 and 7 could not reach the chain. Either `AGENT_URL` is unset on the **core** (§2) or `BASE_SEPOLIA_RPC` is unset on the **agent** (§3). Both are needed; the scoreboard otherwise looks fine while the on-chain claim goes untested |
 | Build fails `ERR_PNPM_NO_LOCKFILE` | A Dockerfile lost its `pnpm-lock.yaml` COPY line. It is required |
 
 ---
