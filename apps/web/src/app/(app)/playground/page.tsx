@@ -9,7 +9,7 @@ import { CoreOffline } from '@/components/CoreOffline';
 import { Counter } from '@/components/Counter';
 import { PredicateTable } from '@/components/PredicateTable';
 import { Rekha, type RekhaPulse } from '@/components/Rekha';
-import { SoundToggle } from '@/components/SoundToggle';
+import { Icon } from '@/components/Icon';
 import { TTLRing } from '@/components/TTLRing';
 // A module import, not a hook and not a context: `sound` must never appear in
 // processEvent's dependency array, because that array drives the EventSource.
@@ -1142,7 +1142,7 @@ export default function PlaygroundPage() {
   // interface whose values are all absent while still looking operational.
   if (coreReach === 'down') {
     return (
-      <div className="pg-layout">
+      <div className="p-margin-mobile md:p-margin-desktop">
         <CoreOffline reason={coreReachReason} />
       </div>
     );
@@ -1154,723 +1154,1026 @@ export default function PlaygroundPage() {
   const rogueRunning = rogueRow?.status === 'running';
 
   return (
-    <div className="pg-layout">
-      {/* One row carries the identity, the navigation and the only global state
-          a judge has to notice. The agent id that used to sit here named a
-          process nobody in the room can act on. */}
-      <header className="pg-topbar">
-        <a href="/console" className="pg-brand" title="Owner console">←</a>
-        <span className="pg-wordmark">Lakshman Rekha</span>
+    <div className="flex min-h-[calc(100vh-4rem)] flex-col gap-6 p-margin-mobile md:p-margin-desktop">
+      {/* ── Page header: what this room is for, and which moment is on stage ── */}
+      <header className="flex flex-col gap-4 border-b border-muted pb-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Icon name="warning" size={32} className="text-status-warning" />
+            <h1 className="font-headline text-headline-lg uppercase tracking-tight text-on-surface">
+              Playground
+            </h1>
+          </div>
+          {frozen && (
+            <span className="flex items-center gap-2 rounded-sm border border-status-error bg-status-error/10 px-3 py-1.5 font-mono text-label-sm uppercase tracking-widest text-status-error">
+              <Icon name="shieldOff" size={14} />
+              Revoked · epoch {revocationEpoch ?? '?'}
+            </span>
+          )}
+        </div>
 
-        <nav className="pg-stages" aria-label="Demonstration">
+        <p className="max-w-3xl font-mono text-body-md uppercase tracking-wider text-on-surface-variant">
+          Adversarial testing environment. Put the agent under pressure and watch what it still
+          cannot do.
+        </p>
+
+        {/* M1 and M2 are the project's own names for these two moments, not
+            ornamental numbering. `shop` carries no tag because it is the setup,
+            not one of the three. */}
+        <nav className="flex flex-wrap gap-1" aria-label="Demonstration">
           {STAGES.map((s) => (
             <button
               key={s.id}
-              className={`pg-stage-tab ${stage === s.id ? 'is-active' : ''}`}
+              className={`flex items-center gap-2 rounded-sm border px-4 py-2 font-mono text-label-sm uppercase tracking-wider transition-colors ${
+                stage === s.id
+                  ? 'border-tertiary bg-tertiary/10 text-tertiary'
+                  : 'border-muted bg-surface-container-low text-on-surface-variant hover:border-primary hover:text-on-surface'
+              }`}
               onClick={() => {
                 setStage(s.id);
                 sound.play('select');
               }}
               aria-current={stage === s.id ? 'page' : undefined}
             >
-              {/* M1 and M2 are FINALE.md's own names for these two moments, not
-                  ornamental numbering. `shop` carries no tag because it is the
-                  setup, not one of the three. */}
-              {s.tag && <span className="pg-stage-tag">{s.tag}</span>}
+              {s.tag && (
+                <span
+                  className={`rounded-sm px-1.5 py-0.5 text-[10px] font-bold ${
+                    stage === s.id ? 'bg-tertiary text-surface-container-lowest' : 'bg-surface-variant'
+                  }`}
+                >
+                  {s.tag}
+                </span>
+              )}
               {s.label}
             </button>
           ))}
         </nav>
-
-        {frozen && <span className="pg-frozen fx-stamp">REVOKED · epoch {revocationEpoch ?? '?'}</span>}
-        {/* Pushed to the right edge when nothing is frozen; the chip takes the
-            margin when it appears. */}
-        <SoundToggle className={frozen ? '' : 'fx-sound-end'} />
       </header>
 
-      {pairError && <div className="pg-banner">Agent not paired — {pairError}</div>}
+      {pairError && (
+        <div className="rounded-sm border border-status-error bg-status-error/10 px-4 py-3 font-mono text-label-mono text-status-error">
+          Agent not paired — {pairError}
+        </div>
+      )}
 
-      <div className="pg-body">
-        {/* The line is drawn around the whole stage, not around one panel inside
-            it. Whatever the agent is doing, it is doing it in here. */}
-        <Rekha pulse={pulse} className="pg-stage-area">
-        {/* The room reacting to a broken ceremony. Keyed so it replays on every
-            abort, and deliberately an opacity-only overlay INSIDE the Rekha's
-            content box: the boundary redraws itself from a ResizeObserver, so
-            anything that changes the host's size or transform mid-animation
-            makes the line fight the redraw. */}
-        {vignette > 0 && <div key={vignette} className="fx-stage-vignette is-firing" aria-hidden="true" />}
+      <div className="grid grid-cols-1 gap-gutter xl:grid-cols-12">
+        {/* ── The stage. The line is drawn around all of it, not around one
+               panel inside it: whatever the agent is doing, it is doing it in
+               here. ─────────────────────────────────────────────────────── */}
+        <Rekha
+          pulse={pulse}
+          className="relative min-w-0 rounded-sm bg-surface-container-low xl:col-span-8"
+        >
+          {/* The room reacting to a broken ceremony. Keyed so it replays on
+              every abort, and deliberately an opacity-only overlay INSIDE the
+              Rekha's content box: the boundary redraws itself from a
+              ResizeObserver, so anything that changes the host's size or
+              transform mid-animation makes the line fight the redraw. */}
+          {vignette > 0 && (
+            <div
+              key={vignette}
+              className="pointer-events-none absolute inset-0 z-20 animate-[wash-error_1200ms_ease-out_both] bg-status-error/10"
+              aria-hidden="true"
+            />
+          )}
 
-        {/* ══ SHOP ═══════════════════════════════════════════════════════ */}
-        {stage === 'shop' && (
-          <section className="pg-shop">
-            <div className="pg-command">
-              <input
-                ref={taskInputRef}
-                className="pg-input pg-task-input"
-                placeholder='Tell the agent what to buy — e.g. "order 100 bottles"'
-                value={taskInput}
-                onChange={(e) => setTaskInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void dispatchTask();
-                }}
-              />
-              <button
-                className="pg-btn-primary"
-                onClick={() => void dispatchTask()}
-                disabled={dispatching}
-                data-tip="Hand the task to the agent and watch it spend"
-              >
-                {dispatching ? 'Working…' : 'Dispatch'}
-              </button>
-            </div>
-
-            {/* A blank box asking for a natural-language task is where a cold
-                visitor stalls: they cannot know what this shop sells. These fill
-                it in. The last is SOFTWARE, the one category the deployed policy
-                forbids, so it refuses on chain with no attack needed. */}
-            <div className="fx-chips">
-              <span className="fx-chips-label">try</span>
-              {SUGGESTED_TASKS.map((s) => (
-                <button
-                  key={s.task}
-                  className="fx-chip"
-                  onClick={() => {
-                    setTaskInput(s.task);
-                    taskInputRef.current?.focus();
-                    sound.play('select');
-                  }}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Until something has run. Three steps, in the order they happen,
-                pointing at controls that are all on screen. */}
-            {!hasRun && (
-              <div className="fx-steps fx-reveal" style={{ ['--fx-i' as string]: 1 }}>
-                <span className="fx-step"><span className="fx-step-n">1</span>pick how the agent behaves</span>
-                <span className="fx-step-arrow">→</span>
-                <span className="fx-step"><span className="fx-step-n">2</span>dispatch a task</span>
-                <span className="fx-step-arrow">→</span>
-                <span className="fx-step"><span className="fx-step-n">3</span>click the outcome to see which rule decided it</span>
-              </div>
-            )}
-
-            {/* Five chips on one line, rather than six stacked cards. The
-                description belongs to whichever is selected, so only one is on
-                screen at a time. */}
-            <div className="pg-modebar">
-              {SHOP_MODES.map((m) => (
-                <button
-                  key={m}
-                  className={`pg-modechip ${mode === m ? 'is-active' : ''}`}
-                  onClick={() => {
-                    setMode(m);
-                    sound.play('select');
-                  }}
-                  aria-pressed={mode === m}
-                  // Hoverable without selecting: the description below belongs
-                  // to whichever mode is active, so comparing two of them
-                  // otherwise means committing to one first.
-                  data-tip={MODE_INFO[m].description}
-                >
-                  {MODE_INFO[m].label}
-                </button>
-              ))}
-              <span className="pg-mode-current">
-                {MODE_INFO[mode].description}
-                {MODE_INFO[mode].catches && (
-                  <span className="pg-mode-tag">→ {MODE_INFO[mode].catches}</span>
-                )}
-              </span>
-            </div>
-
-            {/* The storefront, at the size of the thing it represents. The agent
-                reads this page; a judge has to be able to read it too. */}
-            <div className="pg-web">
-              <div className="pg-web-chrome">
-                <span className="pg-web-label">the open web, as the agent finds it</span>
-                <select
-                  className="pg-select"
-                  value={targetVendorId}
-                  onChange={(e) => setTargetVendorId(e.target.value)}
-                  disabled={vendors.length === 0}
-                  aria-label="Storefront"
-                >
-                  {vendors.length === 0 ? (
-                    <option value="">vendor registry unreachable</option>
-                  ) : (
-                    vendors.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name} · tier {v.tier}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <span className="pg-web-spacer" />
-                <button
-                  className="pg-btn-attack"
-                  onClick={() => void spawnCounterfeit()}
-                  data-tip="Clone this seller at 40% of its prices, two days old, tier 2"
-                >
-                  Spawn counterfeit
-                </button>
+          {/* ══ SHOP ═══════════════════════════════════════════════════════ */}
+          {stage === 'shop' && (
+            <section className="flex flex-col gap-4 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <input
-                  className="pg-input pg-inject-input"
-                  placeholder={targetVendorId ? 'Write something onto this page…' : 'No storefront selected'}
-                  value={injectText}
-                  onChange={(e) => setInjectText(e.target.value)}
+                  ref={taskInputRef}
+                  className="min-w-0 flex-1 rounded-sm border border-muted bg-surface-container-lowest px-3 py-2.5 font-mono text-label-mono text-on-surface transition-colors placeholder:text-on-surface-variant/60 focus:border-primary"
+                  placeholder='Tell the agent what to buy — e.g. "order 100 bottles"'
+                  value={taskInput}
+                  onChange={(e) => setTaskInput(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') void injectIntoVendor();
+                    if (e.key === 'Enter') void dispatchTask();
                   }}
                 />
                 <button
-                  className="pg-btn-attack"
-                  onClick={() => void injectIntoVendor()}
-                  data-tip="Write your text onto this live storefront. The agent reads it on the next dispatch."
+                  className="btn-shock shrink-0 rounded-sm border border-tertiary bg-tertiary/10 px-6 py-2.5 font-mono text-label-sm font-bold uppercase tracking-wider text-tertiary transition-colors hover:bg-tertiary hover:text-surface-container-lowest disabled:opacity-60"
+                  onClick={() => void dispatchTask()}
+                  disabled={dispatching}
+                  title="Hand the task to the agent and watch it spend"
                 >
-                  Inject
+                  {dispatching ? 'Working…' : 'Dispatch'}
                 </button>
               </div>
 
-              {/* The discovery step, drawn over the frame it is about to reveal.
-                  It is a sibling of the iframe rather than a wrapper on purpose:
-                  the frame's key is `${vendor}-${nonce}` and remounting it
-                  reloads the storefront, so nothing may be allowed to change its
-                  position in the tree. */}
-              {discovery && (
-                <div className="fx-discover">
-                  <div className="fx-discover-bar">
-                    <span className="fx-discover-glyph" aria-hidden="true">⌕</span>
-                    <span className="fx-discover-query">
+              {/* A blank box asking for a natural-language task is where a cold
+                  visitor stalls: they cannot know what this shop sells. These
+                  fill it in. The wording is load-bearing — the planner breaks
+                  ties toward the cheapest price, so the phrase decides the
+                  supplier. Do not reword them without re-measuring. */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant">
+                  Try
+                </span>
+                {SUGGESTED_TASKS.map((s) => (
+                  <button
+                    key={s.task}
+                    className="rounded-sm border border-muted bg-surface-container px-3 py-1.5 font-mono text-[11px] text-on-surface-variant transition-colors hover:border-primary hover:text-on-surface"
+                    onClick={() => {
+                      setTaskInput(s.task);
+                      taskInputRef.current?.focus();
+                      sound.play('select');
+                    }}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Until something has run. Three steps, in the order they
+                  happen, pointing at controls that are all on screen. */}
+              {!hasRun && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-sm border border-muted bg-surface-container px-3 py-2.5 font-mono text-[11px] text-on-surface-variant">
+                  {[
+                    'pick how the agent behaves',
+                    'dispatch a task',
+                    'click the outcome to see which rule decided it',
+                  ].map((text, i) => (
+                    <span key={text} className="flex items-center gap-2">
+                      {i > 0 && <span className="text-muted">→</span>}
+                      <span className="flex h-4 w-4 items-center justify-center rounded-sm bg-surface-variant text-[9px] text-on-surface">
+                        {i + 1}
+                      </span>
+                      {text}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Five chips on one line rather than six stacked cards. The
+                  description belongs to whichever is selected, so only one is
+                  on screen at a time. */}
+              <div className="flex flex-wrap items-center gap-2">
+                {SHOP_MODES.map((m) => (
+                  <button
+                    key={m}
+                    className={`rounded-sm border px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider transition-colors ${
+                      mode === m
+                        ? 'border-status-warning bg-status-warning/10 text-status-warning'
+                        : 'border-muted bg-surface-container text-on-surface-variant hover:border-primary hover:text-on-surface'
+                    }`}
+                    onClick={() => {
+                      setMode(m);
+                      sound.play('select');
+                    }}
+                    aria-pressed={mode === m}
+                    title={MODE_INFO[m].description}
+                  >
+                    {MODE_INFO[m].label}
+                  </button>
+                ))}
+                <span className="font-body text-[12px] text-on-surface-variant">
+                  {MODE_INFO[mode].description}
+                  {MODE_INFO[mode].catches && (
+                    <span className="ml-1 text-tertiary">→ {MODE_INFO[mode].catches}</span>
+                  )}
+                </span>
+              </div>
+
+              {/* The storefront, at the size of the thing it represents. The
+                  agent reads this page; a judge has to be able to read it too. */}
+              <div className="relative flex flex-col overflow-hidden rounded-sm border border-muted bg-surface">
+                <div className="flex flex-wrap items-center gap-2 border-b border-muted bg-surface-container-low p-3">
+                  <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-tertiary">
+                    <Icon name="store" size={14} />
+                    Simulated storefront
+                  </span>
+
+                  <select
+                    className="min-w-0 rounded-sm border border-muted bg-surface-container px-2 py-1.5 font-mono text-[11px] text-on-surface"
+                    value={targetVendorId}
+                    onChange={(e) => setTargetVendorId(e.target.value)}
+                    disabled={vendors.length === 0}
+                    aria-label="Storefront"
+                  >
+                    {vendors.length === 0 ? (
+                      <option value="">vendor registry unreachable</option>
+                    ) : (
+                      vendors.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name} · tier {v.tier}
+                        </option>
+                      ))
+                    )}
+                  </select>
+
+                  <span className="ml-auto flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant">
+                    <span className="h-2 w-2 animate-ambient-pulse rounded-full bg-status-warning" />
+                    Agent active
+                  </span>
+                </div>
+
+                {/* The judge's controls sit ON the storefront, not in a settings
+                    drawer. They should be findable without being told. */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-muted bg-surface-container-lowest p-3">
+                  <button
+                    className="btn-shock rounded-sm border border-status-warning bg-surface-container-lowest px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-status-warning transition-colors hover:bg-status-warning hover:text-surface-container-lowest"
+                    onClick={() => void spawnCounterfeit()}
+                    title="Clone this seller at 40% of its prices, two days old, tier 2"
+                  >
+                    Spawn counterfeit
+                  </button>
+                  <input
+                    className="min-w-0 flex-1 rounded-sm border border-muted bg-surface px-3 py-1.5 font-mono text-[11px] text-on-surface placeholder:text-on-surface-variant/60 focus:border-status-warning"
+                    placeholder={
+                      targetVendorId ? 'Write something onto this page…' : 'No storefront selected'
+                    }
+                    value={injectText}
+                    onChange={(e) => setInjectText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void injectIntoVendor();
+                    }}
+                  />
+                  <button
+                    className="btn-shock rounded-sm border border-status-warning bg-surface-container-lowest px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-status-warning transition-colors hover:bg-status-warning hover:text-surface-container-lowest"
+                    onClick={() => void injectIntoVendor()}
+                    title="Write your text onto this live storefront. The agent reads it on the next dispatch."
+                  >
+                    Inject
+                  </button>
+                </div>
+
+                {/* The discovery step, drawn over the frame it is about to
+                    reveal. It is a sibling of the iframe rather than a wrapper
+                    on purpose: the frame's key is `${vendor}-${nonce}` and
+                    remounting it reloads the storefront, so nothing may change
+                    its position in the tree. */}
+                {discovery && (
+                  <div className="flex flex-col gap-2 border-b border-muted bg-surface-container-lowest p-4">
+                    <div className="flex items-center gap-2 font-mono text-label-mono text-on-surface">
+                      <Icon name="store" size={14} className="text-on-surface-variant" />
                       {discovery.query}
-                      <span className="fx-discover-caret" aria-hidden="true" />
+                    </div>
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant">
+                      {discovery.chosenVendorId
+                        ? 'supplier chosen — opening its page'
+                        : 'reading the supplier registry…'}
+                    </span>
+                    <div className="flex flex-col gap-1">
+                      {discoveryRows.map((v) => (
+                        <div
+                          key={v.id}
+                          className={`flex flex-wrap items-center gap-x-3 rounded-sm px-2 py-1 font-mono text-[11px] ${
+                            discovery.chosenVendorId === v.id
+                              ? 'border border-tertiary/50 bg-tertiary/10 text-tertiary'
+                              : 'text-on-surface-variant'
+                          }`}
+                        >
+                          <span className="text-on-surface">{v.name}</span>
+                          <span className="text-data-hash">{v.id}</span>
+                          <span className="ml-auto">tier {v.tier}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Says what it is. This is the simulated registry, not a
+                        web search, and the panel must never imply otherwise. */}
+                    <span className="font-body text-[11px] text-on-surface-variant/70">
+                      Simulated supplier registry — the same catalogue the policy engine checks
+                      tiers against.
                     </span>
                   </div>
-                  <span className="fx-discover-label">
-                    {discovery.chosenVendorId ? 'supplier chosen — opening its page' : 'reading the supplier registry…'}
-                  </span>
-                  <div className="fx-discover-list">
-                    {/* The chosen supplier is always one of the rows.
-                        Measured: "order 100 bottles" plans against ven_flashcart,
-                        which is sixth in the catalogue — so a plain slice(0,5)
-                        showed the caption "supplier chosen" above five rows, none
-                        of which was highlighted. */}
-                    {discoveryRows.map((v, i) => (
+                )}
+
+                {storefrontUrl ? (
+                  <div className="relative">
+                    <div className="scanline absolute inset-0 z-10" aria-hidden="true" />
+                    <iframe
+                      key={`${targetVendorId}-${storefrontNonce}`}
+                      className="h-[420px] w-full border-0 bg-white"
+                      src={storefrontUrl}
+                      title={`${targetVendor?.name ?? targetVendorId} storefront`}
+                      sandbox="allow-same-origin"
+                    />
+                  </div>
+                ) : (
+                  <div className="p-6 font-body text-body-md text-on-surface-variant">
+                    The vendor registry at <code className="font-mono text-data-hash">{VENDORSIM_URL}</code>{' '}
+                    could not be reached, so there is no storefront to show. Start it with{' '}
+                    <code className="font-mono text-on-surface">pnpm dev:vendorsim</code>.
+                  </div>
+                )}
+
+                {counterfeitResult && (
+                  <div
+                    className={`border-t border-muted px-4 py-2 font-mono text-[11px] ${counterfeitResult.ok ? 'text-tertiary' : 'text-status-error'}`}
+                  >
+                    {counterfeitResult.text}
+                  </div>
+                )}
+                {injectResult && (
+                  <div
+                    className={`border-t border-muted px-4 py-2 font-mono text-[11px] ${injectResult.ok ? 'text-tertiary' : 'text-status-error'}`}
+                  >
+                    {injectResult.text}
+                  </div>
+                )}
+              </div>
+
+              {/* Nothing to report until something has been dispatched, and an
+                  empty panel would cost the storefront a third of its height. */}
+              {hasRun && (
+                <div className="grid grid-cols-1 gap-gutter lg:grid-cols-2">
+                  <div className="flex min-w-0 flex-col gap-3">
+                    {tasks.map((task) => (
                       <div
-                        key={v.id}
-                        className={`fx-discover-row ${discovery.chosenVendorId === v.id ? 'is-chosen' : ''}`}
-                        style={{ ['--fx-i' as string]: i }}
+                        key={task.id}
+                        className="flex flex-col gap-2 rounded-sm border border-muted bg-surface-container p-3"
                       >
-                        <span className="fx-discover-name">{v.name}</span>
-                        <span className="fx-discover-meta">{v.id}</span>
-                        <span className="fx-discover-tier">tier {v.tier}</span>
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <span className="font-body text-body-md text-on-surface">
+                            {task.description}
+                          </span>
+                          <span className="rounded-sm border border-muted px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant">
+                            {task.mode}
+                          </span>
+                        </div>
+
+                        {task.error && (
+                          <div className="font-mono text-[11px] text-status-error">{task.error}</div>
+                        )}
+                        {task.note && !task.error && (
+                          <div className="font-mono text-[11px] text-on-surface-variant">
+                            {task.note}
+                          </div>
+                        )}
+
+                        {task.plan.map((item) => {
+                          const result = task.results.find((r) => r.lineItemId === item.lineItemId);
+                          /**
+                           * The amount ASKED FOR, not the amount planned.
+                           *
+                           * This row used to render `item.estimatedAmountMinor`
+                           * even after the result came back — the planner's
+                           * `units × registry price`, computed before the agent
+                           * ever opened the storefront. Caught in a browser: an
+                           * `injected` dispatch where the page talked the agent
+                           * into paying ₹9,99,800 to `0xdeadbeef…` displayed as
+                           * ₹480. The one number on screen was the one number
+                           * the agent did not use.
+                           *
+                           * Reading the price off a live page is the entire
+                           * point of browsing, so estimate and actual are
+                           * expected to differ, and the difference is the story.
+                           */
+                          const asked = result?.amountMinor ?? item.estimatedAmountMinor;
+                          const movedPrice =
+                            result != null && result.amountMinor !== item.estimatedAmountMinor;
+                          // Likewise the payee. In `injected` and `colluding`
+                          // the agent submits a counterparty that is not the
+                          // vendor whose page it read.
+                          const movedPayee = result != null && result.vendorId !== item.vendorId;
+
+                          return (
+                            <div
+                              key={item.lineItemId}
+                              className="flex flex-col gap-1 border-t border-muted/50 pt-2 font-mono text-[11px]"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-on-surface-variant">
+                                  {item.vendorId}
+                                  {movedPayee && (
+                                    <span className="text-status-warning"> → {result.vendorId}</span>
+                                  )}
+                                </span>
+                                <Amount minor={asked} compact className="text-on-surface" />
+                                {result && (
+                                  <button
+                                    className={`ml-auto rounded-sm border px-2 py-1 text-[10px] uppercase tracking-wider transition-colors ${
+                                      result.outcome === 'APPROVED'
+                                        ? 'border-status-success/50 bg-status-success/10 text-status-success hover:bg-status-success/20'
+                                        : result.outcome === 'HELD'
+                                          ? 'border-status-warning/50 bg-status-warning/10 text-status-warning hover:bg-status-warning/20'
+                                          : 'border-status-error/50 bg-status-error/10 text-status-error hover:bg-status-error/20'
+                                    }`}
+                                    onClick={() => setSelectedTrace(result.trace)}
+                                    title="Show every predicate this was checked against"
+                                  >
+                                    {result.outcome}
+                                    {result.bindingPredicate ? ` · ${result.bindingPredicate}` : ''}
+                                  </button>
+                                )}
+                                {!result && (
+                                  <span className="ml-auto text-on-surface-variant/70">est</span>
+                                )}
+                              </div>
+
+                              {/* Only when the page moved it. Silent on an
+                                  ordinary purchase, loud on the demo that
+                                  depends on it. */}
+                              {movedPrice && (
+                                <div className="text-status-warning">
+                                  the storefront moved this off the registry&apos;s{' '}
+                                  <Amount minor={item.estimatedAmountMinor} compact />
+                                </div>
+                              )}
+                              {result && result.counterparty !== undefined && (
+                                <div className="text-on-surface-variant">
+                                  paid to{' '}
+                                  <span className="text-data-hash">
+                                    {shortHex(result.counterparty, 10, 6)}
+                                  </span>
+                                </div>
+                              )}
+
+                              {result?.settlement && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-status-success">settled</span>
+                                  <a
+                                    href={
+                                      result.settlement.explorerUrl ||
+                                      basescanTx(result.settlement.txHash)
+                                    }
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-data-hash hover:text-primary"
+                                    title={result.settlement.txHash}
+                                  >
+                                    {shortHex(result.settlement.txHash, 10, 6)}
+                                    <Icon name="external" size={10} />
+                                  </a>
+                                  <span className="text-on-surface-variant">
+                                    block {result.settlement.blockNumber}
+                                  </span>
+                                </div>
+                              )}
+
+                              {result?.refusedOnChain && (
+                                <div className="text-status-error">
+                                  PolicyModule refused on chain: {result.refusedOnChain}. No funds
+                                  moved.
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     ))}
                   </div>
-                  {/* Says what it is. This is the simulated registry, not a web
-                      search, and the panel must never imply otherwise. */}
-                  <span className="fx-discover-foot">
-                    Simulated supplier registry — the same catalogue the policy engine checks tiers against.
-                  </span>
-                </div>
-              )}
 
-              {storefrontUrl ? (
-                <iframe
-                  key={`${targetVendorId}-${storefrontNonce}`}
-                  className="pg-web-frame"
-                  src={storefrontUrl}
-                  title={`${targetVendor?.name ?? targetVendorId} storefront`}
-                  sandbox="allow-same-origin"
-                />
-              ) : (
-                <div className="pg-store-missing">
-                  The vendor registry at <code>{VENDORSIM_URL}</code> could not be reached, so there is no
-                  storefront to show. Start it with <code>pnpm dev:vendorsim</code>.
-                </div>
-              )}
-
-              {counterfeitResult && (
-                <div className={counterfeitResult.ok ? 'pg-msg-ok' : 'pg-msg-err'}>{counterfeitResult.text}</div>
-              )}
-              {injectResult && <div className={injectResult.ok ? 'pg-msg-ok' : 'pg-msg-err'}>{injectResult.text}</div>}
-            </div>
-
-            {/* Nothing to report until something has been dispatched, and an
-                empty panel would cost the storefront a third of its height. */}
-            {hasRun && (
-              <div className="pg-drawer">
-                <div className="pg-drawer-col pg-tasks">
-                  {tasks.map((task) => (
-                <div key={task.id} className={`pg-task pg-task-${task.status}`}>
-                  <div className="pg-task-head">
-                    <span className="pg-task-desc">{task.description}</span>
-                    <span className="pg-task-mode">{task.mode}</span>
-                  </div>
-
-                  {task.error && <div className="pg-task-error">{task.error}</div>}
-                  {task.note && !task.error && <div className="pg-task-note">{task.note}</div>}
-
-                  {task.plan.map((item) => {
-                    const result = task.results.find((r) => r.lineItemId === item.lineItemId);
-
-                    /**
-                     * The amount ASKED FOR, not the amount planned.
-                     *
-                     * This row used to render `item.estimatedAmountMinor` even
-                     * after the result came back — the planner's
-                     * `units × registry price`, computed before the agent ever
-                     * opened the storefront. Caught in a browser: an `injected`
-                     * dispatch where the page talked the agent into paying
-                     * ₹9,99,800 to `0xdeadbeef…` displayed as **₹480**. The one
-                     * number on screen was the one number the agent did not use.
-                     *
-                     * It is wrong in every mode, not just that one. Reading the
-                     * price off a live page is the entire point of browsing —
-                     * so estimate and actual are *expected* to differ, and the
-                     * difference is the story rather than a detail.
-                     *
-                     * Estimate is still shown while the dispatch is in flight,
-                     * because until a result exists it is the only figure there
-                     * is, and it is labelled `est` so it cannot be misread as
-                     * settled.
-                     */
-                    const asked = result?.amountMinor ?? item.estimatedAmountMinor;
-                    const movedPrice = result != null && result.amountMinor !== item.estimatedAmountMinor;
-                    // Likewise the payee. In `injected` and `colluding` the
-                    // agent submits a counterparty that is not the vendor whose
-                    // page it read, and naming only the vendor would hide it.
-                    const movedPayee =
-                      result != null && result.vendorId !== item.vendorId;
-
-                    return (
-                      <div key={item.lineItemId} className="pg-line">
-                        <div className="pg-line-row">
-                          <span className="pg-line-vendor">
-                            {item.vendorId}
-                            {movedPayee && <> → {result.vendorId}</>}
-                          </span>
-                          <Amount minor={asked} compact className="pg-line-amount" />
-                          {result && (
-                            <button
-                              className={`pg-outcome pg-outcome-${result.outcome.toLowerCase()}`}
-                              onClick={() => setSelectedTrace(result.trace)}
-                              title="Show every predicate this was checked against"
-                            >
-                              {result.outcome}
-                              {result.bindingPredicate ? ` · ${result.bindingPredicate}` : ''}
-                            </button>
-                          )}
-                          {!result && <span className="pg-line-est">est</span>}
+                  <div
+                    className="flex max-h-[280px] min-w-0 flex-col gap-1 overflow-y-auto rounded-sm border border-muted bg-surface-container-lowest p-3"
+                    ref={thoughtsRef}
+                  >
+                    <div className="mb-1 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-on-surface-variant">
+                      <Icon name="bot" size={12} />
+                      Agent reasoning
+                    </div>
+                    {agentThoughts.length === 0 ? (
+                      <div className="font-mono text-[11px] text-on-surface-variant/60">Idle.</div>
+                    ) : (
+                      agentThoughts.map((t, i) => (
+                        <div key={i} className="font-mono text-[11px] text-on-surface-variant">
+                          <span className="text-muted">›</span> {t}
                         </div>
-
-                        {/* Only when the page moved it. Silent on an ordinary
-                            purchase, loud on the demo that depends on it. */}
-                        {movedPrice && (
-                          <div className="pg-line-moved">
-                            the storefront moved this off the registry&apos;s{' '}
-                            <Amount minor={item.estimatedAmountMinor} compact />
-                          </div>
-                        )}
-                        {result && result.counterparty !== undefined && (
-                          <div className="pg-line-payee">
-                            paid to <span className="pg-mono">{shortHex(result.counterparty, 10, 6)}</span>
-                          </div>
-                        )}
-
-                        {result?.settlement && (
-                          <div className="pg-line-meta">
-                            <span className="pg-settled">settled</span>
-                            <a
-                              href={result.settlement.explorerUrl || basescanTx(result.settlement.txHash)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="pg-line-link"
-                              title={result.settlement.txHash}
-                            >
-                              {shortHex(result.settlement.txHash, 10, 6)} ↗
-                            </a>
-                            <span>block {result.settlement.blockNumber}</span>
-                          </div>
-                        )}
-
-                        {result?.refusedOnChain && (
-                          <div className="pg-line-reverted">
-                            PolicyModule refused on chain: {result.refusedOnChain}. No funds moved.
-                          </div>
-                        )}
+                      ))
+                    )}
+                    {/* A cursor while it is still working. Without it a stalled
+                        dispatch and a finished one look identical. */}
+                    {dispatching && (
+                      <div className="flex items-center gap-2 font-mono text-[11px] text-tertiary">
+                        <span className="h-3 w-1.5 animate-ambient-pulse bg-tertiary" />
+                        thinking
                       </div>
-                    );
-                  })}
+                    )}
+                  </div>
                 </div>
-                  ))}
-                </div>
+              )}
+            </section>
+          )}
 
-                <div className="pg-drawer-col pg-thoughts" ref={thoughtsRef}>
-                  <div className="pg-thoughts-label">agent reasoning</div>
-                  {agentThoughts.length === 0 ? (
-                    <div className="pg-empty">Idle.</div>
+          {/* ══ M1 ═════════════════════════════════════════════════════════ */}
+          {stage === 'm1' && (
+            <section className="flex flex-col gap-4 p-6">
+              <h2 className="font-headline text-headline-md text-on-surface">
+                The agent already has everything it needs
+              </h2>
+              <p className="max-w-2xl font-body text-body-lg text-on-surface-variant">
+                It holds key share A. It has full network access. It does not need this service to
+                reach Base Sepolia, and it is about to try calling{' '}
+                <code className="font-mono text-data-hash">RekhaAccount.execute</code> itself.
+              </p>
+
+              <button
+                className="btn-shock w-full rounded-sm border-2 border-status-warning bg-status-warning/10 px-6 py-3 font-mono text-label-sm font-bold uppercase tracking-widest text-status-warning transition-colors hover:bg-status-warning hover:text-surface-container-lowest disabled:opacity-60"
+                onClick={() => void runRailBypass()}
+                disabled={railBypassRunning}
+              >
+                {railBypassRunning ? 'Asking the chain…' : 'Pay itself, without the core'}
+              </button>
+
+              {railBypassError && (
+                <div className="rounded-sm border border-status-error bg-status-error/10 px-4 py-3 font-mono text-[11px] text-status-error">
+                  {railBypassError}
+                </div>
+              )}
+
+              {railBypass && (
+                // Keyed on the run counter so the panel replays on every press.
+                // Without it a second run swaps the text in silently and the
+                // moment reads as a static panel that was always there.
+                <div
+                  key={railBypassRun}
+                  className={`flex animate-fade-in-up flex-col gap-4 rounded-sm border p-5 ${
+                    railBypass.outcome === 'reverted'
+                      ? 'border-status-error/50 bg-status-error/5'
+                      : 'border-status-error bg-status-error/20'
+                  }`}
+                >
+                  {railBypass.outcome === 'reverted' ? (
+                    <>
+                      {/* The contract's own revert string, at the size of the
+                          claim it settles. Nothing on this page decides it. */}
+                      <div className="font-mono text-[clamp(22px,3.4vw,40px)] leading-none font-bold text-status-error">
+                        {railBypass.revert}
+                      </div>
+                      <p className="font-headline text-headline-md text-on-surface">
+                        It isn&apos;t blocked. It&apos;s incapable.
+                      </p>
+                    </>
                   ) : (
-                    agentThoughts.map((t, i) => (
-                      <div key={i} className="pg-thought">
-                        › {t}
-                      </div>
-                    ))
-                  )}
-                  {/* A cursor while it is still working. Without it a stalled
-                      dispatch and a finished one look identical. */}
-                  {dispatching && (
-                    <div className="fx-thinking">
-                      <span className="fx-thought-cursor" aria-hidden="true" />
-                      <span>thinking</span>
+                    <div className="font-mono text-[clamp(18px,2.4vw,28px)] font-bold leading-tight text-status-error">
+                      The chain ACCEPTED a payment signed by one key share. The 2-of-2 claim is
+                      false.
                     </div>
                   )}
+
+                  <dl className="grid grid-cols-1 gap-x-6 gap-y-2 border-t border-muted pt-4 font-mono text-[11px] sm:grid-cols-2">
+                    {[
+                      { t: 'agent', d: shortHex(railBypass.agentAddress, 10, 6), full: railBypass.agentAddress },
+                      { t: 'tried to take', d: formatInrMinor(railBypass.amountMinor, true) },
+                      ...(railBypass.predicate ? [{ t: 'bound on', d: railBypass.predicate }] : []),
+                      { t: 'called', d: railBypass.method },
+                    ].map((f) => (
+                      <div key={f.t} className="flex items-center justify-between gap-3">
+                        <dt className="uppercase tracking-wider text-on-surface-variant">{f.t}</dt>
+                        <dd className="truncate text-on-surface" title={f.full}>
+                          {f.d}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+
+                  <a
+                    href={railBypass.accountUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex w-fit items-center gap-1.5 font-mono text-[11px] text-data-hash hover:text-primary"
+                  >
+                    RekhaAccount {shortHex(railBypass.rekhaAccount, 8, 4)} on Basescan
+                    <Icon name="external" size={11} />
+                  </a>
                 </div>
+              )}
+            </section>
+          )}
+
+          {/* ══ M2 ═════════════════════════════════════════════════════════ */}
+          {stage === 'm2' && (
+            <section className="flex flex-col gap-4 p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h2 className="font-headline text-headline-md text-on-surface">Let it attack us</h2>
+                  <p className="mt-1 max-w-2xl font-body text-body-md text-on-surface-variant">
+                    The deterministic attack suite, run against this core, live. Each attempt is
+                    labelled with the layer that stopped it.
+                  </p>
+                </div>
+                <button
+                  className="btn-shock shrink-0 rounded-sm border-2 border-status-warning bg-status-warning/10 px-5 py-2.5 font-mono text-label-sm font-bold uppercase tracking-widest text-status-warning transition-colors hover:bg-status-warning hover:text-surface-container-lowest disabled:opacity-60"
+                  onClick={() => {
+                    setMode('compromised');
+                    void runAdversary('Rogue Mode — deterministic attack suite');
+                  }}
+                  disabled={rogueRunning}
+                >
+                  {rogueRunning ? 'Attacking…' : 'Run the attack suite'}
+                </button>
               </div>
-            )}
-          </section>
-        )}
 
-        {/* ══ M1 ═════════════════════════════════════════════════════════ */}
-        {stage === 'm1' && (
-          <section className="pg-moment">
-            <h2 className="pg-moment-title">The agent already has everything it needs</h2>
-            <p className="pg-moment-lede">
-              It holds key share A. It has full network access. It does not need this service to reach
-              Base Sepolia, and it is about to try calling <code>RekhaAccount.execute</code> itself.
-            </p>
+              {/* The route waits for the whole suite before replaying it, so the
+                  board stays at zero for minutes with nothing else to look at.
+                  Silence for that long reads as a broken button. */}
+              {rogueRunning && (
+                <div className="relative overflow-hidden rounded-sm border border-status-warning/40 bg-status-warning/10 px-4 py-3 font-body text-body-md text-status-warning">
+                  Running all 12 classes against this core over HTTP. It takes two to four minutes,
+                  and the board fills as each verdict comes back. Do not click again.
+                  <span className="shimmer absolute inset-0" aria-hidden="true" />
+                </div>
+              )}
 
-            <button className="pg-btn-attack-wide" onClick={() => void runRailBypass()} disabled={railBypassRunning}>
-              {railBypassRunning ? 'Asking the chain…' : 'Pay itself, without the core'}
-            </button>
+              {rogueRow?.error && (
+                <div className="rounded-sm border border-status-error bg-status-error/10 px-4 py-3 font-mono text-[11px] text-status-error">
+                  {rogueRow.error}
+                </div>
+              )}
 
-            {railBypassError && <div className="pg-msg-err">{railBypassError}</div>}
+              <div className="grid grid-cols-2 gap-gutter sm:grid-cols-3 lg:grid-cols-4">
+                {/* One "blocked: 147" hid that 144 died at the typed-schema
+                    boundary and 3 reached a predicate. Split, it reads as
+                    defence in depth; conflated, as something we hoped nobody
+                    would check. */}
+                {[
+                  { v: rogueStats.attempts, l: 'attempts' },
+                  { v: rogueStats.input, l: 'input boundary' },
+                  { v: rogueStats.policy, l: 'policy predicates' },
+                  { v: rogueStats.chain, l: 'on chain' },
+                ].map((s) => (
+                  <div
+                    key={s.l}
+                    className="flex flex-col gap-1 rounded-sm border border-muted bg-surface-container p-4"
+                  >
+                    <Counter
+                      value={s.v}
+                      className="tnum font-headline text-[28px] font-bold text-on-surface"
+                    />
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant">
+                      {s.l}
+                    </span>
+                  </div>
+                ))}
 
-            {railBypass && (
-              // Keyed on the run counter so the stamp replays on every press.
-              // Without it a second run swaps the text in silently and the
-              // moment reads as a static panel that was always there.
-              <div
-                key={railBypassRun}
-                className={`pg-m1-result fx-stamp ${railBypass.outcome === 'reverted' ? 'is-blocked' : 'is-critical'}`}
-              >
-                {railBypass.outcome === 'reverted' ? (
-                  <>
-                    {/* The contract's own revert string, at the size of the
-                        claim it settles. Nothing on this page decides it. */}
-                    <div className="pg-verdict-revert">{railBypass.revert}</div>
-                    <p className="pg-verdict-line">It isn&apos;t blocked. It&apos;s incapable.</p>
-                  </>
-                ) : (
-                  <div className="pg-verdict-revert is-critical">
-                    The chain ACCEPTED a payment signed by one key share. The 2-of-2 claim is false.
+                {rogueStats.approved > 0 && (
+                  <div className="flex flex-col gap-1 rounded-sm border border-status-warning/50 bg-status-warning/10 p-4">
+                    <Counter
+                      value={rogueStats.approved}
+                      className="tnum font-headline text-[28px] font-bold text-status-warning"
+                    />
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-status-warning">
+                      core-approved, unsettled
+                    </span>
                   </div>
                 )}
-
-                <dl className="pg-facts">
-                  <div><dt>agent</dt><dd className="pg-mono" title={railBypass.agentAddress}>{shortHex(railBypass.agentAddress, 10, 6)}</dd></div>
-                  <div><dt>tried to take</dt><dd className="pg-mono">{formatInrMinor(railBypass.amountMinor, true)}</dd></div>
-                  {railBypass.predicate && (
-                    <div><dt>bound on</dt><dd className="pg-mono">{railBypass.predicate}</dd></div>
-                  )}
-                  <div><dt>called</dt><dd className="pg-mono">{railBypass.method}</dd></div>
-                </dl>
-
-                <a href={railBypass.accountUrl} target="_blank" rel="noopener noreferrer" className="pg-link">
-                  RekhaAccount {shortHex(railBypass.rekhaAccount, 8, 4)} on Basescan ↗
-                </a>
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* ══ M2 ═════════════════════════════════════════════════════════ */}
-        {stage === 'm2' && (
-          <section className="pg-moment pg-m2">
-            <div className="pg-m2-head">
-              <div>
-                <h2 className="pg-moment-title">Let it attack us</h2>
-                <p className="pg-moment-lede">
-                  The deterministic attack suite, run against this core, live. Each attempt is
-                  labelled with the layer that stopped it.
-                </p>
-              </div>
-              <button
-                className="pg-btn-attack-wide pg-m2-run"
-                onClick={() => {
-                  setMode('compromised');
-                  void runAdversary('Rogue Mode — deterministic attack suite');
-                }}
-                disabled={rogueRunning}
-              >
-                {rogueRunning ? 'Attacking…' : 'Run the attack suite'}
-              </button>
-            </div>
-
-            {/* The route waits for the whole suite before replaying it, so the
-                board stays at zero for minutes with nothing else to look at.
-                Silence for that long reads as a broken button. */}
-            {rogueRunning && (
-              <div className="pg-msg-ok">
-                Running all 12 classes against this core over HTTP. It takes two to four minutes,
-                and the board fills as each verdict comes back. Do not click again.
-                {/* Indeterminate on purpose — the remaining count is not known
-                    until the run replies. It exists so two minutes of silence
-                    does not read as a dead button. */}
-                <div className="fx-shimmer" role="presentation" />
-              </div>
-            )}
-
-            {rogueRow?.error && <div className="pg-msg-err">{rogueRow.error}</div>}
-
-            <div className="pg-scores">
-              <div className="pg-score">
-                <Counter value={rogueStats.attempts} className="pg-score-value" />
-                <span className="pg-score-label">attempts</span>
-              </div>
-              {/* One "blocked: 147" hid that 144 died at the typed-schema
-                  boundary and 3 reached a predicate. Split, it reads as defence
-                  in depth; conflated, as something we hoped nobody would check. */}
-              <div className="pg-score">
-                <Counter value={rogueStats.input} className="pg-score-value" />
-                <span className="pg-score-label">input boundary</span>
-              </div>
-              <div className="pg-score">
-                <Counter value={rogueStats.policy} className="pg-score-value" />
-                <span className="pg-score-label">policy predicates</span>
-              </div>
-              <div className="pg-score">
-                <Counter value={rogueStats.chain} className="pg-score-value" />
-                <span className="pg-score-label">on chain</span>
+                {/* An attack we could not run is not a defence, so this appears
+                    only when the run is incomplete. */}
+                {rogueStats.errored > 0 && (
+                  <div className="flex flex-col gap-1 rounded-sm border border-muted bg-surface-container p-4">
+                    <Counter
+                      value={rogueStats.errored}
+                      className="tnum font-headline text-[28px] font-bold text-on-surface-variant"
+                    />
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant">
+                      not tested
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {rogueStats.approved > 0 && (
-                <div className="pg-score pg-score-approved">
-                  <Counter value={rogueStats.approved} className="pg-score-value" />
-                  <span className="pg-score-label">core-approved, unsettled</span>
-                </div>
-              )}
-              {/* An attack we could not run is not a defence, so this appears
-                  only when the run is incomplete. */}
-              {rogueStats.errored > 0 && (
-                <div className="pg-score pg-score-errored">
-                  <Counter value={rogueStats.errored} className="pg-score-value" />
-                  <span className="pg-score-label">not tested</span>
-                </div>
-              )}
-
-              {/* The largest figure on the page, and the only --clear on it. It
-                  measures SETTLEMENT — money that left the account — which is
-                  the only thing "lost" can honestly mean.
-                  The figure is derived, not typed. It read `formatInrMinor(0)`
-                  as a literal, and `.pg-score-lost.is-breached` — the rule that
-                  strips the green off the instant the claim stops being true —
-                  had no way to ever apply. A hardcoded zero is exactly the
+              {/* The largest figure on the page, and the only success-green on
+                  it. It measures SETTLEMENT — money that left the account —
+                  which is the only thing "lost" can honestly mean. The figure
+                  is derived, never typed: a hardcoded zero is exactly the
                   failure the rest of this file spends its comments avoiding. */}
-              {/* `fx-alive` breathes a green halo, but only while attacks are
-                  actually arriving and the claim still holds. It is switched off
-                  the moment anything settles — the halo must never outlive the
-                  sentence it is decorating. */}
               <div
-                className={`pg-score pg-score-lost ${lostMinor > 0 ? 'is-breached' : ''} ${
-                  rogueStats.attempts > 0 && lostMinor === 0 ? 'fx-alive' : ''
+                className={`flex flex-col items-center gap-2 rounded-sm border p-6 ${
+                  lostMinor > 0
+                    ? 'border-status-error bg-status-error/10'
+                    : 'border-status-success/40 bg-status-success/5'
                 }`}
               >
-                <span className="pg-score-lost-value">{formatInrMinor(lostMinor, true)}</span>
-                <span className="pg-score-label">
+                <span
+                  className={`tnum font-headline text-[clamp(40px,7vw,72px)] font-bold leading-none ${
+                    lostMinor > 0 ? 'text-status-error' : 'text-status-success'
+                  } ${rogueStats.attempts > 0 && lostMinor === 0 ? 'animate-ambient-pulse' : ''}`}
+                >
+                  {formatInrMinor(lostMinor, true)}
+                </span>
+                <span className="font-mono text-label-sm uppercase tracking-widest text-on-surface-variant">
                   {lostMinor > 0 ? 'lost · money settled' : 'lost · nothing settled'}
+                </span>
+              </div>
+            </section>
+          )}
+        </Rekha>
+
+        {/* ── The rail does not change between stages. That is the argument:
+               the same lease, the same core and the same contract are doing the
+               work in all three, and a judge can watch them while the stage
+               changes. ────────────────────────────────────────────────────── */}
+        <aside className="flex min-w-0 flex-col gap-gutter xl:col-span-4">
+          <section className="flex flex-col rounded-sm border border-muted bg-surface">
+            <div className="flex items-center justify-between border-b border-muted bg-surface-container p-3">
+              <h2 className="flex items-center gap-2 font-mono text-label-sm uppercase tracking-widest text-on-surface">
+                <Icon name="shield" size={14} />
+                Enforcement
+              </h2>
+            </div>
+
+            <div
+              className="flex items-center gap-4 border-b border-muted p-4"
+              title="Every payment needs an unexpired lease. No core, no lease, no spending."
+            >
+              {/* No showLabel: the seconds figure sits beside the ring at a
+                  readable size, and printing it twice put a second copy
+                  underneath the arc. */}
+              <TTLRing ttlMs={leaseTtl} maxMs={leaseTtlMax} size={64} />
+              <div className="flex flex-col">
+                <span className="tnum font-headline text-[22px] font-bold text-on-surface">
+                  {(Math.max(0, leaseTtl) / 1000).toFixed(1)}s
+                </span>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant">
+                  lease
                 </span>
               </div>
             </div>
 
-            <div className="pg-attacks">
-              {attackLog.length === 0 ? (
-                <div className="pg-empty">Nothing has attacked this core yet.</div>
-              ) : (
-                attackLog.map((a) => (
-                  <div
-                    key={a.id}
-                    className={`pg-attack ${a.status === 'through' ? 'is-approved' : ''} ${a.status === 'errored' ? 'is-errored' : ''}`}
+            {/* 'checking' is rendered as itself. coreUp initialises false, so
+                painting it as "not issuing" before the health probe answers
+                would announce a killed core on every page load — the one state
+                that must never be claimed without having been measured. */}
+            <div className="flex items-center gap-2 border-b border-muted px-4 py-3 font-mono text-label-mono">
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  coreReach === 'checking'
+                    ? 'bg-on-surface-variant'
+                    : coreUp
+                      ? 'animate-ambient-pulse bg-status-success shadow-[0_0_8px_var(--color-status-success)]'
+                      : 'bg-status-error shadow-[0_0_8px_var(--color-status-error)]'
+                }`}
+              />
+              <span
+                className={
+                  coreReach === 'checking'
+                    ? 'text-on-surface-variant'
+                    : coreUp
+                      ? 'text-status-success'
+                      : 'text-status-error'
+                }
+              >
+                {coreReach === 'checking'
+                  ? 'checking the core…'
+                  : coreUp
+                    ? 'core issuing leases'
+                    : 'core not issuing'}
+              </span>
+            </div>
+
+            <dl className="flex flex-col">
+              <div className="flex items-center justify-between gap-3 border-b border-muted/40 px-4 py-2.5 font-mono text-[11px]">
+                <dt className="uppercase tracking-wider text-on-surface-variant">core image</dt>
+                <dd className="truncate text-data-hash" title={imageDigest ?? undefined}>
+                  {imageDigest ? shortHex(imageDigest, 13, 6) : 'waiting for core.status…'}
+                </dd>
+              </div>
+              {/* Predicate 3 is real and reverts CoreImageMismatch on a
+                  mismatch. The registered value is a stand-in. Saying so here
+                  costs nothing and stops the figure being read as an
+                  attestation. */}
+              {isPlaceholderDigest(imageDigest) && (
+                <p className="border-b border-status-warning/30 bg-status-warning/10 px-4 py-2 font-mono text-[10px] leading-relaxed text-status-warning">
+                  placeholder digest — the check is real, the value attests nothing
+                </p>
+              )}
+              <div className="flex items-center justify-between gap-3 border-b border-muted/40 px-4 py-2.5 font-mono text-[11px]">
+                <dt className="uppercase tracking-wider text-on-surface-variant">PolicyModule</dt>
+                <dd>
+                  <a
+                    href={basescanAddress(POLICY_MODULE_ADDRESS)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-data-hash hover:text-primary"
                   >
-                    <span className="pg-attack-tech">{a.technique}</span>
-                    {a.novel && <span className="pg-attack-novel">novel</span>}
-                    {a.stage && <span className="pg-attack-stage">{a.stage}</span>}
-                    <span className="pg-attack-verdict">
-                      {a.status === 'blocked' ? 'blocked' : a.status === 'errored' ? 'not tested' : 'approved'}
-                    </span>
-                    <span className="pg-attack-reason">{a.revertReason}</span>
-                  </div>
-                ))
+                    {shortHex(POLICY_MODULE_ADDRESS, 8, 4)}
+                    <Icon name="external" size={10} />
+                  </a>
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3 px-4 py-2.5 font-mono text-[11px]">
+                <dt className="uppercase tracking-wider text-on-surface-variant">revocation epoch</dt>
+                <dd className="tnum text-on-surface">{revocationEpoch ?? '—'}</dd>
+              </div>
+            </dl>
+
+            {/* Its own control, separately labelled: fail-closed lease issuance
+                is a different claim from M1's on-chain incapability. */}
+            <div className="flex flex-col gap-2 border-t border-muted p-4">
+              {coreReach === 'checking' ? (
+                <button
+                  className="w-full rounded-sm border border-muted bg-surface-container px-4 py-2.5 font-mono text-label-sm uppercase tracking-wider text-on-surface-variant"
+                  disabled
+                >
+                  checking…
+                </button>
+              ) : coreUp ? (
+                <button
+                  className="btn-shock w-full rounded-sm border border-status-error bg-status-error/10 px-4 py-2.5 font-mono text-label-sm font-bold uppercase tracking-wider text-status-error transition-colors hover:bg-status-error hover:text-on-error"
+                  onClick={() => void killCoreService()}
+                  title={`Stops lease issuance for real. All spending halts within ${(leaseTtlMax / 1000).toFixed(0)}s.`}
+                >
+                  Kill approval service
+                </button>
+              ) : (
+                <button
+                  className="btn-shock w-full rounded-sm border border-muted bg-surface-variant px-4 py-2.5 font-mono text-label-sm uppercase tracking-wider text-on-surface transition-colors hover:border-primary"
+                  onClick={() => void reviveCoreService()}
+                >
+                  Resume approval service
+                </button>
+              )}
+              {killResult && (
+                <div
+                  className={`font-mono text-[11px] ${killResult.ok ? 'text-tertiary' : 'text-status-error'}`}
+                >
+                  {killResult.text}
+                </div>
+              )}
+              {!coreUp && killResult?.ok && (
+                <div className="font-mono text-[11px] text-status-error">
+                  Watch the ring drain. All spending stops within{' '}
+                  {(leaseTtlMax / 1000).toFixed(0)}s, with no further action from anyone.
+                </div>
               )}
             </div>
           </section>
-        )}
-        </Rekha>
 
-        {/* The rail does not change between stages. That is the argument: the
-            same lease, the same core, the same contract are doing the work in
-            all three, and a judge can watch them while the stage changes. */}
-        <aside className="pg-rail">
-          <div
-            className="pg-lease fx-tip-left"
-            data-tip="Every payment needs an unexpired lease. No core, no lease, no spending."
-          >
-            <TTLRing ttlMs={leaseTtl} maxMs={leaseTtlMax} size={64} />
-            <div className="pg-lease-text">
-              <span className="pg-lease-value">{(Math.max(0, leaseTtl) / 1000).toFixed(1)}s</span>
-              <span className="pg-lease-label">lease</span>
+          {/* ── M3 ── the one gesture, on screen in every stage because the only
+              thing that starts a ceremony is a dispatch from `shop`. */}
+          <section className="flex flex-col rounded-sm border border-muted bg-surface">
+            <div className="flex items-center gap-2 border-b border-muted bg-surface-container p-3">
+              <span className="rounded-sm bg-status-error px-1.5 py-0.5 font-mono text-[10px] font-bold text-on-error">
+                M3
+              </span>
+              <h2 className="font-mono text-label-sm uppercase tracking-widest text-on-surface">
+                Signing ceremony
+              </h2>
             </div>
-          </div>
 
-          {/* 'checking' is rendered as itself. coreUp initialises false, so
-              painting it as "not issuing" before the health probe answers would
-              announce a killed core on every page load — the one state that must
-              never be claimed without having been measured. */}
-          <div className={`pg-status ${coreReach === 'checking' ? 'is-checking' : coreUp ? 'is-up' : 'is-down'}`}>
-            <span className="pg-status-dot" />
-            <span>
-              {coreReach === 'checking' ? 'checking the core…' : coreUp ? 'core issuing leases' : 'core not issuing'}
-            </span>
-          </div>
-
-          <div className="pg-kv">
-            <span>core image</span>
-            <span className="pg-mono" title={imageDigest ?? undefined}>
-              {imageDigest ? shortHex(imageDigest, 13, 6) : 'waiting for core.status…'}
-            </span>
-          </div>
-          {/* Predicate 3 is real and reverts CoreImageMismatch on a mismatch.
-              The registered value is a stand-in. Saying so here costs nothing
-              and stops the figure being read as an attestation. */}
-          {isPlaceholderDigest(imageDigest) && (
-            <div className="pg-kv pg-kv-warn">placeholder digest — the check is real, the value attests nothing</div>
-          )}
-          <div className="pg-kv">
-            <span>PolicyModule</span>
-            <a href={basescanAddress(POLICY_MODULE_ADDRESS)} target="_blank" rel="noopener noreferrer" className="pg-mono pg-link">
-              {shortHex(POLICY_MODULE_ADDRESS, 8, 4)} ↗
-            </a>
-          </div>
-          <div className="pg-kv">
-            <span>revocation epoch</span>
-            <span className="pg-mono">{revocationEpoch ?? '—'}</span>
-          </div>
-
-          {/* Its own control, separately labelled: fail-closed lease issuance is
-              a different claim from M1's on-chain incapability. */}
-          <div className="pg-control">
-            {coreReach === 'checking' ? (
-              <button className="pg-btn-ghost-wide" disabled>
-                checking…
-              </button>
-            ) : coreUp ? (
-              <button
-                className="pg-btn-danger fx-tip-left"
-                onClick={() => void killCoreService()}
-                data-tip={`Stops lease issuance for real. All spending halts within ${(leaseTtlMax / 1000).toFixed(0)}s.`}
-              >
-                Kill approval service
-              </button>
-            ) : (
-              <button className="pg-btn-ghost-wide" onClick={() => void reviveCoreService()}>
-                Resume approval service
-              </button>
-            )}
-            {killResult && <div className={killResult.ok ? 'pg-msg-ok' : 'pg-msg-err'}>{killResult.text}</div>}
-            {!coreUp && killResult?.ok && (
-              <div className="pg-msg-err">
-                Watch the ring drain. All spending stops within {(leaseTtlMax / 1000).toFixed(0)}s, with no further
-                action from anyone.
-              </div>
-            )}
-          </div>
-
-          {/* ── M3 ── the one gesture, on screen in every stage because the
-              only thing that starts a ceremony is a dispatch from `shop`. */}
-          <div className="pg-ceremony-block">
-            <h3 className="pg-h3"><span className="pg-moment-tag">M3</span> Signing ceremony</h3>
-            <div className="pg-ceremony-row">
-              <div className={`pg-ceremony ${ceremony?.aborted ? 'is-aborted' : ''}`}>
+            <div className="flex flex-col gap-3 p-4">
+              <div className="flex flex-col gap-2">
                 {ceremony ? (
                   <>
-                    <div className="pg-ceremony-track">
-                      {Array.from({ length: ceremony.of }).map((_, i) => (
-                        <div
-                          key={i}
-                          className={`pg-seg ${
-                            ceremony.aborted && ceremony.abortedAt !== null && i >= ceremony.abortedAt - 1
-                              ? 'is-broken'
-                              : i < ceremony.round
-                                ? 'is-done'
-                                : 'is-pending'
-                          }`}
-                        />
-                      ))}
+                    <div className="flex gap-1.5">
+                      {Array.from({ length: ceremony.of }).map((_, i) => {
+                        const broken =
+                          ceremony.aborted &&
+                          ceremony.abortedAt !== null &&
+                          i >= ceremony.abortedAt - 1;
+                        const done = !broken && i < ceremony.round;
+                        return (
+                          <div
+                            key={i}
+                            className={`h-2.5 flex-1 rounded-sm transition-all duration-300 ${
+                              broken
+                                ? 'origin-left scale-x-[0.52] bg-status-error opacity-70'
+                                : done
+                                  ? 'bg-tertiary'
+                                  : 'bg-surface-variant'
+                            }`}
+                          />
+                        );
+                      })}
                     </div>
-                    <span className="pg-ceremony-label">
+                    <span
+                      className={`font-mono text-[11px] ${ceremony.aborted ? 'text-status-error' : 'text-on-surface-variant'}`}
+                    >
                       {ceremony.aborted
                         ? `broken at round ${ceremony.abortedAt} of ${ceremony.of}`
                         : `round ${ceremony.round} of ${ceremony.of}`}
                     </span>
                   </>
                 ) : (
-                  <span className="pg-ceremony-idle">idle — dispatch a task to start one</span>
+                  <span className="font-mono text-[11px] italic text-on-surface-variant/70">
+                    idle — dispatch a task to start one
+                  </span>
                 )}
               </div>
 
               <button
-                className="pg-btn-revoke fx-tip-left"
+                className="btn-shock w-full rounded-sm border-2 border-status-error bg-status-error/10 px-4 py-3 font-headline text-body-md font-bold uppercase tracking-widest text-status-error transition-colors hover:bg-status-error hover:text-on-error disabled:opacity-60"
                 onClick={() => void revokeMandate()}
                 disabled={frozen}
-                data-tip="Press this while the bar is filling. The signature is abandoned before it exists."
+                title="Press this while the bar is filling. The signature is abandoned before it exists."
               >
-                {frozen ? 'REVOKED' : 'REVOKE'}
+                {frozen ? 'Revoked' : 'Revoke payment mid-signature'}
               </button>
+
+              <p className="font-body text-[11px] leading-relaxed text-on-surface-variant">
+                Stops all spending until it is cleared. The console&apos;s revoke is the stronger
+                one — it goes to the contract from the owner&apos;s wallet, and that one has no undo
+                at all.
+              </p>
+
+              {revokeResult && (
+                <div
+                  className={`font-mono text-[11px] ${revokeResult.ok ? 'text-tertiary' : 'text-status-error'}`}
+                >
+                  {revokeResult.text}
+                </div>
+              )}
+              {/* Only after the revoke has fired and been seen to work. See
+                  clearRevoke() for why this is not offered up front. */}
+              {frozen && (
+                <button
+                  className="w-full rounded-sm border border-muted px-4 py-2 font-mono text-[11px] uppercase tracking-wider text-on-surface-variant transition-colors hover:border-primary hover:text-on-surface"
+                  onClick={() => void clearRevoke()}
+                >
+                  Clear the core revoke (rehearsal reset)
+                </button>
+              )}
             </div>
-            <p className="pg-ceremony-note">
-              Stops all spending until it is cleared. The console&apos;s REVOKE ALL is the
-              stronger one — it goes to the contract from the owner&apos;s wallet, and that
-              one has no undo at all.
-            </p>
-            {revokeResult && <div className={revokeResult.ok ? 'pg-msg-ok' : 'pg-msg-err'}>{revokeResult.text}</div>}
-            {/* Only after the revoke has fired and been seen to work. See
-                clearRevoke() for why this is not offered up front. */}
-            {frozen && (
-              <button className="pg-btn-reset" onClick={() => void clearRevoke()}>
-                Clear the core revoke (rehearsal reset)
-              </button>
-            )}
-          </div>
+          </section>
         </aside>
       </div>
+
+      {/* ── The core's own log. Full width, newest last, and every line is the
+             core's word rather than ours. ─────────────────────────────────── */}
+      <section className="flex flex-col rounded-sm border border-muted bg-surface-container-lowest">
+        <div className="flex items-center justify-between border-b border-muted bg-surface-container-low p-3">
+          <h2 className="flex items-center gap-2 font-mono text-label-sm uppercase tracking-widest text-on-surface">
+            <Icon name="terminal" size={14} />
+            Policy core log
+          </h2>
+          <span className="font-mono text-[10px] uppercase tracking-wider text-on-surface-variant">
+            {attackLog.length} {attackLog.length === 1 ? 'attempt' : 'attempts'}
+          </span>
+        </div>
+
+        <div className="flex max-h-[300px] flex-col gap-1 overflow-y-auto p-4 font-mono text-[11px]">
+          {attackLog.length === 0 ? (
+            <div className="text-on-surface-variant/60">Nothing has attacked this core yet.</div>
+          ) : (
+            attackLog.map((a) => {
+              const through = a.status === 'through';
+              const errored = a.status === 'errored';
+              return (
+                <div
+                  key={a.id}
+                  className={`flex animate-log-slide-up flex-wrap items-start gap-x-3 gap-y-1 border-l-2 px-2 py-1 ${
+                    through
+                      ? 'border-status-error bg-status-error/10'
+                      : errored
+                        ? 'border-outline-variant bg-surface-container/40'
+                        : 'border-status-warning bg-status-warning/5'
+                  }`}
+                >
+                  <span className="shrink-0 font-bold text-on-surface">{a.technique}</span>
+                  {a.novel && (
+                    <span className="shrink-0 rounded-sm border border-tertiary px-1.5 text-[9px] uppercase text-tertiary">
+                      novel
+                    </span>
+                  )}
+                  {a.stage && (
+                    <span className="shrink-0 rounded-sm border border-muted px-1.5 text-[9px] uppercase text-on-surface-variant">
+                      {a.stage}
+                    </span>
+                  )}
+                  <span
+                    className={`shrink-0 font-bold uppercase ${
+                      through
+                        ? 'text-status-error'
+                        : errored
+                          ? 'text-on-surface-variant'
+                          : 'text-status-warning'
+                    }`}
+                  >
+                    {a.status === 'blocked' ? 'blocked' : errored ? 'not tested' : 'approved'}
+                  </span>
+                  <span className="min-w-0 text-on-surface-variant">{a.revertReason}</span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
 
       {/* The decision takes the screen rather than a corner of it. A refusal
           nobody can read is indistinguishable from a crash, and the predicate
           that bound is the whole product. */}
       {selectedTrace && (
         <div
-          className="pg-decision-scrim"
+          className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-surface-container-lowest/85 p-4 backdrop-blur-sm md:p-10"
           role="dialog"
           aria-modal="true"
           aria-label="Decision"
           onClick={() => setSelectedTrace(null)}
         >
-          <div className="pg-decision" onClick={(e) => e.stopPropagation()}>
-            <div className="pg-decision-head">
-              <h2 className="pg-h2">
+          <div
+            className="w-full max-w-4xl animate-fade-in-up rounded-sm border border-muted bg-surface"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-muted bg-surface-container p-4">
+              <h2 className="flex flex-wrap items-baseline gap-3 font-mono text-label-sm uppercase tracking-widest text-on-surface">
                 Decision
                 {selectedTrace.bindingPredicate && (
-                  <span className="pg-decision-bound">bound on {selectedTrace.bindingPredicate}</span>
+                  <span className="font-mono text-[11px] normal-case tracking-normal text-status-error">
+                    bound on {selectedTrace.bindingPredicate}
+                  </span>
                 )}
               </h2>
-              <button className="pg-btn-ghost" onClick={() => setSelectedTrace(null)}>
-                close
+              <button
+                className="rounded-sm border border-muted px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-on-surface-variant transition-colors hover:border-primary hover:text-primary"
+                onClick={() => setSelectedTrace(null)}
+              >
+                Close
               </button>
             </div>
-            <PredicateTable trace={selectedTrace} />
+            <div className="p-4">
+              <PredicateTable trace={selectedTrace} />
+            </div>
           </div>
         </div>
       )}
