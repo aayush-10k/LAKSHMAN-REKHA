@@ -11,7 +11,7 @@ import { Amount, formatInrMinor } from '@/components/Amount';
 import { TTLRing } from '@/components/TTLRing';
 import { PredicateTable } from '@/components/PredicateTable';
 import { CoreOffline } from '@/components/CoreOffline';
-import { SoundToggle } from '@/components/SoundToggle';
+import { Icon } from '@/components/Icon';
 // A module import for the same reason as the playground: `processEvent`'s
 // dependency array drives the EventSource, and nothing may be added to it.
 import { sound } from '@/lib/sound';
@@ -72,11 +72,55 @@ const STATE_LABEL: Record<RowState, string> = {
  * not an outcome, and flashing it green would say money moved a second or two
  * before any did.
  */
-const FLASH: Partial<Record<RowState, string>> = {
-  settled: 'fx-flash-settled',
-  held: 'fx-flash-held',
-  refused: 'fx-flash-refused',
-  revocation: 'fx-flash-refused',
+const WASH: Partial<Record<RowState, string>> = {
+  settled: 'wash-success',
+  held: 'wash-warning',
+  refused: 'wash-error',
+  revocation: 'wash-error',
+};
+
+/**
+ * How each outcome is coloured, and how many of the two signatures it got.
+ *
+ * `bothKeys` is not decoration. A refused payment shows one key because that is
+ * literally what happened: the agent signed, the core did not, and the second
+ * key is the thing it never obtained. Approved shows two because both halves
+ * exist even though the money has not moved yet.
+ */
+const STATE_ACCENT: Record<
+  RowState,
+  { border: string; text: string; chip: string; bothKeys: boolean }
+> = {
+  settled: {
+    border: 'border-l-status-success',
+    text: 'text-status-success',
+    chip: 'border-status-success/40 bg-status-success/10',
+    bothKeys: true,
+  },
+  approved: {
+    border: 'border-l-tertiary',
+    text: 'text-tertiary',
+    chip: 'border-tertiary/40 bg-tertiary/10',
+    bothKeys: true,
+  },
+  held: {
+    border: 'border-l-status-warning',
+    text: 'text-status-warning',
+    chip: 'border-status-warning/40 bg-status-warning/10',
+    bothKeys: false,
+  },
+  refused: {
+    border: 'border-l-status-error',
+    text: 'text-status-error',
+    chip: 'border-status-error/40 bg-status-error/10',
+    bothKeys: false,
+  },
+  revocation: {
+    border: 'border-l-status-error',
+    text: 'text-status-error',
+    chip: 'border-status-error/40 bg-status-error/10',
+    bothKeys: false,
+  },
 };
 
 function timeAgo(ts: number, now: number) {
@@ -135,6 +179,14 @@ export default function ConsolePage() {
   /** Drives the held countdowns and the "3m ago" column. One timer, not one per row. */
   const [now, setNow] = useState(() => Date.now());
 
+  /**
+   * The decision panel sits under the ledger, which means on a laptop it starts
+   * just below the fold. Clicking a row and seeing nothing move is the worst
+   * possible reading of this page: the predicate chain is the answer to "why",
+   * and a judge who does not see it appear concludes the click did nothing.
+   */
+  const decisionRef = React.useRef<HTMLElement>(null);
+
   const { writeContract, isPending: revokePending, error: revokeError } = useWriteContract();
   const { address, isConnected } = useAccount();
   const { connect } = useConnect();
@@ -144,6 +196,12 @@ export default function ConsolePage() {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // Only on a NEW selection, and never on the first render with nothing picked.
+  useEffect(() => {
+    if (selected === null) return;
+    decisionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [selected?.decisionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadBalance = useCallback(() => {
     fetch(`${CORE_URL}/v1/wallet/balance`)
@@ -570,94 +628,268 @@ export default function ConsolePage() {
   // still looking operational.
   if (coreReach === 'down') {
     return (
-      <div className="console-layout">
+      <div className="p-margin-mobile md:p-margin-desktop">
         <CoreOffline reason={coreReachReason} />
       </div>
     );
   }
 
   return (
-    <div className="console-layout">
-      {/* ── Top bar: the hero figure, the lease, the kill ── */}
-      <header className="con-topbar">
-        <div className="con-hero">
-          {/* Keyed on the value so the pop plays when the balance CHANGES and
-              never on an unrelated re-render. */}
-          <Amount key={balance ?? 'unavailable'} minor={balance} className="con-balance fx-pop" />
-          <div className="con-hero-meta">
-            <span className="con-hero-label">available</span>
-            {balanceError && <span className="con-hero-err">balance unreadable — {balanceError}</span>}
-            {!balanceError && (
-              <>
-                <span className="con-hero-stat">
-                  held <span className="con-stat-lien">{formatInrMinor(heldTotal, true)}</span>
-                </span>
-                {mandate && (
-                  <span className="con-hero-stat" title="On-chain rolling 24-hour window. A core restart does not reset it.">
-                    spent{' '}
-                    <span className="con-stat-mono">{formatInrMinor(mandate.windowSpentMinor, true)}</span> of{' '}
-                    {formatInrMinor(mandate.windowCapMinor, true)} · 24h window
-                  </span>
-                )}
-              </>
-            )}
-          </div>
+    <div className="flex min-h-[calc(100vh-4rem)] flex-col gap-8 p-margin-mobile md:p-margin-desktop">
+      {/* ── Page header: who is in control, and the one button that proves it ── */}
+      <div className="flex flex-col justify-between gap-6 border-b border-muted pb-6 lg:flex-row lg:items-end">
+        <div>
+          <h1 className="mb-2 font-headline text-headline-lg text-on-surface">Owner Console</h1>
+          <p className="flex items-center gap-2 font-mono text-body-md text-on-surface-variant">
+            <span
+              className={`inline-block h-2 w-2 rounded-full ${
+                frozen
+                  ? 'bg-status-error shadow-[0_0_8px_var(--color-status-error)]'
+                  : coreUp
+                    ? 'animate-ambient-pulse bg-status-success shadow-[0_0_8px_var(--color-status-success)]'
+                    : 'bg-status-warning'
+              }`}
+            />
+            {frozen
+              ? 'SPENDING REVOKED / NO NEW PAYMENT CAN BE APPROVED'
+              : coreUp
+                ? 'SYSTEM OPERATIONAL / APPROVAL SERVICE ISSUING LEASES'
+                : 'APPROVAL SERVICE STOPPED / NO NEW LEASES'}
+          </p>
         </div>
 
-        <div className="con-topbar-right">
-          <div
-            className="con-lease"
-            data-tip={pairError ?? 'Every payment needs an unexpired lease. No core, no lease, no spending.'}
-          >
-            <TTLRing ttlMs={leaseTtl} maxMs={leaseTtlMax} size={36} />
-            <div className="con-lease-text">
-              <span className="con-lease-value">{(Math.max(0, leaseTtl) / 1000).toFixed(1)}s</span>
-              <span className="con-lease-label">lease</span>
-            </div>
-          </div>
-
-          <div className={`con-status ${coreUp ? 'is-up' : 'is-down'}`}>
-            <span className="con-status-dot" />
-            <span>{coreUp ? 'core up' : 'core stopped'}</span>
-          </div>
-
-          {frozen && <span className="con-frozen fx-stamp">REVOKED</span>}
-
-          <SoundToggle />
-
-          <div className="con-wallet">
-            {isConnected ? (
-              <button className="con-btn-ghost" onClick={() => disconnect()} title={address}>
-                {shortHex(address ?? '')} ✕
-              </button>
-            ) : null}
+        <div className="flex flex-wrap items-center gap-3 lg:shrink-0">
+          {isConnected && (
             <button
-              className="con-btn-revoke fx-tip-left"
-              onClick={handleRevokeAll}
-              disabled={revokePending}
-              data-tip="Calls PolicyModule.revoke() from your own wallet. It does not go through our servers, and it has no undo."
+              className="rounded-sm border border-muted px-3 py-2 font-mono text-label-sm text-on-surface-variant transition-colors hover:border-primary hover:text-primary"
+              onClick={() => disconnect()}
+              title={address}
             >
-              {revokePending ? 'Revoking…' : isConnected ? 'REVOKE ALL' : 'Connect wallet to revoke'}
+              {shortHex(address ?? '')} ✕
             </button>
-          </div>
+          )}
+          {/* Straight from the owner's wallet to PolicyModule.revoke(). It
+              deliberately does not go through the core API: the whole claim is
+              that the owner can stop spending with our servers switched off. */}
+          <button
+            className="flex animate-critical-pulse items-center gap-3 rounded-sm border-2 border-status-error bg-status-error/10 px-6 py-3 font-mono font-bold uppercase tracking-[0.1em] text-status-error transition-colors hover:bg-status-error hover:text-on-error active:scale-95 disabled:opacity-60"
+            onClick={handleRevokeAll}
+            disabled={revokePending}
+            title="Calls PolicyModule.revoke() from your own wallet. It does not go through our servers, and it has no undo."
+          >
+            <Icon name="shieldOff" size={18} strokeWidth={2} />
+            {revokePending ? 'Revoking…' : isConnected ? 'Revoke agent authority' : 'Connect wallet to revoke'}
+          </button>
         </div>
-      </header>
+      </div>
 
       {revokeError && (
-        <div className="con-banner con-banner-err">Revoke was not sent — {revokeError.message}</div>
+        <div className="rounded-sm border border-status-error bg-status-error/10 px-4 py-3 font-mono text-label-mono text-status-error">
+          Revoke was not sent — {revokeError.message}
+        </div>
       )}
-      {pairError && <div className="con-banner con-banner-err">Agent not paired — {pairError}</div>}
-      {cancelError && <div className="con-banner con-banner-err">{cancelError}</div>}
+      {pairError && (
+        <div className="rounded-sm border border-status-error bg-status-error/10 px-4 py-3 font-mono text-label-mono text-status-error">
+          Agent not paired — {pairError}
+        </div>
+      )}
+      {cancelError && (
+        <div className="rounded-sm border border-status-error bg-status-error/10 px-4 py-3 font-mono text-label-mono text-status-error">
+          {cancelError}
+        </div>
+      )}
 
-      <div className="console-body">
-        {/* ── Left: transactions ── */}
-        <section className="feed-panel">
-          <div className="panel-header">
-            <h2>Transactions</h2>
-            <a href="/playground" className="con-link-page">Playground →</a>
-          </div>
+      <div className="grid grid-cols-1 gap-gutter lg:grid-cols-12">
+        {/* ── Left: the money, and what is holding it back ────────────── */}
+        {/* min-w-0: a grid item defaults to min-width:auto, so without this the
+            ledger table below stretches its column to the table's natural width
+            and pushes the whole page into horizontal scroll instead of
+            scrolling inside its own overflow container. */}
+        <div className="flex min-w-0 flex-col gap-gutter lg:col-span-4">
+          <section className="group relative overflow-hidden rounded-sm border border-tertiary/25 bg-surface p-6">
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute -right-6 -top-6 text-surface-container opacity-60 transition-opacity duration-500 group-hover:opacity-100"
+            >
+              <Icon name="wallet" size={128} strokeWidth={1} />
+            </span>
 
-          <div className="feed-list">
+            <h2 className="relative mb-4 flex items-center gap-2 font-mono text-label-sm uppercase tracking-widest text-on-surface-variant">
+              <Icon name="wallet" size={14} />
+              Live treasury balance
+            </h2>
+
+            {/* Keyed on the value so the wash plays when the balance CHANGES
+                and never on an unrelated re-render. */}
+            <div className="relative mb-1 flex flex-wrap items-baseline gap-x-2">
+              <Amount
+                key={balance ?? 'unavailable'}
+                minor={balance}
+                className="font-headline text-[clamp(26px,3.2vw,38px)] font-bold text-on-surface"
+              />
+              {balance !== null && (
+                <span className="font-mono text-body-lg text-primary">INRx</span>
+              )}
+            </div>
+
+            {balanceError ? (
+              <p className="relative font-mono text-label-mono text-status-error">
+                balance unreadable — {balanceError}
+              </p>
+            ) : (
+              <div className="relative mt-4 flex flex-col gap-2 border-t border-muted/50 pt-4 font-mono text-[11px]">
+                <div className="flex items-center justify-between">
+                  <span className="uppercase tracking-wider text-on-surface-variant">Held</span>
+                  <span className="tnum text-status-warning">{formatInrMinor(heldTotal, true)}</span>
+                </div>
+                {mandate && (
+                  <div
+                    className="flex items-center justify-between"
+                    title="On-chain rolling 24-hour window. A core restart does not reset it."
+                  >
+                    <span className="uppercase tracking-wider text-on-surface-variant">
+                      Spent · 24h window
+                    </span>
+                    <span className="tnum text-on-surface">
+                      {formatInrMinor(mandate.windowSpentMinor, true)} of{' '}
+                      {formatInrMinor(mandate.windowCapMinor, true)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* ── Enforcement: the rail, in numbers ─────────────────────── */}
+          <section className="flex flex-col rounded-sm border border-muted bg-surface-container-low">
+            <div className="flex items-center justify-between border-b border-muted bg-surface-container p-4">
+              <h2 className="flex items-center gap-2 font-mono text-label-sm uppercase tracking-widest text-on-surface">
+                <Icon name="rules" size={14} />
+                Enforcement
+              </h2>
+              <div
+                className="flex items-center gap-2"
+                title={pairError ?? 'Every payment needs an unexpired lease. No core, no lease, no spending.'}
+              >
+                <TTLRing ttlMs={leaseTtl} maxMs={leaseTtlMax} size={28} />
+                <span className="tnum font-mono text-[11px] text-on-surface-variant">
+                  {(Math.max(0, leaseTtl) / 1000).toFixed(1)}s lease
+                </span>
+              </div>
+            </div>
+
+            <dl className="flex flex-col">
+              {[
+                {
+                  k: 'approval service',
+                  v: coreUp ? 'issuing leases' : 'not issuing',
+                  cls: coreUp ? 'text-status-success' : 'text-status-error',
+                },
+                {
+                  k: 'mandate',
+                  v: frozen ? 'revoked' : 'active',
+                  cls: frozen ? 'text-status-error' : 'text-status-success',
+                },
+                ...(mandate
+                  ? [
+                      { k: 'revocation epoch', v: String(mandate.revocationEpoch), cls: 'text-on-surface' },
+                      {
+                        k: 'per-payment cap',
+                        v: formatInrMinor(mandate.perTxCapMinor, true),
+                        cls: 'tnum text-on-surface',
+                      },
+                    ]
+                  : []),
+                {
+                  k: 'core image',
+                  v: imageDigest ? shortHex(imageDigest, 14, 6) : 'waiting for core.status…',
+                  cls: 'text-data-hash',
+                  title: imageDigest ?? undefined,
+                },
+                ...(pairing ? [{ k: 'agent', v: pairing.agentId, cls: 'text-on-surface' }] : []),
+              ].map((row) => (
+                <div
+                  key={row.k}
+                  className="flex items-center justify-between gap-3 border-b border-muted/40 px-4 py-2.5 last:border-b-0"
+                >
+                  <dt className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant">
+                    {row.k}
+                  </dt>
+                  <dd className={`truncate font-mono text-[11px] ${row.cls}`} title={row.title}>
+                    {row.v}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+
+            {/* The predicate is real — a mismatch reverts CoreImageMismatch on
+                chain. The registered VALUE is 0x01 and 31 zero bytes, which is
+                the hash of nothing. Printing it beside a copy button,
+                unlabelled, invites a judge to read it as an attestation it is
+                not. */}
+            {isPlaceholderDigest(imageDigest) && (
+              <p className="border-t border-status-warning/30 bg-status-warning/10 px-4 py-2 font-mono text-[10px] leading-relaxed text-status-warning">
+                placeholder digest — the check is real, this value attests nothing
+              </p>
+            )}
+
+            {/* "Signed, replayable, downloadable". The endpoint already sends
+                Content-Disposition: attachment, so this needs no JavaScript.
+                The status beside it is the point: an audit log you cannot
+                verify is a text file with opinions in it. */}
+            <div className="flex flex-col gap-2 border-t border-muted p-4">
+              <a
+                className="flex items-center justify-center gap-2 rounded-sm border border-muted bg-surface-variant px-4 py-2.5 font-mono text-label-sm uppercase tracking-wider text-on-surface transition-colors hover:border-primary hover:text-primary"
+                href={`${CORE_URL}/v1/audit/export`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Every decision and settlement, signed by the core key. Verifiable offline."
+              >
+                <Icon name="download" size={14} />
+                Download signed audit log
+              </a>
+              {audit && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-on-surface-variant">
+                  <span className={audit.status === 'signed' ? 'text-status-success' : 'text-status-error'}>
+                    {audit.status}
+                  </span>
+                  {audit.signer && (
+                    <span className="text-data-hash" title={audit.signer}>
+                      by {shortHex(audit.signer, 8, 4)}
+                    </span>
+                  )}
+                  {audit.digest && (
+                    <span className="text-data-hash" title={audit.digest}>
+                      {shortHex(audit.digest, 10, 4)}
+                    </span>
+                  )}
+                  <span className="w-full">
+                    verify with{' '}
+                    <code className="text-on-surface">node apps/core/scripts/verify-audit.mjs</code>
+                  </span>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+
+        {/* ── Right: the ledger, and the rule that decided each row ────── */}
+        <div className="flex min-w-0 flex-col gap-gutter lg:col-span-8">
+          <section className="flex flex-col overflow-hidden rounded-sm border border-muted bg-surface">
+            <div className="flex items-center justify-between border-b border-muted bg-surface-container p-4">
+              <h2 className="flex items-center gap-2 font-mono text-label-sm uppercase tracking-widest text-on-surface">
+                <Icon name="receipt" size={14} />
+                Transaction ledger
+              </h2>
+              <a
+                href="/playground"
+                className="group flex items-center gap-1 font-mono text-[11px] uppercase tracking-wider text-primary transition-colors hover:text-on-surface"
+              >
+                Playground
+                <Icon name="arrowRight" size={12} className="transition-transform group-hover:translate-x-0.5" />
+              </a>
+            </div>
+
             {rows.length === 0 ? (
               /**
                * An empty screen is an invitation to act, so this one carries a
@@ -666,236 +898,238 @@ export default function ConsolePage() {
                * demonstrate them with until a payment arrives — which is
                * exactly when a cold visitor most needs to know what they mean.
                *
-               * Deliberately no `fx-reveal`: with no payments this card is the
-               * only thing on the panel, and an entrance animation frozen by a
+               * Deliberately no entrance animation: with no payments this card
+               * is the only thing in the panel, and a reveal frozen by a
                * background tab would leave it blank. Same rule as the landing
                * page — see the note in app/page.tsx.
                */
-              <div className="fx-empty-card">
-                <div className="fx-empty-title">No payments yet</div>
-                <p className="fx-empty-body">
+              <div className="flex flex-col items-start gap-3 p-8">
+                <div className="font-headline text-[20px] font-semibold text-on-surface">
+                  No payments yet
+                </div>
+                <p className="max-w-prose font-body text-body-md text-on-surface-variant">
                   Give your agent a task in the Playground. Every request it makes lands here with
                   the rule that decided it.
                 </p>
-                <a className="fx-empty-cta" href="/playground">
-                  Open the Playground →
+                <a
+                  className="group mt-1 flex items-center gap-2 rounded-sm border border-muted bg-surface-variant px-4 py-2 font-mono text-label-sm uppercase tracking-wider text-on-surface transition-colors hover:border-primary hover:text-primary"
+                  href="/playground"
+                >
+                  Open the Playground
+                  <Icon name="arrowRight" size={12} className="transition-transform group-hover:translate-x-0.5" />
                 </a>
-                <div className="fx-legend">
-                  <span className="fx-legend-row">
-                    <span className="fx-legend-key fx-legend-settled" />
-                    settled — the money moved, on chain
-                  </span>
-                  <span className="fx-legend-row">
-                    <span className="fx-legend-key fx-legend-held" />
-                    held — waiting for you, nothing charged
-                  </span>
-                  <span className="fx-legend-row">
-                    <span className="fx-legend-key fx-legend-refused" />
-                    refused — a rule stopped it, nothing charged
-                  </span>
+
+                <div className="mt-4 flex flex-col gap-2 border-t border-muted pt-4 font-mono text-[11px] text-on-surface-variant">
+                  {[
+                    { c: 'bg-status-success', t: 'settled — the money moved, on chain' },
+                    { c: 'bg-status-warning', t: 'held — waiting for you, nothing charged' },
+                    { c: 'bg-status-error', t: 'refused — a rule stopped it, nothing charged' },
+                  ].map((l) => (
+                    <span key={l.t} className="flex items-center gap-2">
+                      <span className={`h-3 w-1 ${l.c}`} />
+                      {l.t}
+                    </span>
+                  ))}
                 </div>
               </div>
             ) : (
-              rows.map((row) => {
-                const holdLive = row.expiresAtMs !== undefined && row.expiresAtMs > now;
-                const isSelected = !!row.trace && selected?.decisionId === row.trace.decisionId;
-                return (
-                  <div
-                    /**
-                     * Keyed on id AND state, so a row that changes outcome
-                     * remounts and replays its wash. CSS cannot re-fire an
-                     * animation when a class swaps on a live element, and these
-                     * rows are upserted in place — held → settled happens
-                     * without React ever unmounting anything.
-                     *
-                     * Safe because the row holds no internal state: <Amount> and
-                     * <TTLRing> are pure functions of their props, and the hold
-                     * countdown is driven by the page's own `now` tick rather
-                     * than by anything inside the row. Verified in a browser
-                     * that the countdown and Cancel survive the transition.
-                     */
-                    key={`${row.id}:${row.state}`}
-                    className={`con-row con-row-${row.state} ${isSelected ? 'is-selected' : ''} ${row.trace ? 'is-clickable' : ''} ${FLASH[row.state] ?? ''}`}
-                    onClick={() => row.trace && setSelected(row.trace)}
-                    role={row.trace ? 'button' : undefined}
-                    tabIndex={row.trace ? 0 : undefined}
-                    onKeyDown={(e) => {
-                      if (row.trace && (e.key === 'Enter' || e.key === ' ')) {
-                        e.preventDefault();
-                        setSelected(row.trace);
-                      }
-                    }}
-                  >
-                    <div className="con-row-main">
-                      <Amount minor={row.amountMinor ?? null} compact className="con-row-amount" />
-                      <span className="con-row-party">
-                        {row.state === 'revocation' ? 'Mandate revoked' : displayName(row.counterpartyId)}
-                      </span>
-                      <span className="con-row-time">{timeAgo(row.ts, now)}</span>
-                    </div>
-
-                    <div className="con-row-meta">
-                      <span className={`con-row-state con-state-${row.state}`}>{STATE_LABEL[row.state]}</span>
-                      {row.note && <span className="con-row-note">{row.note}</span>}
-                      {row.latencyMs !== undefined && !row.note && <span>{formatLatency(row.latencyMs)}</span>}
-                      {row.state === 'refused' && row.trace?.bindingPredicate && !row.note && (
-                        <span className="con-row-binding">{row.trace.bindingPredicate}</span>
-                      )}
-                      {row.txHash && (
-                        <a
-                          href={basescanTx(row.txHash)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="con-row-link"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {shortHex(row.txHash, 8, 4)} ↗
-                        </a>
-                      )}
-                    </div>
-
-                    {holdLive && (
-                      <div className="con-row-hold">
-                        <TTLRing
-                          ttlMs={row.expiresAtMs! - now}
-                          maxMs={Math.max(1, row.expiresAtMs! - (row.heldSinceMs ?? row.ts))}
-                          size={24}
-                        />
-                        <span className="con-hold-ttl">
-                          {Math.ceil((row.expiresAtMs! - now) / 1000)}s left
-                        </span>
-                        <button
-                          className="con-btn-cancel"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleCancelHold(row.id);
+              /* The ledger scrolls inside a bounded box rather than running the
+                 page. It holds every decision the core has ever made — a
+                 hundred rows is normal — and letting it size the page pushes
+                 the decision panel thousands of pixels below the fold, so
+                 clicking a row appears to do nothing. The panel below has to
+                 stay on screen: it is the reason a row is worth clicking. */
+              <div className="max-h-[38vh] overflow-auto">
+                <table className="w-full border-collapse text-left">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="border-b border-muted bg-surface-container-lowest font-mono text-[10px] uppercase tracking-wider text-on-surface-variant">
+                      <th className="px-4 py-3 text-right font-medium">Amount</th>
+                      <th className="px-4 py-3 font-medium">Counterparty</th>
+                      <th className="px-4 py-3 font-medium">Bound by</th>
+                      <th className="px-4 py-3 font-medium">When</th>
+                      <th className="px-4 py-3 font-medium">Signatures</th>
+                    </tr>
+                  </thead>
+                  <tbody className="font-mono text-[12px]">
+                    {rows.map((row) => {
+                      const holdLive = row.expiresAtMs !== undefined && row.expiresAtMs > now;
+                      const isSelected = !!row.trace && selected?.decisionId === row.trace.decisionId;
+                      const accent = STATE_ACCENT[row.state];
+                      return (
+                        <tr
+                          /**
+                           * Keyed on id AND state, so a row that changes outcome
+                           * remounts and replays its wash. CSS cannot re-fire an
+                           * animation when a class swaps on a live element, and
+                           * these rows are upserted in place — held → settled
+                           * happens without React ever unmounting anything.
+                           *
+                           * Safe because the row holds no internal state:
+                           * <Amount> and <TTLRing> are pure functions of their
+                           * props, and the hold countdown is driven by the
+                           * page's own `now` tick rather than by anything inside
+                           * the row.
+                           */
+                          key={`${row.id}:${row.state}`}
+                          className={`group border-b border-muted/40 transition-colors last:border-b-0 ${
+                            isSelected ? 'bg-surface-container-high' : 'hover:bg-surface-container-high/60'
+                          } ${row.trace ? 'cursor-pointer' : ''} ${WASH[row.state] ?? ''}`}
+                          onClick={() => row.trace && setSelected(row.trace)}
+                          role={row.trace ? 'button' : undefined}
+                          tabIndex={row.trace ? 0 : undefined}
+                          onKeyDown={(e) => {
+                            if (row.trace && (e.key === 'Enter' || e.key === ' ')) {
+                              e.preventDefault();
+                              setSelected(row.trace);
+                            }
                           }}
                         >
-                          Cancel payment
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </section>
+                          <td className={`border-l-4 px-4 py-3 text-right ${accent.border}`}>
+                            <Amount
+                              minor={row.amountMinor ?? null}
+                              compact
+                              className={`text-[13px] ${row.state === 'refused' ? 'text-on-surface-variant line-through decoration-status-error' : 'text-on-surface'}`}
+                            />
+                          </td>
 
-        {/* ── Right: the decision ── */}
-        <aside className="side-panel">
-          <div className="panel-header">
-            <h2>Decision</h2>
-          </div>
+                          <td className="px-4 py-3 text-on-surface">
+                            {row.state === 'revocation' ? 'Mandate revoked' : displayName(row.counterpartyId)}
+                            {row.txHash && (
+                              <a
+                                href={basescanTx(row.txHash)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-2 inline-flex items-center gap-1 text-data-hash transition-colors hover:text-primary"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {shortHex(row.txHash, 8, 4)}
+                                <Icon name="external" size={10} />
+                              </a>
+                            )}
+                          </td>
 
-          <div className="con-decision">
-            {!selected ? (
-              <p className="decision-empty">
-                Pick a payment on the left to see every rule it was checked against, and the one that decided it.
-              </p>
-            ) : (
-              <PredicateTable trace={selected} />
-            )}
-          </div>
+                          <td className="px-4 py-3 text-on-surface-variant">
+                            {row.note ? (
+                              <span className={accent.text}>{row.note}</span>
+                            ) : row.state === 'refused' && row.trace?.bindingPredicate ? (
+                              <span className="text-status-error">{row.trace.bindingPredicate}</span>
+                            ) : row.latencyMs !== undefined ? (
+                              <span className="tnum">{formatLatency(row.latencyMs)}</span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
 
-          <div className="con-enforcement">
-            <h3>Enforcement</h3>
-            <div className="con-kv">
-              <span>approval service</span>
-              <span className={coreUp ? 'con-ok' : 'con-bad'}>{coreUp ? 'issuing leases' : 'not issuing'}</span>
-            </div>
-            <div className="con-kv">
-              <span>mandate</span>
-              <span className={frozen ? 'con-bad' : 'con-ok'}>{frozen ? 'revoked' : 'active'}</span>
-            </div>
-            {mandate && (
-              <>
-                <div className="con-kv">
-                  <span>revocation epoch</span>
-                  <span className="con-mono">{mandate.revocationEpoch}</span>
-                </div>
-                <div className="con-kv">
-                  <span>per-payment cap</span>
-                  <span className="con-mono">{formatInrMinor(mandate.perTxCapMinor, true)}</span>
-                </div>
-              </>
-            )}
-            <div className="con-kv">
-              <span>core image</span>
-              <span className="con-mono" title={imageDigest ?? undefined}>
-                {imageDigest ? shortHex(imageDigest, 14, 6) : 'waiting for core.status…'}
-              </span>
-            </div>
-            {/* The predicate is real — a mismatch reverts CoreImageMismatch on
-                chain. The registered VALUE is 0x01 and 31 zero bytes, which is
-                the hash of nothing. Printing it beside a copy button, unlabelled,
-                invites a judge to read it as an attestation it is not. */}
-            {isPlaceholderDigest(imageDigest) && (
-              <div className="con-kv con-kv-warn">
-                <span />
-                <span>placeholder digest — the check is real, this value attests nothing</span>
+                          <td className="px-4 py-3 text-on-surface-variant">
+                            {holdLive ? (
+                              <span className="flex items-center gap-2">
+                                <TTLRing
+                                  ttlMs={row.expiresAtMs! - now}
+                                  maxMs={Math.max(1, row.expiresAtMs! - (row.heldSinceMs ?? row.ts))}
+                                  size={20}
+                                />
+                                <span className="tnum text-status-warning">
+                                  {Math.ceil((row.expiresAtMs! - now) / 1000)}s left
+                                </span>
+                                <button
+                                  className="rounded-sm border border-status-warning px-2 py-1 text-[10px] uppercase tracking-wider text-status-warning transition-colors hover:bg-status-warning hover:text-surface-container-lowest"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleCancelHold(row.id);
+                                  }}
+                                >
+                                  Cancel payment
+                                </button>
+                              </span>
+                            ) : (
+                              <span className="tnum">{timeAgo(row.ts, now)}</span>
+                            )}
+                          </td>
+
+                          {/* 2-of-2 made visible. A refused payment shows one
+                              key, because that is literally what happened: the
+                              core never gave its signature. */}
+                          <td className="px-4 py-3">
+                            <span
+                              className={`inline-flex items-center gap-2 rounded-sm border px-2 py-1 ${accent.chip}`}
+                            >
+                              <span className="flex gap-0.5">
+                                <Icon name="key" size={12} className={accent.text} />
+                                <Icon
+                                  name="key"
+                                  size={12}
+                                  className={accent.bothKeys ? accent.text : 'text-muted'}
+                                />
+                              </span>
+                              <span className={`text-[10px] uppercase tracking-wider ${accent.text}`}>
+                                {STATE_LABEL[row.state]}
+                              </span>
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
-            {pairing && (
-              <div className="con-kv">
-                <span>agent</span>
-                <span className="con-mono">{pairing.agentId}</span>
-              </div>
-            )}
+          </section>
 
-            {/* BUILD.md:53 — "signed, replayable, downloadable". The endpoint
-                already sends Content-Disposition: attachment, so this needs no
-                JavaScript. The status beside it is the point: an audit log you
-                cannot verify is a text file with opinions in it. */}
-            <div className="con-audit">
-              <a
-                className="con-btn-audit fx-tip-left"
-                href={`${CORE_URL}/v1/audit/export`}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-tip="Every decision and settlement, signed by the core key. Verifiable offline."
-              >
-                Download signed audit log
-              </a>
-              {audit && (
-                <div className="con-audit-meta">
-                  <span className={audit.status === 'signed' ? 'con-ok' : 'con-bad'}>{audit.status}</span>
-                  {audit.signer && (
-                    <span className="con-mono" title={audit.signer}>
-                      by {shortHex(audit.signer, 8, 4)}
-                    </span>
-                  )}
-                  {audit.digest && (
-                    <span className="con-mono" title={audit.digest}>
-                      {shortHex(audit.digest, 10, 4)}
-                    </span>
-                  )}
-                  <span className="con-audit-how">
-                    verify with <code>node apps/core/scripts/verify-audit.mjs</code>
-                  </span>
-                </div>
+          {/* ── The decision. This panel is the reason the ledger is worth
+                 clicking, so it sits directly under it. ─────────────────── */}
+          <section
+            ref={decisionRef}
+            className="flex scroll-mt-20 flex-col rounded-sm border border-muted bg-surface"
+          >
+            <div className="flex items-center justify-between border-b border-muted bg-surface-container p-4">
+              <h2 className="flex items-center gap-2 font-mono text-label-sm uppercase tracking-widest text-on-surface">
+                <Icon name="gavel" size={14} />
+                Decision
+              </h2>
+              {/* The count is read off the trace, never hardcoded. The core
+                  stops evaluating at the first hard failure, so a refusal
+                  carries six to nine predicates and an approval eleven —
+                  measured against the live audit export, not assumed. A fixed
+                  "14 predicates" label above a table showing nine is the kind
+                  of small untruth that costs more than the feature is worth. */}
+              {selected && (
+                <span className="font-mono text-[10px] uppercase tracking-wider text-tertiary">
+                  [ {selected.predicates.length} evaluated ]
+                </span>
               )}
             </div>
-          </div>
-        </aside>
+
+            <div className="p-4">
+              {!selected ? (
+                <p className="font-body text-body-md text-on-surface-variant">
+                  Pick a payment above to see every rule it was checked against, and the one that
+                  decided it.
+                </p>
+              ) : (
+                <PredicateTable trace={selected} />
+              )}
+            </div>
+          </section>
+        </div>
       </div>
 
       {/* ── Bottom strip: the part a judge can check without trusting us ── */}
-      <footer className="con-strip">
+      <footer className="mt-auto flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-muted pt-4 font-mono text-[11px]">
         {CONTRACTS.map((c) => (
           <a
             key={c.address}
             href={basescanAddress(c.address)}
             target="_blank"
             rel="noopener noreferrer"
-            className="con-strip-item"
+            className="group flex items-center gap-2 text-on-surface-variant transition-colors hover:text-primary"
             title={c.note}
           >
-            <span className="con-strip-name">{c.name}</span>
-            <span className="con-strip-addr">{shortHex(c.address, 8, 4)}</span>
+            <span>{c.name}</span>
+            <span className="text-data-hash">{shortHex(c.address, 8, 4)}</span>
+            <Icon name="external" size={10} className="opacity-0 transition-opacity group-hover:opacity-100" />
           </a>
         ))}
-        <span className="con-strip-tail">Base Sepolia · verified source ↗</span>
+        <span className="ml-auto text-on-surface-variant">Base Sepolia · verified source</span>
       </footer>
     </div>
   );

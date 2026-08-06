@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { DecisionTrace } from '../types';
 import { Amount } from './Amount';
+import { Icon } from './Icon';
 import { formatLatency } from '../lib/format';
 
 /**
@@ -45,10 +46,10 @@ const elide = (v: string | number): string => {
   return s.length > 22 ? `${s.slice(0, 10)}…${s.slice(-6)}` : s;
 };
 
-const OUTCOME_COLOUR: Record<string, string> = {
-  APPROVED: 'var(--clear)',
-  HELD: 'var(--lien)',
-  REFUSED: 'var(--breach)',
+const OUTCOME_CLASS: Record<string, string> = {
+  APPROVED: 'text-status-success border-status-success',
+  HELD: 'text-status-warning border-status-warning',
+  REFUSED: 'text-status-error border-status-error',
 };
 
 function CopyButton({ value, label }: { value: string; label: string }) {
@@ -57,7 +58,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   return (
     <button
       type="button"
-      className="copy-btn"
+      className="rounded-sm border border-muted px-2 py-0.5 font-mono text-[10px] text-on-surface-variant transition-colors hover:border-primary hover:text-primary"
       title={`Copy ${label}`}
       onClick={() => {
         // Deliberately no empty catch: if the clipboard is unavailable the
@@ -77,83 +78,110 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 }
 
 export function PredicateTable({ trace, hideOutcome = false }: Props) {
-  const colour = OUTCOME_COLOUR[trace.outcome] ?? 'var(--chalk)';
+  const outcomeClass = OUTCOME_CLASS[trace.outcome] ?? 'text-on-surface border-muted';
 
   return (
-    <div className="decision-inner">
+    <div className="flex flex-col gap-4">
       {!hideOutcome && (
-        <div className="decision-outcome" style={{ color: colour }}>
+        <div
+          className={`inline-flex w-fit items-center gap-2 rounded-sm border bg-surface-container px-3 py-1.5 font-mono text-label-mono font-bold uppercase tracking-widest ${outcomeClass}`}
+        >
           {trace.outcome}
         </div>
       )}
 
       {/* From the core. Not assembled here. */}
-      <p className="decision-summary">{trace.summary}</p>
+      <p className="font-body text-body-md text-on-surface">{trace.summary}</p>
 
-      <div className="decision-meta">
-        <span title="Time the core spent evaluating all 14 predicates">{formatLatency(trace.latencyMs)}</span>
-        <Amount minor={trace.amountMinor} />
+      <div className="flex items-center gap-4 border-y border-muted py-2 font-mono text-label-mono text-on-surface-variant">
+        <span title="Time the core spent evaluating all 14 predicates">
+          {formatLatency(trace.latencyMs)}
+        </span>
+        <Amount minor={trace.amountMinor} className="text-on-surface" />
       </div>
 
-      <table className="predicate-table">
-        <colgroup>
-          <col className="col-pred" />
-          <col className="col-expected" />
-          <col className="col-actual" />
-          <col className="col-pass" />
-        </colgroup>
-        <thead>
-          <tr>
-            <th>Predicate</th>
-            <th>Expected</th>
-            <th>Actual</th>
-            <th>Pass</th>
-          </tr>
-        </thead>
-        <tbody>
-          {trace.predicates.map((pred) => {
-            const binding = pred.name === trace.bindingPredicate;
-            return (
-              <tr key={pred.name} className={binding ? 'binding-row' : ''}>
-                <td className="pred-name">
-                  {pred.name}
-                  {binding && <span className="pred-binding-tag">binding</span>}
-                  {/* The inputs the predicate was evaluated on. FINALE.md Part 3
-                      asks for "every predicate, its inputs, expected vs actual" —
-                      without these the table says a rule failed but not what it
-                      was looking at, which is the first thing anyone asks next. */}
-                  {Object.keys(pred.inputs).length > 0 && (
-                    <span className="pred-inputs">
-                      {Object.entries(pred.inputs).map(([k, v]) => (
-                        <span key={k} className="pred-input" title={`${k} = ${String(v)}`}>
-                          {k}=<span className="pred-input-val">{elide(v)}</span>
-                        </span>
-                      ))}
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-left font-mono text-[11px]">
+          <thead>
+            <tr className="border-b border-muted text-[10px] uppercase tracking-wider text-on-surface-variant">
+              <th className="py-2 pr-3 font-medium">Predicate</th>
+              <th className="py-2 pr-3 font-medium">Expected</th>
+              <th className="py-2 pr-3 font-medium">Actual</th>
+              <th className="w-8 py-2 text-center font-medium">Pass</th>
+            </tr>
+          </thead>
+          <tbody>
+            {trace.predicates.map((pred) => {
+              const binding = pred.name === trace.bindingPredicate;
+              return (
+                <tr
+                  key={pred.name}
+                  className={
+                    binding
+                      ? 'border-b border-muted/50 bg-status-error/10'
+                      : 'border-b border-muted/50'
+                  }
+                >
+                  <td className="py-2 pr-3 align-top">
+                    <span className={binding ? 'text-status-error' : 'text-on-surface'}>
+                      {pred.name}
                     </span>
-                  )}
-                </td>
-                <td className="pred-expected" title={pred.expected}>{elide(pred.expected)}</td>
-                <td className={`pred-actual ${pred.passed ? 'pass' : 'fail'}`} title={pred.actual}>
-                  {elide(pred.actual)}
-                </td>
-                <td>{pred.passed ? '✓' : '✗'}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                    {binding && (
+                      <span className="ml-1.5 rounded-sm bg-status-error px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-surface-container-lowest">
+                        binding
+                      </span>
+                    )}
+                    {/* The inputs the predicate was evaluated on. Without these
+                        the table says a rule failed but not what it was looking
+                        at, which is the first thing anyone asks next. */}
+                    {Object.keys(pred.inputs).length > 0 && (
+                      <span className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-on-surface-variant/70">
+                        {Object.entries(pred.inputs).map(([k, v]) => (
+                          <span key={k} title={`${k} = ${String(v)}`}>
+                            {k}=<span className="text-data-hash">{elide(v)}</span>
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-3 align-top text-on-surface-variant" title={pred.expected}>
+                    {elide(pred.expected)}
+                  </td>
+                  <td
+                    className={`py-2 pr-3 align-top ${pred.passed ? 'text-on-surface' : 'text-status-error'}`}
+                    title={pred.actual}
+                  >
+                    {elide(pred.actual)}
+                  </td>
+                  <td className="py-2 text-center align-top">
+                    <Icon
+                      name={pred.passed ? 'check' : 'close'}
+                      size={12}
+                      strokeWidth={2}
+                      className={`inline ${pred.passed ? 'text-status-success' : 'text-status-error'}`}
+                    />
+                    <span className="sr-only">{pred.passed ? 'passed' : 'failed'}</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
-      <div className="decision-hashes">
-        <div className="decision-hash">
-          <span className="decision-hash-label">policy</span>
-          <code className="mono-sm">{trace.policyHash.slice(0, 18)}…</code>
-          <CopyButton value={trace.policyHash} label="policy hash" />
-        </div>
-        <div className="decision-hash">
-          <span className="decision-hash-label">image</span>
-          <code className="mono-sm">{trace.coreImageDigest.slice(0, 18)}…</code>
-          <CopyButton value={trace.coreImageDigest} label="core image digest" />
-        </div>
+      <div className="flex flex-col gap-1.5">
+        {[
+          { label: 'policy', value: trace.policyHash, name: 'policy hash' },
+          { label: 'image', value: trace.coreImageDigest, name: 'core image digest' },
+        ].map((h) => (
+          <div key={h.label} className="flex items-center gap-2 font-mono text-[10px]">
+            <span className="min-w-[42px] uppercase tracking-wider text-on-surface-variant">
+              {h.label}
+            </span>
+            <code className="text-data-hash">{h.value.slice(0, 18)}…</code>
+            <CopyButton value={h.value} label={h.name} />
+          </div>
+        ))}
       </div>
     </div>
   );

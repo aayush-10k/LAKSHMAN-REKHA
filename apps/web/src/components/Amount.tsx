@@ -41,14 +41,19 @@ export function formatInrMinor(minor: number, compact = false): string {
 export function Amount({ minor, compact = false, className, title }: Props) {
   if (minor === null) {
     return (
-      <span className={`amount amount-unavailable ${className ?? ''}`} title={title ?? 'This value could not be read'}>
+      <span
+        className={`font-mono text-on-surface-variant italic ${className ?? ''}`}
+        title={title ?? 'This value could not be read'}
+      >
         unavailable
       </span>
     );
   }
 
+  // Tabular numerals, always. Figures that line up down a column are the detail
+  // that makes an interface read as financial software rather than a project.
   return (
-    <span className={`amount ${className ?? ''}`} title={title}>
+    <span className={`tnum font-mono ${className ?? ''}`} title={title}>
       {formatInrMinor(minor, compact)}
     </span>
   );

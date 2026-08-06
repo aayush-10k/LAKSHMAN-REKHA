@@ -89,6 +89,7 @@ function useAgentId(): string | null {
 }
 
 function TopAppBar({ coreUp }: { coreUp: boolean | null }) {
+  const pathname = usePathname();
   const dot =
     coreUp === null
       ? 'bg-outline-variant'
@@ -103,15 +104,40 @@ function TopAppBar({ coreUp }: { coreUp: boolean | null }) {
         <span className="font-mono text-body-lg font-bold tracking-tighter">LAKSHMAN REKHA</span>
       </Link>
 
-      <div className="flex items-center gap-4 md:gap-6">
-        <span className="hidden rounded-sm border border-muted bg-surface-container px-2 py-1 font-mono text-label-sm tracking-widest text-on-surface-variant sm:inline-block">
+      <div className="flex items-center gap-3 md:gap-6">
+        {/* The rail is md-and-up only, so below that the top bar carries the
+            navigation. Without this there is no way off /console on a phone
+            except the browser's back button. */}
+        <nav className="flex items-center gap-0.5 md:hidden">
+          {NAV.map((item) => {
+            const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? 'page' : undefined}
+                aria-label={item.label}
+                title={item.label}
+                className={`flex items-center justify-center rounded-sm p-2 transition-colors ${
+                  active
+                    ? 'bg-surface-container-highest text-tertiary'
+                    : 'text-on-surface-variant hover:bg-surface-container-high hover:text-primary'
+                }`}
+              >
+                <Icon name={item.icon} size={18} />
+              </Link>
+            );
+          })}
+        </nav>
+
+        <span className="hidden rounded-sm border border-muted bg-surface-container px-2 py-1 font-mono text-label-sm tracking-widest text-on-surface-variant lg:inline-block">
           [ NETWORK: BASE SEPOLIA ]
         </span>
 
         <div className="flex items-center gap-1 text-on-surface-variant">
           <Link
             href="/#verification"
-            className="flex items-center justify-center rounded-sm p-2 transition-colors hover:bg-surface-container-high hover:text-primary"
+            className="hidden items-center justify-center rounded-sm p-2 transition-colors hover:bg-surface-container-high hover:text-primary sm:flex"
             aria-label="Deployed contracts"
             title="Deployed contracts"
           >

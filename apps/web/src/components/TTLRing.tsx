@@ -17,11 +17,11 @@
  * only lands if the ring is obviously counting down rather than spinning.
  *
  * ── On the colours ────────────────────────────────────────────────────────
- * Chalk while alive, --breach when critical. NOT green when healthy, which is
- * what the two inline copies of this ring used to do: --clear means "money
- * moved" and nothing else is allowed to borrow it, or the one colour that should
- * make a judge look up stops meaning anything. --breach at the end is honest —
- * a lease at zero is spending stopped, which is exactly what breach means.
+ * Primary while alive, status-error when critical. NOT green when healthy,
+ * which is what the two inline copies of this ring used to do: status-success
+ * means "money moved" and nothing else may borrow it, or the one colour that
+ * should make a judge look up stops meaning anything. Red at the end is honest —
+ * a lease at zero is spending stopped, which is exactly what red means here.
  *
  * Replaces the duplicated inline rings in console/page.tsx and playground/page.tsx.
  */
@@ -52,11 +52,11 @@ export function TTLRing({ ttlMs, maxMs, size = 36, showLabel = false, className 
 
   return (
     <div
-      // `is-critical` drives a slow dim-pulse in theatre.css. Deliberately only
-      // in the last fifth: a ring that always pulses is a nervous tic nobody
-      // reads, one that STARTS pulsing is the fail-closed guarantee becoming
-      // visible — which is the entire point of the kill-switch beat.
-      className={`ttl-ring ${critical ? 'is-critical' : ''} ${className ?? ''}`}
+      // The pulse is deliberately only in the last fifth: a ring that always
+      // pulses is a nervous tic nobody reads, one that STARTS pulsing is the
+      // fail-closed guarantee becoming visible — which is the entire point of
+      // the kill-switch beat.
+      className={`relative grid shrink-0 place-items-center ${critical ? 'animate-ambient-pulse' : ''} ${className ?? ''}`}
       style={{ width: size, height: size }}
       title={`Lease TTL: ${ttlMs}ms of ${maxMs}ms`}
       role="img"
@@ -68,7 +68,7 @@ export function TTLRing({ ttlMs, maxMs, size = 36, showLabel = false, className 
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke="var(--border)"
+          stroke="var(--color-muted)"
           strokeWidth={stroke}
         />
         <circle
@@ -76,19 +76,29 @@ export function TTLRing({ ttlMs, maxMs, size = 36, showLabel = false, className 
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke={critical ? 'var(--breach)' : 'var(--chalk)'}
+          stroke={critical ? 'var(--color-status-error)' : 'var(--color-primary)'}
           strokeWidth={stroke}
           strokeDasharray={circumference}
           strokeDashoffset={circumference * (1 - fraction)}
           strokeLinecap="round"
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          className="ttl-ring-arc"
+          style={{ transition: 'stroke-dashoffset 240ms linear, stroke 240ms linear' }}
         />
       </svg>
       {showLabel && (
-        <div className="ttl-ring-label">
-          <span className="ttl-ring-value">{(ttlMs / 1000).toFixed(1)}</span>
-          <span className="ttl-ring-unit">sec</span>
+        <div className="absolute inset-0 grid place-items-center leading-none">
+          <span
+            className={`tnum font-mono font-semibold ${critical ? 'text-status-error' : 'text-on-surface'}`}
+            style={{ fontSize: Math.round(size * 0.26) }}
+          >
+            {(ttlMs / 1000).toFixed(1)}
+          </span>
+          <span
+            className="font-mono uppercase tracking-widest text-on-surface-variant"
+            style={{ fontSize: Math.round(size * 0.12), marginTop: Math.round(size * 0.3) }}
+          >
+            sec
+          </span>
         </div>
       )}
     </div>

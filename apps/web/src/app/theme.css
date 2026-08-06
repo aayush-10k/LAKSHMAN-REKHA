@@ -332,6 +332,14 @@ body {
   .rekha-flare .rekha-flare-path { animation: rekha-flare 600ms ease-out forwards; }
   .rekha-snap .rekha-line { animation: rekha-snap 2600ms ease-out forwards; }
 
+  /* The wash a feed row plays when it arrives or changes outcome, in that row's
+     own state colour and no other. There is deliberately no wash for
+     `approved`: it is a waypoint, not an outcome, and flashing it green would
+     say money moved a second or two before any did. */
+  .wash-success { animation: wash-success 900ms ease-out both; }
+  .wash-warning { animation: wash-warning 900ms ease-out both; }
+  .wash-error   { animation: wash-error 900ms ease-out both; }
+
   /* Section rule: an eyebrow, then a hairline running to the edge. */
   .eyebrow {
     display: flex;
@@ -349,6 +357,19 @@ body {
     height: 1px;
     background: var(--color-muted);
   }
+}
+
+@keyframes wash-success {
+  from { background-color: color-mix(in srgb, var(--color-status-success) 22%, transparent); }
+  to   { background-color: transparent; }
+}
+@keyframes wash-warning {
+  from { background-color: color-mix(in srgb, var(--color-status-warning) 22%, transparent); }
+  to   { background-color: transparent; }
+}
+@keyframes wash-error {
+  from { background-color: color-mix(in srgb, var(--color-status-error) 22%, transparent); }
+  to   { background-color: transparent; }
 }
 
 /* Travels ~26% of the perimeter from the top and fades. The dash period is
