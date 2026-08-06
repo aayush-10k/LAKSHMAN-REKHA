@@ -1,0 +1,295 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   LAKSHMAN REKHA — design system
+
+   Industrial security utility: deep navy surfaces, hairline borders, sharp 2px
+   corners, monospace for anything a machine produced.
+
+   ── Layer order is the whole design of this file ──────────────────────────
+   The redo replaces globals.css and theatre.css page by page, so for a while
+   both systems are live at once. Declaring the layer order up front decides
+   every collision between them without a single !important:
+
+     theme  <  base  <  legacy  <  components  <  utilities
+
+   • `legacy` sits ABOVE `base` so Tailwind's preflight cannot strip the borders,
+     list markers and button styling the not-yet-ported pages still rely on.
+     Without this, `border: 0 solid` from preflight wins over every `.con-*`
+     rule and the old pages render as flat text mid-migration.
+   • `legacy` sits BELOW `components`/`utilities` so a ported page built from
+     utilities always wins, even where an old class name lingers in the markup.
+
+   Both legacy imports are deleted in the final phase; the order line can go
+   with them.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@layer theme, base, legacy, components, utilities;
+
+@import "./globals.css" layer(legacy);
+@import "./theatre.css" layer(legacy);
+@import "tailwindcss";
+
+@theme {
+  /* ── Surfaces ─────────────────────────────────────────────────────────── */
+  --color-background:                #031427;
+  --color-surface:                   #031427;
+  --color-surface-dim:               #031427;
+  --color-surface-bright:            #2a3a4f;
+  --color-surface-container-lowest:  #000f21;
+  --color-surface-container-low:     #0b1c30;
+  --color-surface-container:         #102034;
+  --color-surface-container-high:    #1b2b3f;
+  --color-surface-container-highest: #26364a;
+  --color-surface-variant:           #26364a;
+
+  /* ── Text ─────────────────────────────────────────────────────────────── */
+  --color-on-background:      #d3e4fe;
+  --color-on-surface:         #d3e4fe;
+  --color-on-surface-variant: #c6c6cd;
+
+  /* ── Accents ──────────────────────────────────────────────────────────── */
+  --color-primary:           #bec6e0;
+  --color-primary-fixed:     #dae2fd;
+  --color-primary-fixed-dim: #bec6e0;
+  --color-primary-container: #0f172a;
+  --color-tertiary:          #4edea3;
+  --color-outline:           #909097;
+  --color-outline-variant:   #45464d;
+
+  /* ── Status. These four carry meaning and nothing else may use them. ────
+     success = money moved · warning = held or under attack
+     error   = stopped or revoked · data-hash = hashes, addresses, tx ids
+     Colour is semantic here, never decorative. It is the rule that separates
+     this from every other dark dashboard a judge sees that day. */
+  --color-status-success: #10b981;
+  --color-status-warning: #f97316;
+  --color-status-error:   #ef4444;
+  --color-data-hash:      #38bdf8;
+
+  --color-error:              #ffb4ab;
+  --color-error-container:    #93000a;
+  --color-on-error:           #690005;
+  --color-on-error-container: #ffdad6;
+
+  /* ── Hairline ─────────────────────────────────────────────────────────── */
+  --color-muted: #334155;
+
+  /* ── Radii — sharp, industrial ────────────────────────────────────────── */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+
+  /* ── Spacing ──────────────────────────────────────────────────────────── */
+  --spacing-unit:           4px;
+  --spacing-gutter:         16px;
+  --spacing-margin-mobile:  16px;
+  --spacing-margin-desktop: 32px;
+  --spacing-container-max:  1200px;
+  --spacing-rail:           320px;
+  --spacing-sidenav:        256px;
+
+  /* ── Type ─────────────────────────────────────────────────────────────── */
+  --font-headline:   var(--font-hanken), "Hanken Grotesk", ui-sans-serif, sans-serif;
+  --font-body:       var(--font-inter), Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono:       var(--font-jetbrains), "JetBrains Mono", ui-monospace, monospace;
+  /* aliases so the mockups' class names work verbatim */
+  --font-headline-lg: var(--font-headline);
+  --font-headline-md: var(--font-headline);
+  --font-body-lg:     var(--font-body);
+  --font-body-md:     var(--font-body);
+  --font-label-sm:    var(--font-body);
+  --font-label-mono:  var(--font-mono);
+
+  --text-headline-lg: 48px;
+  --text-headline-lg--line-height: 1.1;
+  --text-headline-lg--letter-spacing: -0.02em;
+  --text-headline-lg--font-weight: 700;
+
+  --text-headline-md: 32px;
+  --text-headline-md--line-height: 1.2;
+  --text-headline-md--font-weight: 600;
+
+  --text-body-lg: 18px;
+  --text-body-lg--line-height: 1.6;
+  --text-body-lg--font-weight: 400;
+
+  --text-body-md: 15px;
+  --text-body-md--line-height: 1.5;
+  --text-body-md--font-weight: 400;
+
+  --text-label-mono: 13px;
+  --text-label-mono--line-height: 1.4;
+  --text-label-mono--letter-spacing: 0.02em;
+  --text-label-mono--font-weight: 500;
+
+  --text-label-sm: 12px;
+  --text-label-sm--line-height: 1;
+  --text-label-sm--letter-spacing: 0.05em;
+  --text-label-sm--font-weight: 600;
+
+  /* ── Motion ───────────────────────────────────────────────────────────── */
+  --animate-fade-in-up:    fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-in-down:  fade-in-down 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-slide-in-right: slide-in-right 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-shimmer:       shimmer 2.5s infinite linear;
+  --animate-ambient-pulse: ambient-pulse 2.4s infinite ease-in-out;
+  --animate-critical-pulse: critical-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-log-slide-up:  log-slide-up 0.4s ease-out both;
+  --animate-pulse-alert:   pulse-alert 2s infinite;
+
+  @keyframes fade-in-up {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @keyframes fade-in-down {
+    from { opacity: 0; transform: translateY(-14px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @keyframes slide-in-right {
+    from { opacity: 0; transform: translateX(24px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @keyframes shimmer {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(200%); }
+  }
+  @keyframes ambient-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.45; }
+  }
+  @keyframes critical-pulse {
+    0%, 100% { box-shadow: 0 0 12px rgba(239, 68, 68, 0.15); }
+    50%      { box-shadow: 0 0 26px rgba(239, 68, 68, 0.4); }
+  }
+  @keyframes log-slide-up {
+    0%   { opacity: 0; transform: translateY(8px); }
+    100% { opacity: 1; transform: none; }
+  }
+  @keyframes pulse-alert {
+    0%, 100% { background-color: rgba(249, 115, 22, 0.08); border-color: rgba(249, 115, 22, 0.9); }
+    50%      { background-color: rgba(249, 115, 22, 0.18); border-color: rgba(249, 115, 22, 0.45); }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Base — unlayered so it beats the legacy sheets during the migration and
+   the whole app sits on navy from the first phase rather than the last.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* The legacy sheets still name a display face that no longer loads: Bricolage
+   left with the old design system. Repointing it here keeps the not-yet-ported
+   pages legible during the migration instead of dropping them to the browser's
+   default serif. Deleted along with globals.css. */
+:root {
+  --font-display: var(--font-headline);
+}
+
+html, body {
+  height: 100%;
+  background: var(--color-background);
+  color: var(--color-on-background);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--color-surface-variant);
+  color: var(--color-primary-fixed);
+}
+
+/* Amounts, block numbers, hashes — financial software reads as financial
+   software because its figures line up. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Industrial scrollbar. Square, hairline, no rounded thumb. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-muted) var(--color-surface-container-lowest);
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track {
+  background: var(--color-surface-container-lowest);
+  border-left: 1px solid var(--color-muted);
+}
+::-webkit-scrollbar-thumb { background: var(--color-muted); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-outline-variant); }
+
+/* Keyboard focus is never removed, only restyled. */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@layer components {
+  /* A CRT scanline wash for the simulated storefront — the one place the
+     product is pretending to be somewhere else. */
+  .scanline {
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0) 0px,
+      rgba(0, 0, 0, 0) 2px,
+      rgba(0, 0, 0, 0.10) 2px,
+      rgba(0, 0, 0, 0.10) 4px
+    );
+    pointer-events: none;
+  }
+
+  /* Hardware-button feedback: presses in rather than lifting. */
+  .btn-shock:active {
+    transform: scale(0.98);
+    box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+    transition: all 0.05s;
+  }
+
+  /* A light sweeping across a hash block. Data that is alive. */
+  .shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--color-data-hash) 16%, transparent),
+      transparent
+    );
+    transform: translateX(-100%);
+    animation: shimmer 3.5s infinite linear;
+    pointer-events: none;
+  }
+
+  /* Section rule: an eyebrow, then a hairline running to the edge. */
+  .eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .eyebrow::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--color-muted);
+  }
+}
+
+/* Reduced motion: nothing moves, everything is still visible. Declared last so
+   it overrides both this file and the legacy sheets. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

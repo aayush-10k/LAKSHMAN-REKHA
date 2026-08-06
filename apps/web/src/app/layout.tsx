@@ -1,60 +1,50 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Bricolage_Grotesque } from "next/font/google";
+import { Hanken_Grotesk, Inter, JetBrains_Mono } from "next/font/google";
 import { Providers } from "./providers";
 
 /**
- * THE STYLESHEET IMPORT. Do not remove it.
+ * THE STYLESHEET IMPORT. Do not remove it, and do not add a second one.
  *
- * globals.css holds the entire design system — the six semantic tokens and every
- * .console-* / .pg-* class the two pages are built from — and until this line
- * existed it was never imported anywhere in apps/web/src. All 927 lines were
- * dead code: the production bundle shipped 3.7KB of CSS, all of it @font-face,
- * and both pages rendered as unstyled HTML.
- *
- * The prototype's <link href="/css/styles.css"> had been doing the visual work.
- * Commit c22f29f deleted it — correctly, it belonged to the fake client-side
- * product — on the stated grounds that "the real console owns its own tokens in
- * globals.css". That was true of the file and not of the build.
+ * theme.css is the single entry point for CSS in this app. It declares the
+ * cascade layer order, pulls the two legacy sheets in underneath Tailwind, and
+ * carries the design tokens. Importing globals.css or theatre.css directly from
+ * here again would re-insert them OUTSIDE the `legacy` layer, where they would
+ * beat every utility class and quietly undo the restyle.
  */
-import "./globals.css";
+import "./theme.css";
 
 /**
- * The theatre layer — depth, affordance and motion, added on top.
+ * Three faces, three jobs.
  *
- * Order matters and is the whole design of the file: globals.css is entirely
- * un-layered, so a CSS @layer here would LOSE every specificity tie against it.
- * Loaded plainly afterwards, theatre.css wins ties at equal specificity, which
- * is what an additive layer needs. It introduces no new colour — the six
- * semantic tokens are untouched — only elevation, gradient and movement.
+ * Hanken Grotesk — headlines and the balance figure. Grotesk with slightly
+ * squared terminals: engineering drawing rather than magazine.
+ * Inter — body copy, the only face here optimised for reading at 15px.
+ * JetBrains Mono — every rupee amount, hash, address, predicate name, block
+ * number and latency figure. If a machine produced it, it is monospace.
  *
- * It also carries its own prefers-reduced-motion block, because globals.css's
- * one has already run by this point and cannot guard anything here.
+ * All three via next/font, never `@import url(fonts.googleapis.com)`. A CSS
+ * @import is a render-blocking request to a third party on the critical path;
+ * on a projector behind conference wifi that is a blank screen you cannot
+ * explain away. next/font self-hosts and makes no runtime request.
+ *
+ * Icons are inline SVG (src/components/Icon.tsx), not an icon font, for the
+ * same reason plus one more: a webfont that has not loaded renders as tofu
+ * boxes, and half this interface's meaning is carried by its glyphs.
  */
-import "./theatre.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const hanken = Hanken_Grotesk({
+  variable: "--font-hanken",
   subsets: ["latin"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  display: "swap",
 });
 
-/**
- * Display face, per BUILD.md Part 11: section heads and the balance figure only.
- *
- * Loaded here rather than through the `@import url(fonts.googleapis.com)` that
- * used to sit at the top of globals.css. A CSS @import is a render-blocking
- * request to a third party on the critical path — on a projector, behind
- * conference wifi, that is a blank screen you cannot explain away. next/font
- * self-hosts the file and makes no runtime request.
- *
- * No `weight`: Bricolage Grotesque is variable, so the whole axis ships.
- */
-const bricolage = Bricolage_Grotesque({
-  variable: "--font-bricolage",
+const jetbrains = JetBrains_Mono({
+  variable: "--font-jetbrains",
   subsets: ["latin"],
   display: "swap",
 });
@@ -71,16 +61,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    // No Tailwind utility classes here. Tailwind v4 is wired into
-    // postcss.config.mjs but globals.css never imports it, so no utilities are
-    // generated — `bg-ink`, `text-chalk`, `flex`, `h-full` were all inert.
-    // Leaving them would silently change the layout the day someone adds
-    // `@import "tailwindcss"`. html/body sizing and colour come from globals.css.
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${bricolage.variable}`}
+      className={`${hanken.variable} ${inter.variable} ${jetbrains.variable}`}
     >
-      <body id="app-body">
+      <body id="app-body" className="bg-background text-on-background font-body antialiased">
         <Providers>{children}</Providers>
       </body>
     </html>
