@@ -3,13 +3,12 @@
 /**
  * The lease TTL ring.
  *
- * One of the three things BUILD.md Part 11's motion budget originally allowed to
- * move (this, the Rekha, and the ceremony bar). That budget has since been
- * widened — see theatre.css — but the principle it was protecting has not: every
- * animation in the product is a load reveal, a state change, or one of the three
- * moments. This ring is the second kind. It drains continuously and refills on
- * renewal, which is what gives the UI a pulse without anything decorative
- * happening.
+ * One of the three things the motion budget originally allowed to move (this,
+ * the Rekha, and the ceremony bar). That budget has since been widened, but the
+ * principle it was protecting has not: every animation in the product is a load
+ * reveal, a state change, or one of the three moments. This ring is the second
+ * kind. It drains continuously and refills on renewal, which is what gives the
+ * UI a pulse without anything decorative happening.
  *
  * It is also the fail-closed guarantee made visible: no new lease means no new
  * payment, so killing the core empties this ring and spending stops when it hits

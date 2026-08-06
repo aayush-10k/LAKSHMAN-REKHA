@@ -76,5 +76,7 @@ export function Counter({ value, durationMs = 400, className }: Props) {
     };
   }, [value, durationMs]);
 
-  return <span className={`counter ${className ?? ''}`}>{Math.round(shown).toLocaleString('en-IN')}</span>;
+  // Tabular numerals so a counting figure does not reflow the layout on every
+  // frame as its digits change width.
+  return <span className={`tnum ${className ?? ''}`}>{Math.round(shown).toLocaleString('en-IN')}</span>;
 }

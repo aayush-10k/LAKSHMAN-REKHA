@@ -5,11 +5,10 @@ import { Providers } from "./providers";
 /**
  * THE STYLESHEET IMPORT. Do not remove it, and do not add a second one.
  *
- * theme.css is the single entry point for CSS in this app. It declares the
- * cascade layer order, pulls the two legacy sheets in underneath Tailwind, and
- * carries the design tokens. Importing globals.css or theatre.css directly from
- * here again would re-insert them OUTSIDE the `legacy` layer, where they would
- * beat every utility class and quietly undo the restyle.
+ * theme.css is the only stylesheet in this app: it pulls in Tailwind and
+ * carries every design token. Anything that needs a rule Tailwind cannot
+ * express — the Rekha's dash geometry, the row washes, the scanline — belongs
+ * in its @layer components block rather than in a new file.
  */
 import "./theme.css";
 

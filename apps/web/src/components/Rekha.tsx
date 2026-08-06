@@ -22,9 +22,9 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
  * vector-effect="non-scaling-stroke" renders broken: stretching a square viewBox
  * to a wide panel is a large non-uniform scale, and stroke-dasharray is not
  * resolved in the same space as the non-scaling stroke, so the closed rectangle
- * came out as three disconnected fragments. pathLength={1000} still normalises
- * every dash figure in globals.css to thousandths of the perimeter, so the CSS
- * stays independent of the panel's size.
+ * came out as three disconnected fragments. pathLength={1000} normalises every
+ * dash figure in theme.css to thousandths of the perimeter, so the CSS stays
+ * independent of the panel's size.
  *
  * The path starts at top-centre, not a corner, so a gap at the start of the dash
  * pattern breaks the line at the top edge — where the eye already is during a
@@ -47,7 +47,7 @@ type Props = {
   className?: string;
 };
 
-/** Keep in step with the animation durations in globals.css. */
+/** Keep in step with the rekha-flare and rekha-snap durations in theme.css. */
 const FLARE_MS = 600;
 const SNAP_MS = 2600;
 
