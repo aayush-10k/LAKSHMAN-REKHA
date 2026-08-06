@@ -1,19 +1,19 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { CategoryCode, DecisionTrace, RekhaEvent } from '../../types';
-import { CORE_URL, ensurePaired, renewLease, type Pairing } from '../../lib/pairing';
-import { POLICY_MODULE_ADDRESS, basescanAddress, basescanTx, isPlaceholderDigest, shortHex } from '../../lib/contracts';
-import { Amount, formatInrMinor } from '../../components/Amount';
-import { CoreOffline } from '../../components/CoreOffline';
-import { Counter } from '../../components/Counter';
-import { PredicateTable } from '../../components/PredicateTable';
-import { Rekha, type RekhaPulse } from '../../components/Rekha';
-import { SoundToggle } from '../../components/SoundToggle';
-import { TTLRing } from '../../components/TTLRing';
+import type { CategoryCode, DecisionTrace, RekhaEvent } from '@/types';
+import { CORE_URL, ensurePaired, renewLease, type Pairing } from '@/lib/pairing';
+import { POLICY_MODULE_ADDRESS, basescanAddress, basescanTx, isPlaceholderDigest, shortHex } from '@/lib/contracts';
+import { Amount, formatInrMinor } from '@/components/Amount';
+import { CoreOffline } from '@/components/CoreOffline';
+import { Counter } from '@/components/Counter';
+import { PredicateTable } from '@/components/PredicateTable';
+import { Rekha, type RekhaPulse } from '@/components/Rekha';
+import { SoundToggle } from '@/components/SoundToggle';
+import { TTLRing } from '@/components/TTLRing';
 // A module import, not a hook and not a context: `sound` must never appear in
 // processEvent's dependency array, because that array drives the EventSource.
-import { sound } from '../../lib/sound';
+import { sound } from '@/lib/sound';
 
 /**
  * The agent runs in its own process holding the other half of the 2-of-2, so

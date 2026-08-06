@@ -3,18 +3,18 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useWriteContract, useAccount, useConnect, useDisconnect } from 'wagmi';
 import { injected } from 'wagmi/connectors';
-import type { DecisionTrace, RekhaEvent } from '../../types';
-import { CORE_URL, ensurePaired, renewLease, type Pairing } from '../../lib/pairing';
-import { CONTRACTS, POLICY_MODULE_ADDRESS, basescanAddress, basescanTx, isPlaceholderDigest, shortHex } from '../../lib/contracts';
-import { formatLatency } from '../../lib/format';
-import { Amount, formatInrMinor } from '../../components/Amount';
-import { TTLRing } from '../../components/TTLRing';
-import { PredicateTable } from '../../components/PredicateTable';
-import { CoreOffline } from '../../components/CoreOffline';
-import { SoundToggle } from '../../components/SoundToggle';
+import type { DecisionTrace, RekhaEvent } from '@/types';
+import { CORE_URL, ensurePaired, renewLease, type Pairing } from '@/lib/pairing';
+import { CONTRACTS, POLICY_MODULE_ADDRESS, basescanAddress, basescanTx, isPlaceholderDigest, shortHex } from '@/lib/contracts';
+import { formatLatency } from '@/lib/format';
+import { Amount, formatInrMinor } from '@/components/Amount';
+import { TTLRing } from '@/components/TTLRing';
+import { PredicateTable } from '@/components/PredicateTable';
+import { CoreOffline } from '@/components/CoreOffline';
+import { SoundToggle } from '@/components/SoundToggle';
 // A module import for the same reason as the playground: `processEvent`'s
 // dependency array drives the EventSource, and nothing may be added to it.
-import { sound } from '../../lib/sound';
+import { sound } from '@/lib/sound';
 
 const VENDORSIM_URL = process.env['NEXT_PUBLIC_VENDORSIM_URL'] ?? 'http://localhost:4100';
 
