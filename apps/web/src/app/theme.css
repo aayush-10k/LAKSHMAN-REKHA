@@ -175,12 +175,24 @@
    the whole app sits on navy from the first phase rather than the last.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* The legacy sheets still name a display face that no longer loads: Bricolage
-   left with the old design system. Repointing it here keeps the not-yet-ported
-   pages legible during the migration instead of dropping them to the browser's
-   default serif. Deleted along with globals.css. */
+/* ── Font variables, declared OUTSIDE any layer ─────────────────────────────
+   globals.css defines --font-body, --font-mono and --font-display at :root too,
+   pointing at the Geist and Bricolage variables the old design system loaded.
+   Custom properties obey the cascade, and `legacy` is declared above `theme`,
+   so those definitions beat @theme's and every var() chain lands on a name
+   nothing defines any more.
+
+   That is worse than it sounds. An unresolvable var() does not fall through to
+   the next item in the font stack — it makes the whole declaration invalid at
+   computed-value time, and font-family drops to the browser's initial value,
+   which is a serif. The symptom is the entire interface rendering in Times.
+
+   Unlayered declarations outrank every layer, so these three win regardless.
+   They can move back into @theme the day globals.css is deleted. */
 :root {
-  --font-display: var(--font-headline);
+  --font-display: var(--font-hanken), "Hanken Grotesk", ui-sans-serif, sans-serif;
+  --font-body: var(--font-inter), Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), "JetBrains Mono", ui-monospace, monospace;
 }
 
 html, body {
@@ -264,6 +276,62 @@ body {
     pointer-events: none;
   }
 
+  /* ── The Rekha — the line ──────────────────────────────────────────────
+     A single 1px boundary drawn around the agent's activity zone: the
+     containment claim made literal. The one animated idea in the product, and
+     deliberately quiet — 40% opacity, doing nothing most of the time.
+
+       attack blocked     a pulse runs along the path and settles back
+       ceremony aborted   the line breaks at the top edge, ends recoil, holds
+                          broken for 2s, then heals
+       payment settled    nothing. A boundary that congratulates you every time
+                          money moves is decoration; one that only reacts to
+                          being tested is a claim.
+
+     Carried over from the old sheet with the stroke repointed at the new
+     palette. The geometry is unchanged and still driven by Rekha.tsx's
+     pathLength={1000}, so every dash figure below is thousandths of the
+     perimeter and stays independent of the panel's size. */
+  .rekha {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .rekha-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 2;
+    overflow: visible;
+  }
+  .rekha-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+  }
+  .rekha-line {
+    fill: none;
+    stroke: var(--color-primary);
+    stroke-width: 1;
+    opacity: 0.4; /* present, never insistent */
+    stroke-dasharray: 1000;
+  }
+  .rekha-flare-path {
+    fill: none;
+    stroke: var(--color-status-error);
+    stroke-width: 1.5;
+    stroke-dasharray: 120 880; /* a 12%-of-perimeter comet */
+    opacity: 0;
+  }
+  .rekha-flare .rekha-flare-path { animation: rekha-flare 600ms ease-out forwards; }
+  .rekha-snap .rekha-line { animation: rekha-snap 2600ms ease-out forwards; }
+
   /* Section rule: an eyebrow, then a hairline running to the edge. */
   .eyebrow {
     display: flex;
@@ -283,6 +351,25 @@ body {
   }
 }
 
+/* Travels ~26% of the perimeter from the top and fades. The dash period is
+   120+880=1000, so an offset of 1000 is identical to 0: the pulse begins at
+   top-centre and 740 leaves it a quarter of the way round. */
+@keyframes rekha-flare {
+  0%   { stroke-dashoffset: 1000; opacity: 0; }
+  15%  { opacity: 1; }
+  100% { stroke-dashoffset: 740; opacity: 0; }
+}
+
+/* The break. Three-value dasharrays throughout so the lists interpolate: a
+   zero-length dash, then the gap, then the rest of the line. The gap opening
+   from 0 to 90 IS the recoil. */
+@keyframes rekha-snap {
+  0%   { stroke-dasharray: 0 0 1000;  stroke: var(--color-status-error); opacity: 1; }
+  8%   { stroke-dasharray: 0 90 1000; stroke: var(--color-status-error); opacity: 1; }
+  85%  { stroke-dasharray: 0 90 1000; stroke: var(--color-status-error); opacity: 1; }
+  100% { stroke-dasharray: 0 0 1000;  stroke: var(--color-primary);      opacity: 0.4; }
+}
+
 /* Reduced motion: nothing moves, everything is still visible. Declared last so
    it overrides both this file and the legacy sheets. */
 @media (prefers-reduced-motion: reduce) {
@@ -291,5 +378,20 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  /* Every moving thing has a still equivalent carrying the same information.
+     The snap in particular must still READ as broken when it cannot animate —
+     that beat is the argument, not the decoration. */
+  .rekha-flare .rekha-flare-path {
+    animation: none !important;
+    opacity: 1;
+    stroke-dashoffset: 870;
+  }
+  .rekha-snap .rekha-line {
+    animation: none !important;
+    stroke-dasharray: 0 90 1000;
+    stroke: var(--color-status-error);
+    opacity: 1;
   }
 }
